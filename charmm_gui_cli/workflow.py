@@ -41,6 +41,31 @@ def save(directory, manifest):
     atomic_json(Path(directory) / "run.json", manifest)
 
 
+@contextmanager
+def record_errors(directory, manifest, saver=save):
+    """Retain resumable state and safe error metadata, including Ctrl-C."""
+    try:
+        yield
+    except (ToolError, KeyboardInterrupt) as exc:
+        error = exc if isinstance(exc, ToolError) else ToolError(
+            "Interrupted locally; the existing remote job and submission intents are retained.",
+            category="interrupted", next_step="Resume the existing run; unresolved submissions require inspection/attach.")
+        manifest["last_error"] = {**error.as_dict(), "at": now(), "stage": manifest.get("state")}
+        saver(directory, manifest)
+        raise
+    else:
+        if manifest.pop("last_error", None) is not None:
+            saver(directory, manifest)
+
+
+@contextmanager
+def tracked_run(directory, loader, saver=save):
+    with run_lock(directory):
+        manifest = loader(directory)
+        with record_errors(directory, manifest, saver):
+            yield manifest
+
+
 def read(directory):
     try:
         manifest = json.loads((Path(directory) / "run.json").read_text(encoding="utf-8"))
@@ -59,6 +84,7 @@ def start(client, config, directory):
     proposal = plan(config)
     if not proposal["ready_to_submit"]:
         raise ToolError("Preparation incomplete: " + " ".join(proposal["blockers"]))
+    client.validate_auth()
     directory = Path(directory)
     try:
         directory.mkdir(parents=True, exist_ok=False)
@@ -74,8 +100,10 @@ def start(client, config, directory):
             identifier = client.submit(proposal["request"]["form"])
             if identifier == config["source_job_id"]:
                 raise SubmissionUnknown("Server returned the source job ID despite clone_job=true. Check website jobs before attaching.")
-        except SubmissionUnknown:
+        except (SubmissionUnknown, KeyboardInterrupt) as exc:
             manifest["state"] = "submission_unknown"
+            error = exc if isinstance(exc, SubmissionUnknown) else SubmissionUnknown("Interrupted during submission; inspect website jobs and attach before resuming.")
+            manifest["last_error"] = {**error.as_dict(), "at": now(), "stage": "submitting"}
             save(directory, manifest)
             raise
         manifest.update(job_id=identifier, state="submitted")
@@ -90,14 +118,14 @@ def status_summary(data):
     if isinstance(status, str) and re.fullmatch(r"running [A-Za-z0-9_.-]+", status):
         return {"status": "running", "raw_status": status}
     if status not in ("pending", "running", "done", "error"):
-        raise ToolError("Unrecognized job status; cannot infer completion or successful authentication.")
+        raise ToolError("Unrecognized job status; cannot infer completion or successful authentication.",
+                        category="unexpected_response", next_step="Inspect the existing job and authenticate with login if needed; do not resubmit.")
     return {"status": status}
 
 
 def attach(client, directory, identifier):
     identifier = job_id(identifier)
-    with run_lock(directory):
-        manifest = read(directory)
+    with tracked_run(directory, read) as manifest:
         if manifest["state"] not in ("submission_unknown", "submitting") or manifest.get("job_id"):
             raise ToolError("attach is only for a run with an ambiguous submission and no recorded job ID.")
         if identifier == manifest["config"]["source_job_id"]:
@@ -112,11 +140,10 @@ def resume(client, directory, *, wait=False, interval=30, max_wait=21600, pdb_me
     if interval < 10 or max_wait <= 0:
         raise ToolError("Polling interval must be >= 10 seconds and max-wait must be positive.")
     directory = Path(directory)
-    with run_lock(directory):
-        manifest = read(directory)
+    with tracked_run(directory, read) as manifest:
         identifier = manifest.get("job_id")
         if not identifier:
-            raise ToolError("Submission outcome is unknown. Check website jobs and use attach; resume never resubmits.")
+            raise SubmissionUnknown("Submission outcome is unknown. Check website jobs and use attach; resume never resubmits.")
         deadline = time.monotonic() + max_wait
         archive = directory / "charmm-gui.tgz"
         if not archive.exists():
@@ -131,17 +158,21 @@ def resume(client, directory, *, wait=False, interval=30, max_wait=21600, pdb_me
                 if progress:
                     progress({"state": data.get("status", status), "job_id": identifier})
                 if status == "error":
-                    raise ToolError("Remote building failed. Review this job in CHARMM-GUI; no resubmission was attempted.")
+                    raise ToolError("Remote building failed. Review this job in CHARMM-GUI; no resubmission was attempted.",
+                                    category="remote_failure", next_step="Inspect saved job output and the failed remote job; resume never resubmits.")
                 if status == "done":
                     break
                 if not wait:
                     return manifest
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise ToolError("Wait limit reached. The remote job is retained; run resume later.")
+                    raise ToolError("Wait limit reached. The remote job is retained; run resume later.",
+                                    category="wait_timeout", retryable=True, next_step="Resume the existing run later.")
                 time.sleep(min(interval, remaining))
             if progress:
                 progress({"state": "downloading", "job_id": identifier})
+            manifest["state"] = "downloading"
+            save(directory, manifest)
             client.download(identifier, archive)
         manifest["state"] = "downloaded_unverified"
         with archive.open("rb") as handle:
@@ -156,5 +187,6 @@ def resume(client, directory, *, wait=False, interval=30, max_wait=21600, pdb_me
         manifest["state"] = "ligands_present" if report["passed"] else "validation_failed"
         save(directory, manifest)
         if not report["passed"]:
-            raise ToolError("Expected ligand residues are missing from the assembled structure. See validation.json.")
+            raise ToolError("Expected ligand residues are missing from the assembled structure. See validation.json.",
+                            category="validation_failure", next_step="Review validation.json and the retained archive; do not use this structure as validated.")
         return manifest

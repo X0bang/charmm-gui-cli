@@ -6,13 +6,13 @@ import re
 import time
 from urllib.parse import parse_qs, urlparse
 
-from .api import job_id
+from .api import AuthError, SubmissionUnknown, job_id
 from .auth import ToolError, atomic_json, atomic_write
 from .build_config import api_config, load_build_config
 from .inputs import prepare_inputs
 from .web import soup_for
 from .web_state import parse_page_state
-from .workflow import now, run_lock, start as start_api, resume as resume_api
+from .workflow import now, tracked_run, start as start_api, resume as resume_api
 
 
 def _save(directory, manifest):
@@ -60,7 +60,7 @@ def _submit(web, source, destination, fields, uploads=None):
     if Path(destination).is_file():
         return
     if Path(destination).with_suffix(".intent.json").exists():
-        raise ToolError("A previous modeling POST has an unresolved submission intent; inspect/recover it before continuing. No repeated POST was sent.")
+        raise SubmissionUnknown("A previous modeling POST has an unresolved submission intent; inspect/recover it before continuing. No repeated POST was sent.")
     web.submit_snapshot(source, destination, fields, uploads)
 
 
@@ -96,14 +96,14 @@ def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, pro
     if interval < 10 or max_wait <= 0:
         raise ToolError("Polling interval must be >=10 seconds and max-wait positive.")
     directory = Path(directory).resolve()
-    with run_lock(directory):
-        manifest = _read(directory)
+    with tracked_run(directory, _read, _save) as manifest:
         build_directory = directory / "bilayer"
         if (build_directory / "run.json").is_file():
             # Once an API build exists, website cookies and old preparation
             # snapshots are irrelevant. Ambiguous API jobs are also handed to
             # resume, which refuses to submit another job.
             return _resume_bilayer(directory, manifest, api, build_directory, wait, interval, max_wait, progress)
+        api.validate_auth()
         config = manifest["config"]
         upload_dir = directory / "preparation"
         uploaded = upload_dir / "upload-response.html"
@@ -111,7 +111,7 @@ def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, pro
         parameterized = upload_dir / "parameterization.html"
         if not uploaded.exists():
             if upload_dir.exists():
-                raise ToolError("Upload directory already exists without a response; inspect/recover the prior upload before continuing. No repeated upload was sent.")
+                raise SubmissionUnknown("Upload directory already exists without a response; inspect/recover the prior upload before continuing. No repeated upload was sent.")
             manifest["state"] = "uploading"
             _save(directory, manifest)
             if progress:
@@ -193,11 +193,12 @@ def _await_preparation(web, directory, manifest, initial_page, wait, interval, m
         if page["state"] == "auth_required":
             manifest["state"] = "preparation_auth_required"
             _save(directory, manifest)
-            raise ToolError("Website session expired. Run web-login and build-resume.")
+            raise AuthError("Website session expired. Run charmm-gui-cli login and build-resume.")
         if page["state"] == "error":
             manifest.update(state="preparation_failed", preparation_errors=page["errors"])
             _save(directory, manifest)
-            raise ToolError("CHARMM-GUI preparation failed. See the saved HTML and full-run.json; no repeated POST was sent.")
+            raise ToolError("CHARMM-GUI preparation failed. See the saved HTML and full-run.json; no repeated POST was sent.",
+                            category="remote_failure", next_step="Inspect the saved preparation HTML/errors; do not repeat this POST.")
         next_query = parse_qs(urlparse(page["next_url"] or "").query)
         paths = {urlparse(url).path.lower() for url in page["artifacts"]}
         prefix = f"/uploaded_pdb/{manifest['source_job_id']}/"
@@ -219,7 +220,8 @@ def _await_preparation(web, directory, manifest, initial_page, wait, interval, m
         if not wait:
             return
         if time.monotonic() >= deadline:
-            raise ToolError("Preparation wait limit reached; build-resume can continue later.")
+            raise ToolError("Preparation wait limit reached; build-resume can continue later.",
+                            category="wait_timeout", retryable=True, next_step="Run build-resume on the existing run.")
         time.sleep(min(interval, max(0, deadline - time.monotonic())))
         current = _poll_preparation(web, directory, manifest, page)
 

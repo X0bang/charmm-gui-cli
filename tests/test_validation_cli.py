@@ -34,6 +34,7 @@ class ValidationCliTests(unittest.TestCase):
         if environment is None:
             environment = {"passed": True, "checks": {}}
         with patch("charmm_gui_cli.validation.validate_system", return_value=report), \
+                patch("charmm_gui_cli.acceptance.assess_acceptance", return_value={"passed": True, "review_required": False, "warnings": []}), \
                 patch("charmm_gui_cli.validation.inspect_environment", return_value=environment, side_effect=side_effect) as inspect, \
                 contextlib.redirect_stdout(io.StringIO()):
             status = main([*self.base, *options])

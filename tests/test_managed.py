@@ -16,9 +16,12 @@ class ManagedTests(unittest.TestCase):
         self.home.mkdir()
         self.home_patch = patch("pathlib.Path.home", return_value=self.home)
         self.home_patch.start()
+        self.acceptance_patch = patch.object(managed, "assess_acceptance", return_value={"passed": True, "review_required": False, "warnings": []})
+        self.acceptance_patch.start()
         self.directory = self.root / "run"
 
     def tearDown(self):
+        self.acceptance_patch.stop()
         self.home_patch.stop()  # Preserve all files and directories.
 
     def make_run(self, state="ligands_present", directory=None):
@@ -154,6 +157,7 @@ class ManagedTests(unittest.TestCase):
         with a as extract, b, c, d:
             first = managed.finalize_managed_build(self.directory, grompp=True, gmx=gmx)
             self.assertEqual(managed.finalize_managed_build(self.directory, grompp=True, gmx=gmx), first)
+            self.assertEqual(managed._final_summary(self.directory)["compilation_status"], "passed")
             self.assertEqual(extract.call_count, 1)
             tpr = Path(first["checks"]["grompp"]["output_dir"]) / "system.tpr"
             tpr.rename(tpr.with_name("retained-system.tpr"))
@@ -176,6 +180,52 @@ class ManagedTests(unittest.TestCase):
         self.assertEqual(extract.call_count, 2)
         self.assertNotEqual(first["fingerprint"], second["fingerprint"])
         self.assertNotEqual(first["evidence"]["gmx_identity"], second["evidence"]["gmx_identity"])
+
+    def test_modified_compiled_artifact_cannot_reuse_a_past_pass(self):
+        self.make_run()
+        gmx = self.fake_gmx()
+        a, b, c, d = self.validators()
+        with a as extract, b, c, d:
+            first = managed.finalize_managed_build(self.directory, grompp=True, gmx=gmx)
+            atomic_write(Path(first["checks"]["grompp"]["output_dir"]) / "system.tpr", "modified TPR")
+            self.assertFalse(managed._grompp_artifacts(first))
+            second = managed.finalize_managed_build(self.directory, grompp=True, gmx=gmx)
+        self.assertEqual(extract.call_count, 2)
+        self.assertTrue(managed._grompp_artifacts(second))
+        self.assertTrue(second["passed"])
+
+    def test_failed_compilation_is_terminal_only_while_failure_log_is_unchanged(self):
+        self.make_run()
+        gmx = self.fake_gmx()
+        a, b, c, d = self.validators()
+
+        def failed_validate(system, manifest, **kwargs):
+            compiled = kwargs["output_parent"] / "grompp-failure"
+            compiled.mkdir()
+            atomic_write(compiled / "grompp.log", "Fatal error: invalid topology")
+            return {"passed": False, "checks": {"grompp": {"passed": False,
+                    "output_dir": str(compiled), "log": str(compiled / "grompp.log")}}}
+
+        with a as extract, b as validate, c, d:
+            validate.side_effect = failed_validate
+            first = managed.finalize_managed_build(self.directory, grompp=True, gmx=gmx)
+            self.assertEqual(managed.finalize_managed_build(self.directory, grompp=True, gmx=gmx), first)
+            self.assertEqual(managed._final_summary(self.directory)["state"], "validation_failed")
+            self.assertEqual(managed._final_summary(self.directory)["compilation_status"], "failed")
+            self.assertEqual(extract.call_count, 1)
+            atomic_write(first["checks"]["grompp"]["log"], "Changed failure evidence")
+            self.assertEqual(managed._final_summary(self.directory)["validation_status"], "stale_or_unreadable")
+            managed.finalize_managed_build(self.directory, grompp=True, gmx=gmx)
+            self.assertEqual(extract.call_count, 2)
+
+    def test_leaflet_acceptance_failure_blocks_otherwise_valid_model(self):
+        self.make_run()
+        a, b, c, d = self.validators()
+        with a, b, c, d, patch.object(managed, "assess_acceptance", return_value={"passed": False, "review_required": True, "warnings": ["Incorrect leaflet composition"]}):
+            report = managed.finalize_managed_build(self.directory)
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["status"], "validation_failed")
+        self.assertTrue(report["review_required"])
 
     def test_unavailable_compiler_cannot_reuse_past_pass(self):
         self.make_run()

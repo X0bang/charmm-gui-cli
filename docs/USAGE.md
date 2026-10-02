@@ -127,6 +127,7 @@ charmm-gui-cli build \
 | `--hydrogens` | `add_missing`；可用 `preserve` 保留已有氢 |
 | `--ligand-resname` | LIG；必须明确选择一个配体残基 |
 | `--out` | 可省略，自动创建任务目录；指定时必须是新目录 |
+| `--name` | 可选的唯一任务名；使用 `jobs status/resume/report NAME` |
 | `--no-wait` | 提交或推进后返回，远端继续计算 |
 | `--dry-run` | 仅本地准备和检查；不登录、不上传，可随后恢复 |
 | `--grompp` / `--no-grompp` | 默认检测到 gmx 就编译；前者要求必须编译，后者跳过编译 |
@@ -136,7 +137,7 @@ charmm-gui-cli build \
 
 无效几何会被拒绝，例如蛋白–配体重原子距离小于 0.8 Å 或大于 6 Å。检查通过不证明原始结合姿势正确。
 
-环境验收检查请求的脂质种类、水、离子种类及浓度直接证据；目前不自动核实每个叶层的脂质比例，也不认证膜组成的生物学适用性。SMILES 转换还会拒绝同位素、自由基和配位键，避免悄悄改变化学定义。
+环境验收检查请求的脂质种类、水、离子种类及浓度直接证据。0.4.0 进一步核对上下叶层的最终脂质种类、数量与请求比例，证据来自尺寸流、packing head、最终坐标及 PSF；每种允许一个分子的离散舍入偏差。支持明确 P 头基的磷脂和 CHL1/O3；缺少可靠证据、未知头基或改变过的坐标约定会阻断验收。SMILES 转换还会拒绝同位素、自由基和配位键，避免悄悄改变化学定义。
 
 ## 5. 自动任务管理与结果
 
@@ -186,7 +187,7 @@ charmm-gui-cli build-resume
 
 底层真实测试已完成 CrtW–β-carotene、POPC、KCl 0.10 M 建模：367489 原子、942 POPC、78620 水、143 K⁺ 和 144 Cl⁻；配体 40 个重原子及完整连接图保留，最终蛋白拟合后的配体 RMSD 0.308 Å，GROMACS 2024.4 `grompp -maxwarn 0` 通过。盐条件错误的旧模型被正确拒绝。
 
-0.3.0 的自动验收入口也已对该真实归档完成验证。新的原始复合物一键建模复测记录见 [docs/TESTING.md](TESTING.md)；不把仍在计算的新任务写成完成。
+原始复合物直接建模复测也已完成。0.4.0 对两份独立真实归档完成叶层、参数评分、CHARMM 日志和 GROMACS 验收；批次复用两份已完成归档的恢复验收也通过。详见 [测试记录](TESTING.md)。
 
 **验证通过不是生产模拟认证。** 服务器短最小化仍有 bent-improper 警告，未证明充分收敛或平衡。本次输出使用 HMR、生产 MDP 为 4 fs 和 303.15 K；这些不是本工具保证不变的默认值。需审查质子化、取向、配体参数、质量重分配、约束和完整平衡流程。报告始终保留 `scientific_correctness_verified: false`。
 
@@ -201,6 +202,8 @@ python3 scripts/build_release.py --out dist/new-release
 ```
 
 YAML、官方 token、自定义会话、已准备 job ID 及低层诊断见 [docs/ADVANCED.md](ADVANCED.md)。发布包不含私有 CrtW PDB，因此依赖该文件的集成测试会明确跳过；合成数据测试继续运行。
+
+命名任务、错误分类及恢复操作见 [恢复说明](RECOVERY.md)；多体系清单、并发和汇总见 [批量建模](BATCH.md)。
 
 ```text
 charmm_gui_cli/   CLI、输入化学、认证、HTTP/API、任务管理、验证

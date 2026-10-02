@@ -31,7 +31,7 @@ bash install.sh --help
 ~/.local/bin/charmm-gui-cli --help
 ```
 
-开始建模的登录、独立蛋白 PDB/配体 SDF 配置、运行与验证见 [使用手册](../README.md)。安装器包含化学依赖，但不安装 GROMACS；`validate --grompp` 需另外配置 GROMACS。它也不安装浏览器。
+开始建模的登录、独立蛋白 PDB/配体 SDF 配置、运行与验证见 [使用手册](USAGE.md)。批量清单见 [批量建模](BATCH.md)，命名任务与恢复见 [恢复说明](RECOVERY.md)。安装器包含化学依赖，但不安装 GROMACS；`--grompp` 需另外配置 GROMACS。它也不安装浏览器。
 
 ## 离线安装
 
@@ -61,6 +61,8 @@ python3 scripts/build_release.py --out /path/to/new-release-directory
 
 2026-10-02 已在本地 `nvidia/cuda:12.0.0-base-ubuntu22.04` 容器中验证：容器报告 Ubuntu 22.04.3 LTS；先验证缺少 Python 的明确提示，再仅在容器内安装 Python 3.10.12/venv，然后以非 root 用户运行发布源包中的 `bash install.sh`。安装到该用户的默认 `~/.local`，RDKit 2026.3.6 和其他依赖安装成功；`--version`、`--help`、`doctor` 通过。再次安装也通过，命令链接切换到新目录，原版本目录完整保留。此容器没有 GROMACS，doctor 正确将其报告为可选项。
 
-同一 Ubuntu 22.04 / Python 3.10 容器对不含用户测试结构的最终 0.3.0 代码源码包执行 `python -m unittest discover -s tests -q`：241 项测试，217 项通过、24 项按缺少私有结构等条件跳过，退出码 0。宿主完整 241 项全部通过，其中包含 8 项发布/安装器测试（wheel RECORD 哈希、源码白名单、pip 离线装本地 wheel、拒绝未知入口覆盖等）。
+同一 Ubuntu 22.04 / Python 3.10 容器对不含用户测试结构的 0.4.0 代码源码包执行 `python -m unittest discover -s tests -q`：325 项测试，300 项通过、25 项按缺少私有结构等条件跳过，退出码 0。宿主完整 325 项全部通过，其中包含发布/安装器测试（wheel RECORD 哈希、源码白名单、pip 离线装本地 wheel、拒绝未知入口覆盖等）。
+
+0.4.0 以非 root 用户重新运行一键安装，`doctor`、全局帮助和批量帮助通过；未配置登录凭据时，从其他工作目录执行两项合成蛋白/SDF 的 `batch --dry-run`，结果均为 `inputs_ready`，生成 JSON/CSV 汇总。旧 0.3.0 安装保留。宿主已升级到 0.4.0，并从其他目录无 token 恢复两个真实归档的批次，返回两项 `validated` 和 GROMACS 编译通过。
 
 这些结果验证 Ubuntu 22.04 用户级安装、CLI/依赖检查和离线自动化测试，不是容器内远端建模或 GROMACS 验收；科学建模结果见项目验收记录。发布后的新增改动应重新执行相同检查。

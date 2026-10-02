@@ -1,0 +1,20 @@
+# Paths are relative to this YAML file, not the shell's current directory.
+# Replace these example paths with your own bound-pose structures.
+version: 1
+defaults:
+  upper: POPC=1
+  lower: POPC=1
+  salt: KCl
+  salt_concentration: 0.10
+  margin: 20
+  water_padding: 22.5
+  orientation: ppm
+  hydrogens: add_missing
+jobs:
+  - name: system-a
+    protein: ../structures/a/protein.pdb
+    ligand: ../structures/a/bound-ligand.sdf
+  - name: system-b
+    complex: ../structures/b/complex.pdb
+    ligand_resname: LIG
+    accept_conect_bond_orders: true

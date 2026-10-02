@@ -5,11 +5,13 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import tempfile
 import uuid
 
 from . import __version__
+from .acceptance import assess_acceptance
 from .auth import ToolError, atomic_json, default_token_path
 from .full_build import initialize
 from .pose_validation import validate_bound_pose
@@ -47,6 +49,136 @@ def _registry():
     return default_token_path().parent
 
 
+def validate_name(name):
+    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", name):
+        raise ToolError("Job name must contain 1-128 ASCII letters/digits, dots, underscores or hyphens, beginning with a letter/digit.")
+    return name
+
+
+def check_name_available(name, directory=None):
+    validate_name(name)
+    path = _registry() / "names" / (name + ".json")
+    if path.exists():
+        stored = _read_json(path)
+        if not isinstance(stored.get("directory"), str) or not stored["directory"]:
+            raise ToolError("Registered job name has unreadable directory metadata; inspect the local name record.")
+        if directory is None or Path(stored.get("directory", "")).resolve() != Path(directory).resolve():
+            raise ToolError(f"Job name {name} is already registered. Use jobs resume {name}, or choose a new name.")
+
+
+def assign_name(directory, name):
+    """Bind one unique human-readable name to an existing full build."""
+    directory = Path(directory).expanduser().resolve()
+    validate_name(name)
+    manifest = _read_json(directory / "full-run.json")
+    if manifest.get("schema_version") != 2:
+        raise ToolError("Only initialized full builds can be named.")
+    names = _registry() / "names"
+    names.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with run_lock(names), run_lock(directory):
+        check_name_available(name, directory)
+        existing = directory / "job.json"
+        if existing.exists() and _read_json(existing).get("name") != name:
+            raise ToolError("This job already has a different name; existing names are retained.")
+        record = {"name": name, "directory": str(directory), "created_at": datetime.now(timezone.utc).isoformat()}
+        if not existing.exists():
+            _new_json(existing, record)
+        destination = names / (name + ".json")
+        if not destination.exists():
+            _new_json(destination, record)
+    remember_run(directory)
+    return record
+
+
+def resolve_run(target):
+    """Accept a named job or an explicit directory, without creating anything."""
+    if target is None:
+        return latest_run()
+    path = Path(target).expanduser()
+    if path.is_absolute() or len(path.parts) > 1 or path.exists():
+        return path.resolve()
+    validate_name(str(target))
+    record_path = _registry() / "names" / (str(target) + ".json")
+    if not record_path.is_file():
+        raise ToolError(f"Unknown job {target}. Use charmm-gui-cli jobs, or supply its directory.")
+    record = _read_json(record_path)
+    if not isinstance(record.get("directory"), str) or not record["directory"]:
+        raise ToolError("Named job has unreadable directory metadata; inspect its local name record.")
+    directory = Path(record["directory"])
+    if not (directory / "full-run.json").is_file():
+        raise ToolError("The named job directory is unavailable; restore its original directory or supply a readable path.")
+    return directory.resolve()
+
+
+def _job_metadata(directory):
+    path = directory / "job.json"
+    try:
+        return {"name": _read_json(path)["name"]} if path.is_file() else {}
+    except (ToolError, KeyError):
+        return {}
+
+
+def record_recovery(directory, error=None, *, state=None):
+    """Retain each recovery event and publish the current actionable status."""
+    directory = Path(directory).resolve()
+    event = {"updated_at": datetime.now(timezone.utc).isoformat(), "active": error is not None}
+    if state is not None:
+        event["state"] = state
+    if error is not None:
+        event["error"] = error.as_dict() if hasattr(error, "as_dict") else {
+            "category": "operation_error", "message": str(error), "retryable": False}
+        category = event["error"]["category"]
+        name = _job_metadata(directory).get("name")
+        resume = f"charmm-gui-cli jobs resume {name}" if name else f"charmm-gui-cli build-resume {directory}"
+        if category in ("authentication", "auth_required"):
+            event["next_step"] = "charmm-gui-cli login; " + resume
+        elif category == "submission_unknown":
+            event["next_step"] = event["error"].get("next_step") or "Check the existing remote job; use jobs attach with its cloned build ID when available."
+        else:
+            event["next_step"] = event["error"].get("next_step") or resume
+    with run_lock(directory):
+        _new_json(directory / "recovery-history" / (uuid.uuid4().hex + ".json"), event)
+        atomic_json(directory / "recovery.json", event)
+    return event
+
+
+def _recovery_summary(directory):
+    path = directory / "recovery.json"
+    if path.is_file():
+        try:
+            event = _read_json(path)
+            if event.get("active"):
+                return {"recovery": event, "next_step": event.get("next_step")}
+        except ToolError:
+            pass
+    return {}
+
+
+def inspect_run(target, *, remote_check=False, token_file=None):
+    """Read local evidence and optionally make a read-only API status query."""
+    directory = resolve_run(target)
+    manifest = _read_json(directory / "full-run.json")
+    result = {"directory": str(directory), "state": manifest.get("state", "unknown"),
+              **_job_metadata(directory), **_bilayer_summary(directory), **_final_summary(directory),
+              **_recovery_summary(directory), "server_checked": False}
+    for key in ("source_job_id", "build_job_id"):
+        if key in manifest and key not in result:
+            result[key] = manifest[key]
+    if remote_check and result.get("build_job_id"):
+        from .api import Client
+        from .auth import load_token
+        from .workflow import status_summary
+        token, _ = load_token(token_file)
+        response = Client(token).status(result["build_job_id"])
+        result.update(server_checked=True, remote_status=status_summary(response)["status"],
+                      last_output_file=response.get("lastOutFile"), archive_available=response.get("hasTarFile") is True)
+        if result["remote_status"] == "done" and result.get("state") not in ("validated", "validation_failed"):
+            result["next_step"] = "Remote model is done. Use jobs resume to download and validate it."
+    elif remote_check:
+        result["remote_check_note"] = "No bilayer job exists yet; preparation state is recorded locally."
+    return result
+
+
 def new_run_path():
     """Return an unused default run path; create only its parent directory."""
     parent = Path.home() / ".local" / "share" / "charmm-gui-cli" / "runs"
@@ -59,6 +191,13 @@ def new_run_path():
     raise ToolError("Could not allocate a new managed run path.")
 
 
+def new_batch_path():
+    parent = Path.home() / ".local" / "share" / "charmm-gui-cli" / "batches"
+    parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return (parent / f"{stamp}-{uuid.uuid4().hex[:12]}").resolve()
+
+
 def remember_run(directory):
     """Remember a successfully initialized run, without copying credentials."""
     directory = Path(directory).expanduser().resolve()
@@ -66,7 +205,7 @@ def remember_run(directory):
     if manifest.get("schema_version") != 2:
         raise ToolError("Only full builds can be remembered.")
     record = {"directory": str(directory), "remembered_at": datetime.now(timezone.utc).isoformat(),
-              "state": manifest.get("state", "unknown")}
+              "state": manifest.get("state", "unknown"), **_job_metadata(directory)}
     registry = _registry()
     _new_json(registry / "run-history" / f"{uuid.uuid4().hex}.json", record)
     atomic_json(registry / "latest-run.json", record)
@@ -98,6 +237,8 @@ def list_runs():
         if record["directory"] not in seen:
             record.update(_bilayer_summary(Path(record["directory"])))
             record.update(_final_summary(Path(record["directory"])))
+            record.update(_job_metadata(Path(record["directory"])))
+            record.update(_recovery_summary(Path(record["directory"])))
             unique.append(record)
             seen.add(record["directory"])
     return unique
@@ -119,6 +260,8 @@ def _bilayer_summary(directory):
             result[key] = value
     if isinstance(manifest.get("job_id"), str):
         result["build_job_id"] = manifest["job_id"]
+    if isinstance(manifest.get("last_error"), dict):
+        result["last_error"] = manifest["last_error"]
     return result
 
 
@@ -197,8 +340,9 @@ def _evidence(manifest, archive, grompp, gmx):
 def _grompp_artifacts(report):
     check = report.get("checks", {}).get("grompp", {})
     try:
-        return (check.get("passed") is True and Path(check["log"]).is_file()
-                and (Path(check["output_dir"]) / "system.tpr").is_file())
+        paths = {"log": Path(check["log"]), "tpr": Path(check["output_dir"]) / "system.tpr"}
+        hashes = report.get("compiled_artifacts_sha256", {})
+        return check.get("passed") is True and all(path.is_file() and hashes.get(key) == _digest(path) for key, path in paths.items())
     except (KeyError, TypeError, OSError):
         return False
 
@@ -207,7 +351,15 @@ def _cache_reusable(report, evidence):
     if report.get("fingerprint") != _canonical_hash(evidence) or report.get("validation_complete") is not True:
         return False
     if evidence["grompp"]:
-        return evidence["gmx_identity"]["available"] and _grompp_artifacts(report)
+        if not evidence["gmx_identity"]["available"]:
+            return False
+        check = report.get("checks", {}).get("grompp", {})
+        if check.get("passed") is False and report.get("status") == "validation_failed":
+            try:
+                return _digest(check["log"]) == report.get("compiled_artifacts_sha256", {}).get("log")
+            except (KeyError, TypeError, OSError):
+                return False
+        return _grompp_artifacts(report)
     return True
 
 
@@ -224,6 +376,10 @@ def _final_summary(directory):
         evidence = _evidence(manifest, archive, stored["grompp"], stored["gmx"])
         if _cache_reusable(report, evidence) and report.get("status") in ("validated", "validation_failed"):
             return {"state": report["status"], "passed": report.get("passed"),
+                    "review_required": report.get("review_required", False),
+                    "acceptance_status": report.get("acceptance_validation", {}).get("status"),
+                    "gromacs_compiled": report.get("checks", {}).get("grompp", {}).get("passed") is True,
+                    "compilation_status": ("passed" if _grompp_artifacts(report) else "failed") if stored["grompp"] else "not_run",
                     "archive": str(archive), "report_file": str(path)}
     except (ToolError, OSError, KeyError, TypeError, ValueError):
         pass
@@ -261,6 +417,10 @@ def finalize_managed_build(directory, *, grompp=False, gmx="gmx"):
         work = Path(tempfile.mkdtemp(prefix=f"{fingerprint[:12]}-", dir=checks))
         extracted = extract_for_validation(archive, work / "system")
         report = validate_system(extracted, input_manifest, run_grompp=grompp, gmx=gmx, output_parent=work)
+        compiled = report.get("checks", {}).get("grompp", {})
+        if "log" in compiled and "output_dir" in compiled:
+            paths = {"log": Path(compiled["log"]), "tpr": Path(compiled["output_dir"]) / "system.tpr"}
+            report["compiled_artifacts_sha256"] = {key: _digest(path) for key, path in paths.items() if path.is_file()}
         coordinates = report.get("files", {}).get("coordinates")
         if coordinates:
             expected_lipids = sorted({name for leaflet in ("upper", "lower")
@@ -274,8 +434,11 @@ def finalize_managed_build(directory, *, grompp=False, gmx="gmx"):
         else:
             environment = {"passed": False, "error": "No final coordinate file was identified."}
         pose = validate_bound_pose(extracted, input_manifest, reference)
+        acceptance = assess_acceptance(extracted, membrane=config["membrane"], ligand_resname=config.get("ligand_resname", "LIG"))
         report.update(environment_validation=environment, bound_pose_validation=pose,
-                      passed=bool(report.get("passed") and environment["passed"] and pose["passed"]
+                      acceptance_validation=acceptance, review_required=acceptance.get("review_required", False),
+                      review_warnings=acceptance.get("warnings", []),
+                      passed=bool(report.get("passed") and environment["passed"] and pose["passed"] and acceptance["passed"]
                                   and (not grompp or _grompp_artifacts(report))),
                       status="validated", validation_complete=True, fingerprint=fingerprint, evidence=evidence,
                       report_file=str(report_path), directory=str(directory), archive=str(archive),

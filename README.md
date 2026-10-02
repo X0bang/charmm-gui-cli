@@ -22,6 +22,7 @@ charmm-gui-cli login
 
 # 蛋白与配体必须处于同一结合姿势坐标系
 charmm-gui-cli build \
+  --name receptor-a \
   --protein protein.pdb --ligand bound-ligand.sdf \
   --upper POPC=1 --lower POPC=1 \
   --salt KCl --salt-concentration 0.10
@@ -40,9 +41,22 @@ charmm-gui-cli build --complex complex.pdb \
 charmm-gui-cli -h            # 快速引导
 charmm-gui-cli build -h      # 输入组合和建模参数
 charmm-gui-cli jobs          # 任务及结果位置
+charmm-gui-cli jobs status receptor-a
+charmm-gui-cli jobs resume receptor-a
+charmm-gui-cli jobs report receptor-a
 charmm-gui-cli build-resume  # 继续最近任务
 ```
 
 主要输出为 `bilayer/charmm-gui.tgz` 和 `results/validation.json`。检测到 GROMACS 时自动执行输入编译检查，不运行 MD。
+
+批量建模使用 [清单示例](examples/batch.yaml)：
+
+```bash
+charmm-gui-cli batch batch.yaml --out runs/campaign --dry-run
+charmm-gui-cli batch-resume runs/campaign --max-active 2
+charmm-gui-cli batch-status runs/campaign
+```
+
+每项自动验收，批次自动生成 JSON/CSV 汇总。
 
 许可证：[GPL-3.0-only](LICENSE)。Copyright (c) 2026 X0bang.

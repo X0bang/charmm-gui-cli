@@ -23,6 +23,51 @@ def brief(manifest):
     return {key: manifest[key] for key in ("state", "job_id", "remote_status", "validation") if key in manifest}
 
 
+def report_summary(report, name, path):
+    """Keep the everyday report readable; --full retains all evidence paths."""
+    acceptance = report.get("acceptance_validation", {})
+    checks = acceptance.get("checks", {})
+    penalty = checks.get("cgenff", {})
+    minimization = checks.get("charmm_minimization", {})
+    pose = report.get("bound_pose_validation", {})
+    environment = report.get("environment_validation", {})
+    environment_checks = environment.get("checks", {})
+    concentration = environment_checks.get("concentration_direct_evidence", {})
+    return {"state": report.get("status"), "passed": report.get("passed"), "name": name,
+            "compilation": report.get("compilation"),
+            "environment": {"passed": environment.get("passed"),
+                "lipids": environment_checks.get("requested_lipids_present", {}).get("counts"),
+                "water_molecules": environment_checks.get("water_present", {}).get("molecules"),
+                "ions": environment_checks.get("ion_species"),
+                "concentration_M": concentration.get("requested_M"),
+                "concentration_verified": concentration.get("passed")},
+            "bound_pose": {key: pose[key] for key in ("passed", "protein_ca_rmsd_A",
+                "ligand_rmsd_after_protein_fit_A", "ligand_max_displacement_A") if key in pose},
+            "acceptance": {"passed": acceptance.get("passed"), "status": acceptance.get("status"),
+                "leaflets": checks.get("leaflets", {}).get("leaflets"),
+                "cgenff": {key: penalty[key] for key in ("parameter_max", "charge_max", "review_required") if key in penalty},
+                "charmm": {key: minimization[key] for key in ("normal_termination", "warning_counts",
+                    "most_severe_warning_level", "minimization_convergence_verified", "equilibration_verified") if key in minimization},
+                "warnings": acceptance.get("warnings", [])},
+            "review_required": report.get("review_required", False),
+            "scientific_correctness_verified": report.get("scientific_correctness_verified", False),
+            "report": str(path)}
+
+
+def add_build_runtime_options(command):
+    command.add_argument("--cookies", type=Path, help="Advanced: override the saved website session")
+    waiting = command.add_mutually_exclusive_group()
+    waiting.add_argument("--wait", dest="wait", action="store_true", help="等待完成（默认）")
+    waiting.add_argument("--no-wait", dest="wait", action="store_false", help="推进后返回；远端任务继续运行")
+    command.set_defaults(wait=True)
+    command.add_argument("--interval", type=int, default=30)
+    command.add_argument("--max-wait", type=int, default=21600)
+    checking = command.add_mutually_exclusive_group()
+    checking.add_argument("--grompp", action="store_true", help="要求 GROMACS 编译验证")
+    checking.add_argument("--no-grompp", action="store_true", help="跳过编译，仍验证模型")
+    command.add_argument("--gmx", default="gmx", help="gmx 可执行文件；默认 PATH 中的 gmx")
+
+
 def parser():
     from .helptext import OVERVIEW, BUILD_GUIDE
     root = argparse.ArgumentParser(prog="charmm-gui-cli", description=OVERVIEW,
@@ -73,7 +118,21 @@ def parser():
     split.add_argument("--ligand", default="LIG", help="Ligand residue name")
     split.add_argument("--out", type=Path, required=True)
     split.add_argument("--accept-conect-bond-orders", action="store_true", required=True)
-    commands.add_parser("jobs", help="查看本地任务和最终结果 / List saved jobs")
+    jobs = commands.add_parser("jobs", help="命名任务、状态、恢复 / Named jobs and recovery")
+    job_commands = jobs.add_subparsers(dest="jobs_command")
+    job_commands.add_parser("list", help="列出本地任务（jobs 默认行为）")
+    job_status = job_commands.add_parser("status", aliases=("show",), help="查看某个任务及可操作的恢复提示")
+    job_status.add_argument("target", help="任务名称或目录")
+    job_status.add_argument("--remote-check", action="store_true", help="只读查询远端最新状态")
+    job_report = job_commands.add_parser("report", help="按任务名查看最终验收结论和审阅项")
+    job_report.add_argument("target", help="任务名称或目录")
+    job_report.add_argument("--full", action="store_true", help="显示完整 JSON 证据报告")
+    job_resume = job_commands.add_parser("resume", help="按名称或目录恢复同一任务")
+    job_resume.add_argument("target", help="任务名称或目录")
+    add_build_runtime_options(job_resume)
+    job_attach = job_commands.add_parser("attach", help="为提交结果不确定的任务关联已存在的建膜 job ID")
+    job_attach.add_argument("target", help="任务名称或目录")
+    job_attach.add_argument("--jobid", required=True)
     doctor = commands.add_parser("doctor", help="检查安装、依赖和可选 GROMACS / Check installation")
     doctor.add_argument("--gmx", default="gmx")
     build = commands.add_parser("build", help="提供结构直接建模，自动管理中间文件 / Build a model",
@@ -98,21 +157,26 @@ def parser():
     model.add_argument("--n-terminal", help="N 端处理，默认 NTER")
     model.add_argument("--c-terminal", help="C 端处理，默认 CTER")
     build.add_argument("--out", type=Path, help="可选的新任务目录；默认自动创建用户数据目录下的任务")
+    build.add_argument("--name", help="唯一任务名；之后可 jobs status/resume NAME")
     build.add_argument("--dry-run", action="store_true", help="只做本地输入检查，不登录、不上传；之后可 build-resume")
     build_resume = commands.add_parser("build-resume", help="继续最近或指定任务，不重复提交 / Resume last build")
     build_resume.add_argument("directory", nargs="?", type=Path, help="省略则使用最近一次任务")
     for command in (build, build_resume):
-        command.add_argument("--cookies", type=Path, help="Advanced: override the saved website session")
-        waiting = command.add_mutually_exclusive_group()
-        waiting.add_argument("--wait", dest="wait", action="store_true", help="等待完成（默认）")
-        waiting.add_argument("--no-wait", dest="wait", action="store_false", help="提交/查询后返回；远端任务继续运行")
-        command.set_defaults(wait=True)
-        command.add_argument("--interval", type=int, default=30)
-        command.add_argument("--max-wait", type=int, default=21600)
-        checking = command.add_mutually_exclusive_group()
-        checking.add_argument("--grompp", action="store_true", help="要求 GROMACS 编译验证；找不到 gmx 时报告失败")
-        checking.add_argument("--no-grompp", action="store_true", help="不执行 GROMACS 编译；仍自动验证拓扑/环境/位姿")
-        command.add_argument("--gmx", default="gmx", help="gmx 可执行文件；默认 PATH 中的 gmx")
+        add_build_runtime_options(command)
+    batch = commands.add_parser("batch", help="从 YAML 清单批量预检和建模")
+    batch.add_argument("config", type=Path)
+    batch.add_argument("--out", type=Path, help="可选的新批次目录")
+    batch.add_argument("--dry-run", action="store_true", help="全员本地预检；不登录或上传")
+    batch_resume = commands.add_parser("batch-resume", help="恢复已有批次，保留已提交任务")
+    batch_resume.add_argument("directory", type=Path)
+    for command in (batch, batch_resume):
+        add_build_runtime_options(command)
+        command.add_argument("--max-active", type=int, default=1, help="最多同时活跃的远端任务，1-4；默认 1")
+        command.add_argument("--submit-interval", type=int, default=30, help="启动新任务的最小间隔秒数，默认 30")
+    batch_status = commands.add_parser("batch-status", help="查看批次汇总，不提交任务")
+    batch_status.add_argument("directory", type=Path)
+    batch_status.add_argument("--remote-check", action="store_true")
+    batch_status.add_argument("--csv", type=Path, help="另外输出 CSV 汇总文件")
     validate = commands.add_parser("validate", help="Check downloaded GROMACS topology/ligand retention, optionally run grompp")
     validate.add_argument("system", type=Path)
     validate.add_argument("--input-manifest", type=Path, required=True)
@@ -154,9 +218,62 @@ def dispatch(args):
         emit(report)
         return 0 if report["passed"] else 2
     if args.command == "jobs":
-        from .managed import list_runs
-        emit({"jobs": list_runs(), "next_step": "charmm-gui-cli build-resume"})
+        from . import managed
+        if args.jobs_command in (None, "list"):
+            emit({"jobs": managed.list_runs(), "next_step": "charmm-gui-cli jobs resume NAME"})
+        elif args.jobs_command in ("status", "show"):
+            emit(managed.inspect_run(args.target, remote_check=args.remote_check, token_file=args.token_file))
+        elif args.jobs_command == "report":
+            directory = managed.resolve_run(args.target)
+            result = managed.inspect_run(directory)
+            if result.get("validation_status") == "stale_or_unreadable":
+                raise ToolError("Final validation evidence is stale. Resume the same job to refresh the report.")
+            path = directory / "results" / "validation.json"
+            if not path.is_file():
+                raise ToolError("No final report exists yet. Use jobs status or jobs resume for this task.")
+            report = managed._read_json(path)
+            if args.full:
+                emit(report)
+            else:
+                emit(report_summary(report, result.get("name"), path))
+            return 0 if report.get("passed") else 2
+        elif args.jobs_command == "resume":
+            from .build_command import execute
+            args.directory = managed.resolve_run(args.target)
+            args.command = "build-resume"
+            result, code = execute(args)
+            emit(result)
+            return code
+        elif args.jobs_command == "attach":
+            directory = managed.resolve_run(args.target)
+            token, _ = load_token(args.token_file)
+            result = workflow.attach(Client(token), directory / "bilayer", args.jobid)
+            managed.record_recovery(directory, state="submitted")
+            emit({"directory": str(directory), **brief(result), "next_step": "charmm-gui-cli jobs resume " + args.target})
         return 0
+    if args.command in ("batch", "batch-resume", "batch-status"):
+        from . import batch as batching, managed
+        if args.command == "batch-status":
+            report = batching.status(args.directory, remote_check=args.remote_check, token_file=args.token_file)
+            if args.csv:
+                atomic_write(args.csv, batching.export_csv(report))
+                report["csv"] = str(args.csv.resolve())
+            emit(report)
+            return 0
+        if args.command == "batch":
+            directory = args.out or managed.new_batch_path()
+            report = batching.initialize(args.config, directory)
+            if args.dry_run:
+                emit(report)
+                return 2 if report.get("failed", 0) else 0
+        else:
+            directory = args.directory
+        report, code = batching.advance(directory, max_active=args.max_active,
+            submit_interval=args.submit_interval, wait=args.wait, interval=args.interval,
+            max_wait=args.max_wait, token_file=args.token_file, cookies=args.cookies,
+            grompp=args.grompp, no_grompp=args.no_grompp, gmx=args.gmx)
+        emit(report)
+        return code
     if args.command == "inputs":
         from .inputs import prepare_inputs
         emit(prepare_inputs(args.protein, args.ligand, args.out, ligand_resname=args.ligand_resname,
@@ -200,6 +317,11 @@ def dispatch(args):
                     environment = {"passed": False, "error": str(exc)}
             report["environment_validation"] = environment
             report["passed"] = bool(report["passed"] and environment["passed"])
+            from .acceptance import assess_acceptance
+            acceptance = assess_acceptance(system, membrane=build_config["membrane"], ligand_resname=build_config["ligand_resname"])
+            report.update(acceptance_validation=acceptance, review_required=acceptance.get("review_required", False),
+                          review_warnings=acceptance.get("warnings", []))
+            report["passed"] = bool(report["passed"] and acceptance["passed"])
         if args.reference_pdb is not None:
             from .pose_validation import validate_bound_pose
             pose = validate_bound_pose(system, args.input_manifest, args.reference_pdb)
@@ -335,6 +457,8 @@ def main(argv=None):
         return dispatch(args)
     except ToolError as exc:
         print(f"Error: {exc}", file=sys.stderr)
+        if getattr(exc, "next_step", None):
+            print(f"Next: {exc.next_step}", file=sys.stderr)
         return 2
     except OSError:
         print("Error: filesystem operation failed; check file paths, permissions and free space.", file=sys.stderr)

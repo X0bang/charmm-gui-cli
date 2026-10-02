@@ -18,11 +18,20 @@ OVERVIEW = """膜蛋白–配体脂膜建模 / CHARMM-GUI command-line workflow
 
 任务与结果 / Jobs and results
   charmm-gui-cli jobs                       查看本地任务及结果位置
+  charmm-gui-cli jobs status NAME           按任务名看阶段和恢复提示
+  charmm-gui-cli jobs resume NAME           恢复同一任务
+  charmm-gui-cli jobs report NAME           查看验收和需要审阅的内容
   charmm-gui-cli build-resume               继续最近任务，不重复提交
   charmm-gui-cli build -h                   输入组合、参数和更多示例
   中间文件自动保存在用户数据目录；--out 可选择自己的任务目录。
   默认等待并自动验证；--no-wait 提前返回，远端继续运行。
   验证通过不代表已完成充分最小化、平衡或生产模拟。
+
+批量任务 / Batch
+  charmm-gui-cli batch batch.yaml --dry-run 全员本地预检，不上传
+  charmm-gui-cli batch batch.yaml --max-active 2
+  charmm-gui-cli batch-resume BATCH_DIR     继续已有批次
+  charmm-gui-cli batch-status BATCH_DIR     查看 JSON/CSV 汇总位置
 
 高级兼容命令：plan/run/resume 用于已准备 job ID；web-* 用于诊断。
 完整说明见发布包 README.md 与 docs/INSTALL.md。
@@ -31,6 +40,8 @@ OVERVIEW = """膜蛋白–配体脂膜建模 / CHARMM-GUI command-line workflow
 BUILD_GUIDE = """输入方式（选一种；无需管理拆分文件或自动生成的配置）
   --protein protein.pdb --ligand bound.sdf
       推荐：SDF 提供键级、电荷及同一结合坐标系中的配体。
+  --name receptor-a
+      给任务命名，之后 jobs status/resume/report receptor-a。
   --complex complex.pdb --ligand-resname LIG --accept-conect-bond-orders
       复合物内选一个配体，明确接受其 CONECT 键级。
   --protein protein.pdb --ligand ligand.pdb --accept-conect-bond-orders

@@ -18,9 +18,9 @@ import zipfile
 
 
 ROOT_FILES = (".gitignore", "LICENSE", "pyproject.toml", "README.md", "RESEARCH.md", "install.sh")
-DOC_FILES = ("docs/INSTALL.md", "docs/ADVANCED.md", "docs/TESTING.md", "docs/USAGE.md")
+DOC_FILES = ("docs/INSTALL.md", "docs/ADVANCED.md", "docs/TESTING.md", "docs/USAGE.md", "docs/RECOVERY.md", "docs/BATCH.md")
 SCRIPT_FILES = ("scripts/build_release.py", "scripts/install_user.py")
-EXAMPLE_FILES = ("examples/crtw-build.yaml", "examples/membrane-ligand.yaml",
+EXAMPLE_FILES = ("examples/batch.yaml", "examples/crtw-build.yaml", "examples/membrane-ligand.yaml",
                  "examples/crtw-beta-carotene.yaml")
 
 

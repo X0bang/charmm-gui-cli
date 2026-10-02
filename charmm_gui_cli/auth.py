@@ -12,6 +12,24 @@ import time
 class ToolError(Exception):
     """A user-facing error that never includes credentials or response bodies."""
 
+    def __init__(self, message, *, category="operation_error", next_step=None, retryable=False,
+                 retry_after_seconds=None, cause_category=None):
+        super().__init__(message)
+        self.category = category
+        self.next_step = next_step
+        self.retryable = retryable
+        self.retry_after_seconds = retry_after_seconds
+        self.cause_category = cause_category
+
+    def as_dict(self):
+        result = {"message": str(self), "category": self.category,
+                  "next_step": self.next_step, "retryable": self.retryable}
+        if self.retry_after_seconds is not None:
+            result["retry_after_seconds"] = self.retry_after_seconds
+        if self.cause_category is not None:
+            result["cause_category"] = self.cause_category
+        return result
+
 
 def default_token_path():
     return Path.home() / ".config" / "charmm-gui-cli" / "session.token"
@@ -85,7 +103,8 @@ def load_token(path=None):
         candidates = [default_token_path(), Path("session.token"), Path.home() / ".charmmgui_token"]
         selected = next((p for p in candidates if p.is_file()), None)
         if selected is None:
-            raise ToolError("No API token found. Run login or use --token-file PATH.")
+            raise ToolError("No API token found. Run login or use --token-file PATH.",
+                            category="authentication", next_step="Run charmm-gui-cli login, then resume the existing run.")
         try:
             raw = selected.read_text(encoding="utf-8")
         except OSError:

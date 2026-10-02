@@ -14,7 +14,8 @@ from bs4 import BeautifulSoup
 import requests
 
 from .auth import ToolError, atomic_json, atomic_write
-from .api import SubmissionUnknown
+from .api import AuthError, SubmissionUnknown
+from .http_retry import request as request_with_retry, retry_delay, transient_exception, RETRY_STATUSES
 
 WEB_BASE = "https://www.charmm-gui.org/"
 
@@ -105,7 +106,7 @@ class WebClient:
                         raise ValueError
                     self.session.cookies.set_cookie(requests.cookies.create_cookie(**item))
             except (ValueError, KeyError, TypeError):
-                raise ToolError("Invalid saved CHARMM-GUI web session.") from None
+                raise AuthError("Invalid saved CHARMM-GUI web session. Run charmm-gui-cli login.") from None
 
     def save_cookies(self):
         if self.cookie_path:
@@ -113,6 +114,12 @@ class WebClient:
                         "path": cookie.path, "secure": cookie.secure, "expires": cookie.expires,
                         "rest": cookie._rest} for cookie in self.session.cookies]
             atomic_json(self.cookie_path, {"version": 1, "cookies": cookies})
+
+    def validate_auth(self):
+        # A session cookie cannot prove authentication, but missing/expired
+        # saved cookies can be rejected before creating any POST intent.
+        if self.cookie_path is not None and not any(not cookie.is_expired() for cookie in self.session.cookies):
+            raise AuthError("Website session is missing or expired. Run charmm-gui-cli login.")
 
     def request(self, method, target, **kwargs):
         url = urljoin(WEB_BASE, target)
@@ -122,9 +129,15 @@ class WebClient:
                     ("www.charmm-gui.org", "charmm-gui.org", "www.charmm-gui.org:443", "charmm-gui.org:443")):
                 raise ToolError("Refusing to send website session credentials outside CHARMM-GUI HTTPS origins.")
             try:
-                result = self.session.request(method, url, allow_redirects=False, timeout=(15, 90), **kwargs)
-            except requests.RequestException:
-                raise ToolError("CHARMM-GUI web HTTP request failed; do not blindly repeat a submitted modeling step.") from None
+                result = request_with_retry(self.session, method, url, allow_redirects=False, timeout=(15, 90), **kwargs)
+            except requests.RequestException as exc:
+                if method.upper() not in ("GET", "HEAD"):
+                    raise SubmissionUnknown("Website request failed after a POST attempt; its outcome is unknown. No automatic resubmission.",
+                                            cause_category="transient_network" if transient_exception(exc) else "transport_error") from None
+                raise ToolError("CHARMM-GUI web HTTP request failed; resume the existing run.",
+                                category="transient_network" if transient_exception(exc) else "transport_error",
+                                retryable=transient_exception(exc),
+                                next_step="Resume the existing run after checking connectivity.") from None
             self.save_cookies()
             if result.is_redirect:
                 if result.status_code in (307, 308) and method.upper() not in ("GET", "HEAD"):
@@ -137,7 +150,18 @@ class WebClient:
                 continue
             if result.status_code >= 400:
                 result.close()
-                raise ToolError(f"CHARMM-GUI web request returned HTTP {result.status_code}.")
+                code = result.status_code
+                if code in (401, 403):
+                    raise AuthError(f"CHARMM-GUI web request returned HTTP {code}.",
+                                    category="authentication" if code == 401 else "access_denied",
+                                    next_step=("Run charmm-gui-cli login, then build-resume." if code == 401 else
+                                               "Verify this account owns the job; login with the correct account, then build-resume."))
+                raise ToolError(f"CHARMM-GUI web request returned HTTP {code}.",
+                                category="rate_limited" if code == 429 else ("transient_http" if code in RETRY_STATUSES else "http_error"),
+                                retryable=method.upper() == "GET" and code in RETRY_STATUSES,
+                                retry_after_seconds=(retry_delay(result.headers["Retry-After"], 0)
+                                                     if "Retry-After" in result.headers and code in RETRY_STATUSES else None),
+                                next_step="Resume the existing run; do not repeat a modeling POST.")
             return result
         raise ToolError("Too many redirects in website workflow.")
 
@@ -153,7 +177,7 @@ class WebClient:
         pairs.extend([("email", email), ("password", password)])
         result = self.request("POST", urljoin(page.url, form.get("action") or page.url), data=pairs)
         if soup_for(result.text).select_one('form input[type="password"]') or "logout" not in result.text.lower():
-            raise ToolError("Website login was not confirmed; the account may require validation or additional login steps.")
+            raise AuthError("Website login was not confirmed; the account may require validation or additional login steps.")
         self.save_cookies()
         return {"web_authenticated": True, "reused_session": False}
 
@@ -164,6 +188,23 @@ class WebClient:
         result["snapshot"] = str(output)
         return result
 
+    def _modeling_post(self, target, intent_path, intent, **kwargs):
+        """Keep uncertainty durable even when the server sends an HTTP error."""
+        try:
+            return self.request("POST", target, **kwargs)
+        except (ToolError, KeyboardInterrupt) as exc:
+            error = exc if isinstance(exc, SubmissionUnknown) else SubmissionUnknown(
+                "Modeling POST did not return a usable response; its outcome is unknown. No automatic resubmission.",
+                cause_category=(exc.cause_category or exc.category) if isinstance(exc, ToolError) else "interrupted",
+                retry_after_seconds=exc.retry_after_seconds if isinstance(exc, ToolError) else None,
+                next_step=((exc.next_step + " ") if isinstance(exc, ToolError) and exc.next_step else "") +
+                          "Inspect/recover this existing website job before continuing; do not repeat the POST.")
+            intent.update(state="submission_unknown", last_error=error.as_dict())
+            atomic_json(intent_path, intent)
+            if isinstance(exc, KeyboardInterrupt):
+                raise
+            raise error from None
+
     def upload_structure(self, pdb_path, directory, project="membrane_bilayer"):
         """Start one explicit user-requested upload; never retry this POST."""
         pdb_path, directory = Path(pdb_path), Path(directory)
@@ -173,12 +214,13 @@ class WebClient:
             raise ToolError("Input PDB does not exist.")
         if directory.exists():
             raise ToolError("Upload output directory already exists; inspect/recover it instead of resubmitting.")
+        self.validate_auth()
         doc = "input/membrane.bilayer" if project == "membrane_bilayer" else "input/pdbreader"
         page = self.request("GET", "", params={"doc": doc})
         soup = soup_for(page.text)
         form = soup.select_one('form[name="pdb"]')
         if form is None or soup.select_one('input[type="password"]'):
-            raise ToolError("No authenticated PDB upload form; run web-login.")
+            raise AuthError("No authenticated PDB upload form; run charmm-gui-cli login.")
         data = [(key, value) for key, value in form_data(form) if key not in ("select_project", "pdb_id", "jobid")]
         data.extend([("pdb_id", ""), ("jobid", "")])
         directory.mkdir(parents=True)
@@ -186,8 +228,8 @@ class WebClient:
         manifest = {"state": "upload_submitting", "input_pdb": str(pdb_path.resolve()), "project": project}
         atomic_json(directory / "web-run.json", manifest)
         with pdb_path.open("rb") as handle:
-            result = self.request("POST", modeling_target(form.get("action")), data=data,
-                                  files={"file": (pdb_path.name, handle, "chemical/x-pdb")})
+            result = self._modeling_post(modeling_target(form.get("action")), directory / "web-run.json", manifest,
+                                         data=data, files={"file": (pdb_path.name, handle, "chemical/x-pdb")})
         atomic_write(directory / "upload-response.html", result.text)
         description = describe_page(result.text)
         job_field = soup_for(result.text).select_one('input[name="jobid"]')
@@ -201,8 +243,11 @@ class WebClient:
         snapshot, output = Path(snapshot), Path(output)
         intent_path = output.with_suffix(".intent.json")
         if output.exists() or intent_path.exists():
-            raise ToolError("This step has already been attempted; inspect its saved response/intent before retrying.")
+            raise SubmissionUnknown("This step has already been attempted; inspect its saved response/intent before retrying.")
+        self.validate_auth()
         soup = soup_for(snapshot.read_text(encoding="utf-8"))
+        if soup.select_one('input[type="password"]'):
+            raise AuthError("Saved page requires website authentication. Run charmm-gui-cli login and recover the existing job page before continuing.")
         forms = [form for form in soup.find_all("form") if form.select_one('input[name="jobid"]')]
         if len(forms) != 1:
             raise ToolError("Expected exactly one modeling form in the snapshot.")
@@ -220,15 +265,17 @@ class WebClient:
         try:
             descriptor = os.open(intent_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         except FileExistsError:
-            raise ToolError("This step has already been attempted; inspect its saved response/intent before retrying.") from None
+            raise SubmissionUnknown("This step has already been attempted; inspect its saved response/intent before retrying.") from None
+        intent = {"state": "submitting", "target": target, "fields": pairs, "upload_fields": list(uploads)}
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            json.dump({"state": "submitting", "target": target,
-                       "fields": pairs, "upload_fields": list(uploads)}, handle, indent=2)
+            json.dump(intent, handle, indent=2)
             handle.flush()
             os.fsync(handle.fileno())
         with ExitStack() as stack:
             files = {key: (Path(path).name, stack.enter_context(Path(path).open("rb")), "application/octet-stream")
                      for key, path in uploads.items()}
-            result = self.request("POST", target, data=pairs, files=files or None)
+            result = self._modeling_post(target, intent_path, intent, data=pairs, files=files or None)
         atomic_write(output, result.text)
+        intent.update(state="response_received", snapshot=str(output))
+        atomic_json(intent_path, intent)
         return {"snapshot": str(output), "response_url": result.url, "page": describe_page(result.text)}
