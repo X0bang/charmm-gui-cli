@@ -1,0 +1,20 @@
+# Full input-oriented workflow. The two structures share the same bound-pose frame.
+version: 2
+protein: ../runs/input-preparation/crtw-validated-split/protein.pdb
+ligand: ../runs/input-preparation/crtw-validated-split/ligand.sdf
+ligand_resname: LIG
+# Adds H according to the supplied chemical graph, NOT pH prediction or docking.
+ligand_hydrogens: add_missing
+preparation:
+  n_terminal: NTER
+  c_terminal: CTER
+  orientation: ppm
+# Test composition; edit to suit the intended biological membrane.
+membrane:
+  upper: POPC=1
+  lower: POPC=1
+  margin_A: 20
+  water_padding_A: 22.5
+ions:
+  type: KCl
+  concentration_M: 0.10

@@ -1,0 +1,16 @@
+# Experimental handoff from the website's prepared protein-ligand job.
+version: 1
+source_job_id: null  # Replace with the quoted PDB Reader job ID, e.g. "1234567890".
+input_pdb: null      # Optional local PDB for preflight, relative to this YAML; NOT uploaded.
+expected_ligands: [LIG]  # Use the residue name in the prepared CHARMM-GUI structure.
+preparation:
+  ligand_parameters_ready: false  # Set true only after preparing/checking the source job.
+  orientation: ppm   # "ppm" requests orientation; "prepared" keeps an already oriented source.
+membrane:
+  upper: POPC=1
+  lower: POPC=1
+  margin_A: 20
+  water_padding_A: 22.5
+ions:
+  type: NaCl
+  concentration_M: 0.15

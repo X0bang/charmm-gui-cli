@@ -1,0 +1,17 @@
+# Local fixture: CrtW complex supplied by the user. No remote job has been created.
+version: 1
+source_job_id: null
+input_pdb: ../test-dataset/CrtW_BetaCarotene_af3_fixed.pdb
+expected_ligands: [LIG]
+preparation:
+  ligand_parameters_ready: false
+  orientation: ppm
+# Editable smoke-test choices, not a biological membrane recommendation.
+membrane:
+  upper: POPC=1
+  lower: POPC=1
+  margin_A: 20
+  water_padding_A: 22.5
+ions:
+  type: NaCl
+  concentration_M: 0.15
