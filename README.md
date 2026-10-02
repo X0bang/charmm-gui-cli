@@ -44,12 +44,3 @@ charmm-gui-cli build-resume  # 继续最近任务
 ```
 
 主要输出为 `bilayer/charmm-gui.tgz` 和 `results/validation.json`。检测到 GROMACS 时自动执行输入编译检查，不运行 MD。
-
-## 注意
-
-- 不做分子对接；普通 PDB 可能缺少键级，需要可靠 SDF 或符合要求的 SMILES 补充化学定义。
-- 当前主要支持单配体、非共价复合物；不自动选择质子化状态或修补缺失片段。
-- 验证通过不等于已充分最小化、平衡或适合生产模拟。
-- 官网接口变化可能需要适配。源码包不含账户、会话、私有结构或历史模型。
-
-[完整用法](docs/USAGE.md) · [安装说明](docs/INSTALL.md) · [高级配置](docs/ADVANCED.md) · [测试记录](docs/TESTING.md)
