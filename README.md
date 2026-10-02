@@ -12,7 +12,7 @@ cd charmm-gui-cli
 bash install.sh
 ```
 
-也可下载源码安装包，解压后运行 `bash install.sh`。若找不到命令，执行 `export PATH="$HOME/.local/bin:$PATH"`。
+也可从 [download](https://github.com/X0bang/charmm-gui-cli/tree/main/download) 下载源码安装包，解压后运行 `bash install.sh`。若找不到命令，执行 `export PATH="$HOME/.local/bin:$PATH"`。
 
 ## 使用
 

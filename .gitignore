@@ -26,3 +26,9 @@
 !/examples/crtw-build.yaml
 !/examples/crtw-beta-carotene.yaml
 !/examples/membrane-ligand.yaml
+!/download/
+/download/*
+!/download/README.md
+!/download/charmm-gui-cli-0.3.0.tar.gz
+!/download/charmm_gui_cli-0.3.0-py3-none-any.whl
+!/download/SHA256SUMS
