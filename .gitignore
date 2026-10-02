@@ -2,6 +2,7 @@
 /*
 !/.gitignore
 !/README.md
+!/LICENSE
 !/RESEARCH.md
 !/pyproject.toml
 !/install.sh

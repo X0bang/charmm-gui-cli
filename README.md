@@ -44,3 +44,5 @@ charmm-gui-cli build-resume  # 继续最近任务
 ```
 
 主要输出为 `bilayer/charmm-gui.tgz` 和 `results/validation.json`。检测到 GROMACS 时自动执行输入编译检查，不运行 MD。
+
+许可证：[GPL-3.0-only](LICENSE)。Copyright (c) 2026 X0bang.

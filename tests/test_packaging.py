@@ -32,6 +32,7 @@ class PackagingTests(unittest.TestCase):
         for prefix in ("session", "runs/", ".venv/", "build/", "test-dataset/", ".git/", "__pycache__/"):
             self.assertFalse(any(name.startswith(prefix) for name in names))
         self.assertIn("install.sh", names)
+        self.assertIn("LICENSE", names)
         self.assertIn("scripts/install_user.py", names)
         self.assertIn("docs/INSTALL.md", names)
         self.assertTrue(all(not name.endswith((".pyc", ".token")) for name in names))
@@ -56,6 +57,11 @@ class PackagingTests(unittest.TestCase):
             self.assertIn("Provides-Extra: chem", metadata)
             self.assertIn('extra == "chem"', metadata)
             self.assertIn("Requires-Python: >=3.10", metadata)
+            self.assertIn("Metadata-Version: 2.4", metadata)
+            self.assertIn("License-Expression: GPL-3.0-only", metadata)
+            self.assertIn("License-File: LICENSE", metadata)
+            license_name = next(name for name in names if name.endswith(".dist-info/licenses/LICENSE"))
+            self.assertEqual(wheel.read(license_name), (ROOT / "LICENSE").read_bytes())
         with tarfile.open(result["source"]) as archive:
             names = [member.name.split("/", 1)[1] for member in archive.getmembers()]
             self.assertEqual(names, result["source_files"])

@@ -17,7 +17,7 @@ import tarfile
 import zipfile
 
 
-ROOT_FILES = (".gitignore", "pyproject.toml", "README.md", "RESEARCH.md", "install.sh")
+ROOT_FILES = (".gitignore", "LICENSE", "pyproject.toml", "README.md", "RESEARCH.md", "install.sh")
 DOC_FILES = ("docs/INSTALL.md", "docs/ADVANCED.md", "docs/TESTING.md", "docs/USAGE.md")
 SCRIPT_FILES = ("scripts/build_release.py", "scripts/install_user.py")
 EXAMPLE_FILES = ("examples/crtw-build.yaml", "examples/membrane-ligand.yaml",
@@ -96,8 +96,10 @@ def selected_files(root):
 
 
 def wheel_metadata(project):
-    lines = ["Metadata-Version: 2.1", f"Name: {project['name']}", f"Version: {project['version']}",
+    lines = ["Metadata-Version: 2.4", f"Name: {project['name']}", f"Version: {project['version']}",
              f"Summary: {project.get('description', '')}", f"Requires-Python: {project.get('requires-python', '>=3.10')}"]
+    lines.append("License-Expression: " + project["license"])
+    lines += ["License-File: " + name for name in project["license-files"]]
     lines += ["Requires-Dist: " + value for value in project.get("dependencies", [])]
     for extra, requirements in project.get("optional-dependencies", {}).items():
         lines.append("Provides-Extra: " + extra)
@@ -125,6 +127,10 @@ def write_wheel(root, output, project, names):
         for name in names:
             if name.startswith("charmm_gui_cli/"):
                 add(name, (root / name).read_bytes())
+        for name in project["license-files"]:
+            if name not in names:
+                raise ValueError("License file must be included in the source allowlist.")
+            add(info + "/licenses/" + name, (root / name).read_bytes())
         add(info + "/METADATA", wheel_metadata(project))
         add(info + "/WHEEL", "Wheel-Version: 1.0\nGenerator: charmm-gui-cli-allowlist\nRoot-Is-Purelib: true\nTag: py3-none-any\n")
         add(info + "/entry_points.txt", "[console_scripts]\n" + "".join(f"{name} = {target}\n" for name, target in project["scripts"].items()))

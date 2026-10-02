@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,6 +7,8 @@ name = "charmm-gui-cli"
 version = "0.3.0"
 description = "Experimental, resumable CHARMM-GUI membrane-protein/ligand API client"
 readme = "README.md"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = ["requests>=2.31,<3", "PyYAML>=6,<7", "beautifulsoup4>=4.12,<5"]
 
