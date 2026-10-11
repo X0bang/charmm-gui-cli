@@ -24,12 +24,17 @@
 !/docs/USAGE.md
 !/docs/BATCH.md
 !/docs/RECOVERY.md
+!/docs/SWEEP.md
+!/docs/PREVIEW.md
+!/docs/COMPONENTS.md
 !/examples/
 /examples/*
 !/examples/crtw-build.yaml
 !/examples/crtw-beta-carotene.yaml
 !/examples/membrane-ligand.yaml
 !/examples/batch.yaml
+!/examples/sweep.yaml
+!/examples/components.yaml
 !/download/
 /download/*
 !/download/README.md
@@ -37,4 +42,6 @@
 !/download/charmm_gui_cli-0.3.0-py3-none-any.whl
 !/download/charmm-gui-cli-0.4.0.tar.gz
 !/download/charmm_gui_cli-0.4.0-py3-none-any.whl
+!/download/charmm-gui-cli-0.5.0.tar.gz
+!/download/charmm_gui_cli-0.5.0-py3-none-any.whl
 !/download/SHA256SUMS

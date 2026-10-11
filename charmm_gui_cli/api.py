@@ -7,7 +7,7 @@ import tempfile
 
 import requests
 
-from .auth import ToolError, normalize_token, token_info
+from .auth import ToolError, normalize_token, token_info, recovery_guidance
 from .archive_transport import normalize_download
 from .http_retry import request as request_with_retry, retry_delay, transient_exception, RETRY_STATUSES
 
@@ -17,14 +17,14 @@ API_BASE = "https://charmm-gui.org/api"
 class AuthError(ToolError):
     def __init__(self, message, **kwargs):
         kwargs.setdefault("category", "authentication")
-        kwargs.setdefault("next_step", "Run charmm-gui-cli login, then resume the existing run.")
+        kwargs.setdefault("next_step", recovery_guidance(kwargs["category"]))
         super().__init__(message, **kwargs)
 
 
 class SubmissionUnknown(ToolError):
     def __init__(self, message, **kwargs):
         kwargs.setdefault("category", "submission_unknown")
-        kwargs.setdefault("next_step", "Inspect website jobs and attach the existing job; do not submit again.")
+        kwargs.setdefault("next_step", recovery_guidance("submission_unknown", cause_category=kwargs.get("cause_category")))
         super().__init__(message, **kwargs)
 
 
@@ -63,7 +63,7 @@ class Client:
             raise ToolError("Network request failed. Check connectivity/proxy and resume the existing run.",
                             category="transient_network" if transient_exception(exc) else "transport_error",
                             retryable=method.upper() == "GET" and transient_exception(exc),
-                            next_step="Resume the existing run; do not create a new build.") from None
+                            next_step=recovery_guidance("transient_network" if transient_exception(exc) else "transport_error")) from None
         code = response.status_code
         if 300 <= code < 400:
             response.close()
@@ -72,8 +72,7 @@ class Client:
             response.close()
             raise AuthError(f"API returned HTTP {code}.",
                             category="authentication" if code == 401 else "access_denied",
-                            next_step=("Run charmm-gui-cli login, then resume the existing run." if code == 401 else
-                                       "Verify the logged-in account owns this job; login with the correct account, then resume."))
+                            next_step=recovery_guidance("authentication" if code == 401 else "access_denied"))
         if code >= 400:
             response.close()
             raise ToolError(f"API returned HTTP {code}. Response body omitted to protect credentials.",
@@ -81,7 +80,7 @@ class Client:
                             retryable=method.upper() == "GET" and code in RETRY_STATUSES,
                             retry_after_seconds=(retry_delay(response.headers["Retry-After"], 0)
                                                  if "Retry-After" in response.headers and code in RETRY_STATUSES else None),
-                            next_step="Resume the existing run later; do not create a new build.")
+                            next_step=recovery_guidance("transient_http") if code in RETRY_STATUSES else "核对官网已有任务及 HTTP 错误；不要重新提交建模。")
         return response
 
     @staticmethod
@@ -134,8 +133,7 @@ class Client:
                 f"{exc} No automatic resubmission. Check website jobs; use attach if a job was created.",
                 cause_category=exc.cause_category or exc.category,
                 retry_after_seconds=exc.retry_after_seconds,
-                next_step=((exc.next_step + " ") if exc.next_step else "") +
-                          "Inspect website jobs and attach the existing cloned build ID; do not submit again."
+                next_step=recovery_guidance("submission_unknown", cause_category=exc.cause_category or exc.category)
             ) from None
         return identifier
 
@@ -154,10 +152,12 @@ class Client:
                 handle.flush()
                 os.fsync(handle.fileno())
             normalize_download(temporary, destination)
-        except requests.RequestException:
+        except requests.RequestException as exc:
             raise ToolError("Download interrupted. Resume will retry the download, not submit a new job.",
-                            category="transient_network", retryable=True,
-                            next_step="Resume the existing run to retry the download.") from None
+                            category="transient_network" if transient_exception(exc) else "transport_error",
+                            retryable=transient_exception(exc),
+                            next_step=("下载中断，原始响应已保留；使用 jobs resume NAME 或 build-resume 原任务目录重试下载，不会创建新任务。"
+                                       if transient_exception(exc) else recovery_guidance("transport_error"))) from None
         finally:
             response.close()
             # Retain the temporary response for recovery/diagnosis, including

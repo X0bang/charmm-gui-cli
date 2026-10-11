@@ -103,6 +103,8 @@ class FullBuildTests(unittest.TestCase):
     def test_full_advance_uses_prepared_file_paths_and_resume_never_reposts(self):
         self.root = self.root / "fresh-run"
         self.root.mkdir()
+        self.manifest["state"] = "inputs_ready"
+        self.manifest.pop("source_job_id", None)
         atomic_json(self.root / "full-run.json", self.manifest)
         uploaded = self.root / "preparation" / "upload-response.html"
         selected = self.root / "preparation" / "selection.html"
@@ -123,7 +125,12 @@ class FullBuildTests(unittest.TestCase):
             return {"job_id": "456", "state": "submitted"}
         self.web.upload_structure.side_effect = upload
         self.web.submit_snapshot.side_effect = submit
-        with patch.object(full_build, "api_config", return_value={}), patch.object(full_build, "start_api", side_effect=start) as start_mock:
+        def seal(directory):
+            value = json.loads((directory / "full-run.json").read_text())
+            self.assertEqual(value["state"], "inputs_ready")
+            self.assertFalse((directory / "preparation").exists())
+        with patch.object(full_build, "api_config", return_value={}), patch.object(full_build, "start_api", side_effect=start) as start_mock, \
+                patch("charmm_gui_cli.sweep.seal_preparation", side_effect=seal) as seal_mock:
             result = full_build.advance(self.root, self.web, Mock())
             self.assertEqual(result["state"], "bilayer_submitted")
             self.assertEqual(self.web.submit_snapshot.call_count, 2)
@@ -133,6 +140,7 @@ class FullBuildTests(unittest.TestCase):
             self.assertEqual(self.web.upload_structure.call_count, 1)
             self.assertEqual(self.web.submit_snapshot.call_count, 2)
             start_mock.assert_called_once()
+            seal_mock.assert_called_once()
 
     def test_failed_preparation_never_starts_bilayer(self):
         atomic_json(self.root / "full-run.json", self.manifest)
@@ -172,6 +180,37 @@ class FullBuildTests(unittest.TestCase):
         self.manifest["preparation_snapshot"] = "preparation/parameterization.html"
         self.await_page(rendered())
         self.assertEqual(self.manifest["state"], "prepared")
+
+    def test_reused_source_clones_without_web_or_cookies(self):
+        self.manifest.update(state="prepared_reused", reused_preparation={"certificate": "mocked"})
+        atomic_json(self.root / "full-run.json", self.manifest)
+        with patch("charmm_gui_cli.sweep.reuse_api_config", return_value={"source_job_id": "123"}) as verify, \
+                patch.object(full_build, "start_api", return_value={"job_id": "456"}) as start:
+            result = full_build.advance(self.root, None, Mock(), wait=False)
+        verify.assert_called_once()
+        start.assert_called_once()
+        self.assertEqual(result["state"], "bilayer_submitted")
+        self.assertEqual(result["source_job_id"], "123")
+        self.web.upload_structure.assert_not_called()
+
+    def test_reuse_failure_does_not_fallback_to_upload(self):
+        self.manifest.update(state="prepared_reused", reused_preparation={})
+        atomic_json(self.root / "full-run.json", self.manifest)
+        with patch("charmm_gui_cli.sweep.reuse_api_config", side_effect=ToolError("Changed source evidence")), \
+                patch.object(full_build, "start_api") as start, self.assertRaises(ToolError):
+            full_build.advance(self.root, self.web, Mock())
+        start.assert_not_called()
+        self.web.upload_structure.assert_not_called()
+
+    def test_existing_reused_clone_resumes_without_rechecking_source(self):
+        self.manifest.update(reused_preparation={"certificate": "source no longer available"})
+        atomic_json(self.root / "full-run.json", self.manifest)
+        (self.root / "bilayer").mkdir()
+        atomic_json(self.root / "bilayer/run.json", {"job_id": "456"})
+        with patch("charmm_gui_cli.sweep.reuse_api_config", side_effect=AssertionError("No source dependency")), \
+                patch.object(full_build, "resume_api", return_value={"job_id": "456", "state": "running"}):
+            result = full_build.advance(self.root, None, Mock())
+        self.assertEqual(result["state"], "running")
 
 
 if __name__ == "__main__":

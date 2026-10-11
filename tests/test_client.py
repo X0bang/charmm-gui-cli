@@ -429,7 +429,7 @@ class WorkflowTests(TemporaryTest):
         workflow.start(self.client, config(), self.directory)
         self.client.status.return_value = {"status": "done"}
         self.client.download.side_effect = lambda _, path: path.write_bytes(
-            archive_bytes({"job/step5_assembly.pdb": pdb("LIG")})
+            archive_bytes({"charmm-gui-234/step5_assembly.pdb": pdb("LIG")})
         )
         for _ in range(2):
             result = workflow.resume(self.client, self.directory)
@@ -456,7 +456,7 @@ class WorkflowTests(TemporaryTest):
         workflow.start(self.client, config(), self.directory)
         self.client.status.return_value = {"status": "done"}
         self.client.download.side_effect = lambda _, path: path.write_bytes(
-            archive_bytes({"step5_assembly.pdb": pdb("ALA")})
+            archive_bytes({"charmm-gui-234/step5_assembly.pdb": pdb("ALA")})
         )
         with self.assertRaisesRegex(ToolError, "missing"):
             workflow.resume(self.client, self.directory)

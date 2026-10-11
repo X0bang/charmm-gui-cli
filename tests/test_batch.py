@@ -112,6 +112,95 @@ class BatchTests(unittest.TestCase):
             self.assertEqual(result["state"], "paused_auth")
             self.assertEqual(code, 2)
 
+    def test_auth_required_category_has_login_guidance(self):
+        self.prepare()
+        with patch("charmm_gui_cli.build_command.execute", side_effect=ToolError("Expired", category="auth_required")) as execute:
+            result, code = batch.advance(self.directory, wait=False, max_active=4, submit_interval=0)
+        self.assertEqual(execute.call_count, 1)
+        self.assertEqual(result["state"], "paused_auth")
+        self.assertIn("login", result["next_step"])
+        self.assertIn("login", result["jobs"][0]["next_step"])
+
+    def test_transport_error_pauses_without_retries_and_keeps_slot_for_explicit_resume(self):
+        self.prepare()
+        first = self.directory / "jobs" / "first"
+        atomic_json(first / "full-run.json", {"state": "bilayer_submitted", "build_job_id": "234"})
+        with patch("charmm_gui_cli.build_command.execute", side_effect=ToolError("GET TLS failure", category="transport_error")) as execute:
+            result, code = batch.advance(self.directory, wait=True, max_active=4, submit_interval=0)
+        self.assertEqual(execute.call_count, 1)
+        self.assertEqual(code, 2)
+        self.assertEqual(result["state"], "paused_network")
+        self.assertEqual(result["jobs"][0]["build_job_id"], "234")
+        self.assertIn("TLS", result["next_step"])
+        self.assertEqual(batch.status(self.directory)["jobs"][0]["state"], "paused_network")
+        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "running"}, 0)) as execute:
+            result, code = batch.advance(self.directory, wait=False, max_active=1, submit_interval=0)
+        self.assertEqual(execute.call_count, 1)
+        self.assertEqual(execute.call_args.args[0].directory, first)
+        self.assertNotIn("error_category", result["jobs"][0])
+        self.assertNotIn("next_step", result["jobs"][0])
+
+    def test_unknown_post_transport_error_never_becomes_retryable_network_pause(self):
+        self.prepare()
+        error = SubmissionUnknown("Uncertain POST", cause_category="transport_error")
+        with patch("charmm_gui_cli.build_command.execute", side_effect=error):
+            result, code = batch.advance(self.directory, wait=False, submit_interval=0)
+        self.assertEqual(result["state"], "paused_inspection")
+        self.assertIn("attach", result["next_step"])
+        with patch("charmm_gui_cli.build_command.execute") as execute:
+            batch.advance(self.directory, wait=False, submit_interval=0)
+        execute.assert_not_called()
+
+    def test_ctrl_c_during_post_preserves_unknown_intent_and_does_not_replay(self):
+        self.prepare()
+        def interrupted(args):
+            bilayer = args.directory / "bilayer"
+            bilayer.mkdir()
+            atomic_json(bilayer / "run.json", {"state": "submission_unknown", "job_id": None})
+            raise KeyboardInterrupt
+        with patch("charmm_gui_cli.build_command.execute", side_effect=interrupted), self.assertRaises(KeyboardInterrupt):
+            batch.advance(self.directory, wait=False, max_active=4, submit_interval=0)
+        saved = json.loads((self.directory / "batch.json").read_text())
+        self.assertEqual(saved["state"], "interrupted")
+        self.assertEqual(saved["jobs"][0]["error_category"], "submission_unknown")
+        self.assertTrue(saved["jobs"][0]["started"])
+        self.assertIn("attach", json.loads((self.directory / "summary.json").read_text())["next_step"])
+        with patch("charmm_gui_cli.build_command.execute") as execute:
+            result, code = batch.advance(self.directory, wait=False, submit_interval=0)
+        execute.assert_not_called()
+        self.assertEqual(result["state"], "paused_inspection")
+
+    def test_ctrl_c_during_polling_keeps_existing_id_and_can_resume(self):
+        self.prepare()
+        first = self.directory / "jobs" / "first"
+        atomic_json(first / "full-run.json", {"state": "bilayer_submitted", "build_job_id": "234"})
+        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "running", "build_job_id": "234"}, 0)), \
+                patch("charmm_gui_cli.batch.time.sleep", side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
+            batch.advance(self.directory, wait=True, submit_interval=0)
+        saved = json.loads((self.directory / "batch.json").read_text())
+        self.assertEqual(saved["state"], "interrupted")
+        self.assertEqual(saved["jobs"][0]["build_job_id"], "234")
+        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "running"}, 0)) as execute:
+            batch.advance(self.directory, wait=False, submit_interval=0)
+        self.assertEqual(execute.call_count, 1)
+        self.assertEqual(execute.call_args.args[0].directory, first)
+
+    def test_ctrl_c_during_web_upload_keeps_unknown_guard(self):
+        self.prepare()
+        def interrupted(args):
+            preparation = args.directory / "preparation"
+            preparation.mkdir()
+            atomic_json(args.directory / "full-run.json", {"state": "uploading"})
+            atomic_json(preparation / "web-run.json", {"state": "submission_unknown"})
+            raise KeyboardInterrupt
+        with patch("charmm_gui_cli.build_command.execute", side_effect=interrupted), self.assertRaises(KeyboardInterrupt):
+            batch.advance(self.directory, wait=False, submit_interval=0)
+        with patch("charmm_gui_cli.build_command.execute") as execute:
+            result, code = batch.advance(self.directory, wait=False, submit_interval=0)
+        execute.assert_not_called()
+        self.assertEqual(result["state"], "paused_inspection")
+        self.assertIn("网页上传", result["next_step"])
+
     def test_uncertain_submission_preserves_active_slot(self):
         self.prepare()
         with patch("charmm_gui_cli.build_command.execute", side_effect=SubmissionUnknown("Submission uncertain")) as execute:

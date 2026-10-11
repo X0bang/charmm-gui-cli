@@ -44,6 +44,8 @@ charmm-gui-cli jobs          # 任务及结果位置
 charmm-gui-cli jobs status receptor-a
 charmm-gui-cli jobs resume receptor-a
 charmm-gui-cli jobs report receptor-a
+charmm-gui-cli jobs report receptor-a --format text
+charmm-gui-cli jobs report receptor-a --format html --out result.html
 charmm-gui-cli build-resume  # 继续最近任务
 ```
 
@@ -58,5 +60,17 @@ charmm-gui-cli batch-status runs/campaign
 ```
 
 每项自动验收，批次自动生成 JSON/CSV 汇总。
+
+新增本地预检、三视图 PNG 和参数扫描：
+
+```bash
+charmm-gui-cli check --protein protein.pdb --ligand bound-ligand.sdf
+charmm-gui-cli preview receptor-a
+charmm-gui-cli sweep sweep.yaml --dry-run
+charmm-gui-cli sweep-resume SCAN_DIR --max-active 2
+charmm-gui-cli build --complex bound.pdb --components components.yaml
+```
+
+扫描使用 [清单示例](examples/sweep.yaml)，复用核验过的前处理；[多组分清单](examples/components.yaml) 为实验性入口。不在本地自动运行最小化、平衡或生产模拟。
 
 许可证：[GPL-3.0-only](LICENSE)。Copyright (c) 2026 X0bang.

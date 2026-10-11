@@ -23,6 +23,24 @@ def brief(manifest):
     return {key: manifest[key] for key in ("state", "job_id", "remote_status", "validation") if key in manifest}
 
 
+def precheck_summary(report):
+    result = {key: report[key] for key in ("passed", "status", "directory", "check_file", "review_required",
+        "server_submitted", "task_registered", "scientific_correctness_verified", "prepared_complex", "preview", "error") if key in report}
+    inventory = report.get("protein_inventory", {})
+    result["protein"] = {"residues": inventory.get("protein_residues_all_models"),
+        "residues_missing_heavy_atoms": len(inventory.get("missing_heavy_atoms", [])),
+        "numbering_gaps": len(inventory.get("numbering_gaps", [])),
+        "sequence_alignment_performed": False, "repaired": False}
+    result["chemistry"] = [{key: component[key] for key in ("resname", "atoms", "heavy_atoms", "bonds",
+        "molecular_formula", "net_formal_charge", "rdkit_sanitized", "graph_sha256") if key in component}
+        for component in report.get("chemistry", [])]
+    if "spatial_review" in report:
+        result["spatial_review"] = report["spatial_review"].get("summary", {})
+    result["next_step"] = ("Review check.json; then build with the same original inputs. No remote task was created."
+                           if report.get("passed") else "Fix the reported input errors before build; retained files are in check.json. No remote task was created.")
+    return result
+
+
 def report_summary(report, name, path):
     """Keep the everyday report readable; --full retains all evidence paths."""
     acceptance = report.get("acceptance_validation", {})
@@ -43,6 +61,11 @@ def report_summary(report, name, path):
                 "concentration_verified": concentration.get("passed")},
             "bound_pose": {key: pose[key] for key in ("passed", "protein_ca_rmsd_A",
                 "ligand_rmsd_after_protein_fit_A", "ligand_max_displacement_A") if key in pose},
+            "components": {resname: {"passed": entry.get("passed"), "copies": entry.get("exact_copy_count"),
+                "ligand_rmsd_A": entry.get("bound_pose", {}).get("ligand_rmsd_after_protein_fit_A"),
+                "cgenff": {key: acceptance.get("component_penalties", {}).get(resname, {}).get(key)
+                    for key in ("status", "parameter_max", "charge_max", "review_required")}}
+                for resname, entry in report.get("component_validation", {}).get("components", {}).items()},
             "acceptance": {"passed": acceptance.get("passed"), "status": acceptance.get("status"),
                 "leaflets": checks.get("leaflets", {}).get("leaflets"),
                 "cgenff": {key: penalty[key] for key in ("parameter_max", "charge_max", "review_required") if key in penalty},
@@ -66,6 +89,7 @@ def add_build_runtime_options(command):
     checking.add_argument("--grompp", action="store_true", help="要求 GROMACS 编译验证")
     checking.add_argument("--no-grompp", action="store_true", help="跳过编译，仍验证模型")
     command.add_argument("--gmx", default="gmx", help="gmx 可执行文件；默认 PATH 中的 gmx")
+    command.add_argument("--no-preview", action="store_true", help="不生成本地 PNG；不影响模型验收")
 
 
 def parser():
@@ -127,6 +151,9 @@ def parser():
     job_report = job_commands.add_parser("report", help="按任务名查看最终验收结论和审阅项")
     job_report.add_argument("target", help="任务名称或目录")
     job_report.add_argument("--full", action="store_true", help="显示完整 JSON 证据报告")
+    job_report.add_argument("--format", choices=("json", "text", "html"), default="json",
+                            help="输出格式：默认 JSON；text 为终端摘要，html 为含已有预览的离线报告")
+    job_report.add_argument("--out", type=Path, help="导出到新文件，不覆盖旧文件；HTML 必须指定")
     job_resume = job_commands.add_parser("resume", help="按名称或目录恢复同一任务")
     job_resume.add_argument("target", help="任务名称或目录")
     add_build_runtime_options(job_resume)
@@ -142,6 +169,7 @@ def parser():
     structures.add_argument("--protein", type=Path, help="蛋白 PDB（与配体处于相同结合坐标系）")
     structures.add_argument("--ligand", type=Path, help="配体 SDF 或 PDB；PDB 需可靠化学定义")
     structures.add_argument("--complex", dest="complex_pdb", type=Path, help="已有结合姿势的蛋白–配体复合物 PDB")
+    structures.add_argument("--components", type=Path, help="多配体/有机辅因子 YAML，须与 --complex 配合；实验性")
     structures.add_argument("--ligand-resname", help="复合物中的配体残基名，默认 LIG")
     structures.add_argument("--ligand-smiles", help="配体键级/电荷模板；PDB 需有连接图且映射唯一")
     structures.add_argument("--accept-conect-bond-orders", action="store_true", help="明确接受输入 PDB 中 CONECT 重复次数作为键级")
@@ -177,6 +205,36 @@ def parser():
     batch_status.add_argument("directory", type=Path)
     batch_status.add_argument("--remote-check", action="store_true")
     batch_status.add_argument("--csv", type=Path, help="另外输出 CSV 汇总文件")
+    sweep = commands.add_parser("sweep", help="扫描膜/盐/尺寸参数，复用经过核验的同一前处理")
+    sweep.add_argument("config", type=Path)
+    sweep.add_argument("--out", type=Path)
+    sweep.add_argument("--dry-run", action="store_true", help="仅展开参数并预检，不登录或上传")
+    sweep_resume = commands.add_parser("sweep-resume", help="恢复已有扫描，不重复上传或提交")
+    sweep_resume.add_argument("directory", type=Path)
+    for command in (sweep, sweep_resume):
+        add_build_runtime_options(command)
+        command.add_argument("--max-active", type=int, default=1, help="并行克隆任务上限 1-4")
+        command.add_argument("--submit-interval", type=int, default=30)
+    sweep_status = commands.add_parser("sweep-status", help="查看扫描结果与 JSON/CSV 汇总")
+    sweep_status.add_argument("directory", type=Path)
+    sweep_status.add_argument("--remote-check", action="store_true")
+    sweep_status.add_argument("--csv", type=Path)
+    precheck = commands.add_parser("check", help="独立结构和化学预检，自动生成输入 PNG；不登录、不上传")
+    for name in ("protein", "ligand", "complex", "components"):
+        precheck.add_argument("--" + name, dest="complex_pdb" if name == "complex" else name, type=Path)
+    precheck.add_argument("--ligand-resname", default="LIG")
+    precheck.add_argument("--ligand-smiles")
+    precheck.add_argument("--accept-conect-bond-orders", action="store_true")
+    precheck.add_argument("--hydrogens", choices=("preserve", "add_missing"), default="add_missing")
+    precheck.add_argument("--out", type=Path, help="可选的新目录；默认自动管理")
+    precheck.add_argument("--no-preview", action="store_true")
+    precheck.add_argument("--full", action="store_true", help="输出完整原子/化学图报告；默认显示摘要")
+    preview = commands.add_parser("preview", help="真实坐标的侧视、俯视与配体局部 PNG（无需显示器/GPU）")
+    preview.add_argument("target", help="PDB 文件、已验收任务名或任务目录")
+    preview.add_argument("--out", type=Path, help="可选的新预览目录")
+    preview.add_argument("--ligand", action="append", help="PDB 的配体残基名，可重复；任务自动读取")
+    preview.add_argument("--width", type=int, default=1400, help="PNG 宽度 400-4096，默认 1400")
+    preview.add_argument("--view", action="append", choices=("side", "top", "ligand"))
     validate = commands.add_parser("validate", help="Check downloaded GROMACS topology/ligand retention, optionally run grompp")
     validate.add_argument("system", type=Path)
     validate.add_argument("--input-manifest", type=Path, required=True)
@@ -212,6 +270,61 @@ def parser():
 
 
 def dispatch(args):
+    if args.command == "check":
+        from .precheck import check_inputs
+        from .preview import render_model, new_preview_path
+        report = check_inputs(out=args.out or new_preview_path("checks"), protein=args.protein,
+            ligand=args.ligand, complex_pdb=args.complex_pdb, components=args.components,
+            ligand_resname=args.ligand_resname, ligand_smiles=args.ligand_smiles,
+            accept_conect_bond_orders=args.accept_conect_bond_orders, hydrogens=args.hydrogens)
+        if report.get("passed") and not args.no_preview:
+            try:
+                report["preview"] = render_model(report["prepared_complex"], Path(report["directory"]) / "preview",
+                    ligand_resnames=report["component_resnames"], scope="prepared_input")
+            except (ToolError, OSError) as exc:
+                report["preview"] = {"status": "failed", "message": str(exc)}
+            atomic_json(Path(report["check_file"]), report)
+        emit(report if args.full else precheck_summary(report))
+        return 0 if report.get("passed") else 2
+    if args.command == "preview":
+        from .preview import render_model, preview_run, new_preview_path
+        if Path(args.target).is_file():
+            report = render_model(args.target, args.out or new_preview_path(),
+                ligand_resnames=args.ligand or ("LIG",), width=args.width,
+                views=args.view or ("side", "top", "ligand"))
+        else:
+            if args.ligand:
+                raise ToolError("Task previews use the recorded component names; --ligand is only for a PDB file.")
+            from .managed import resolve_run
+            report = preview_run(resolve_run(args.target), out=args.out, width=args.width,
+                                 views=args.view or ("side", "top", "ligand"))
+        emit(report)
+        return 0
+    if args.command in ("sweep", "sweep-resume", "sweep-status"):
+        from . import sweep, batch as batching, managed
+        if args.command == "sweep":
+            directory = args.out or managed.new_batch_path()
+            prepared = sweep.prepare(args.config, directory)
+            if args.dry_run:
+                emit(prepared)
+                return 2 if prepared.get("failed") else 0
+        else:
+            directory = args.directory
+        saved = sweep.read(directory)
+        batch_directory = Path(saved["batch_directory"])
+        if args.command == "sweep-status":
+            report = batching.status(batch_directory, remote_check=args.remote_check, token_file=args.token_file)
+            if args.csv:
+                atomic_write(args.csv, batching.export_csv(report))
+                report["csv"] = str(args.csv.resolve())
+            emit({"sweep_directory": str(Path(directory).resolve()), **report})
+            return 0
+        report, code = batching.advance(batch_directory, max_active=args.max_active,
+            submit_interval=args.submit_interval, wait=args.wait, interval=args.interval,
+            max_wait=args.max_wait, token_file=args.token_file, cookies=args.cookies,
+            grompp=args.grompp, no_grompp=args.no_grompp, gmx=args.gmx, no_preview=args.no_preview)
+        emit({"sweep_directory": str(Path(directory).resolve()), **report})
+        return code
     if args.command == "doctor":
         from .doctor import inspect_installation
         report = inspect_installation(args.gmx)
@@ -224,6 +337,10 @@ def dispatch(args):
         elif args.jobs_command in ("status", "show"):
             emit(managed.inspect_run(args.target, remote_check=args.remote_check, token_file=args.token_file))
         elif args.jobs_command == "report":
+            if args.full and args.format != "json":
+                raise ToolError("--full is only supported with --format json.")
+            if args.format == "html" and args.out is None:
+                raise ToolError("HTML export requires --out with a new filename.")
             directory = managed.resolve_run(args.target)
             result = managed.inspect_run(directory)
             if result.get("validation_status") == "stale_or_unreadable":
@@ -232,10 +349,28 @@ def dispatch(args):
             if not path.is_file():
                 raise ToolError("No final report exists yet. Use jobs status or jobs resume for this task.")
             report = managed._read_json(path)
-            if args.full:
-                emit(report)
+            summary = report_summary(report, result.get("name"), path)
+            if args.format == "json":
+                payload = report if args.full else summary
+                if args.out:
+                    from .reporting import write_new
+                    destination = write_new(args.out, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+                    emit({"report": destination, "passed": report.get("passed"), "format": "json"})
+                else:
+                    emit(payload)
             else:
-                emit(report_summary(report, result.get("name"), path))
+                from .reporting import display_result, render_text, render_html, verified_images, write_new
+                displayed = display_result(summary, result, managed._read_json(directory / "full-run.json"), report)
+                if args.format == "html":
+                    images, note = verified_images(directory, report)
+                    content = render_html(displayed, images, note)
+                else:
+                    content = render_text(displayed)
+                if args.out:
+                    destination = write_new(args.out, content)
+                    emit({"report": destination, "passed": report.get("passed"), "format": args.format})
+                else:
+                    print(content, end="")
             return 0 if report.get("passed") else 2
         elif args.jobs_command == "resume":
             from .build_command import execute
@@ -271,7 +406,7 @@ def dispatch(args):
         report, code = batching.advance(directory, max_active=args.max_active,
             submit_interval=args.submit_interval, wait=args.wait, interval=args.interval,
             max_wait=args.max_wait, token_file=args.token_file, cookies=args.cookies,
-            grompp=args.grompp, no_grompp=args.no_grompp, gmx=args.gmx)
+            grompp=args.grompp, no_grompp=args.no_grompp, gmx=args.gmx, no_preview=args.no_preview)
         emit(report)
         return code
     if args.command == "inputs":
@@ -464,5 +599,6 @@ def main(argv=None):
         print("Error: filesystem operation failed; check file paths, permissions and free space.", file=sys.stderr)
         return 2
     except (KeyboardInterrupt, EOFError):
-        print("Interrupted. For an existing run, use resume; if submission was interrupted, check website jobs first.", file=sys.stderr)
+        from .auth import recovery_guidance
+        print("操作中断。" + recovery_guidance("interrupted"), file=sys.stderr)
         return 130

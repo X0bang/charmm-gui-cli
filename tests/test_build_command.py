@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from charmm_gui_cli.auth import atomic_json
+from charmm_gui_cli.auth import ToolError, atomic_json
 from charmm_gui_cli.cli import main
 
 
@@ -21,6 +21,7 @@ class BuildCommandTests(unittest.TestCase):
         self.stack = contextlib.ExitStack()
         self.stack.enter_context(patch("requests.Session.request", side_effect=AssertionError("No network in unit tests")))
         self.token = self.stack.enter_context(patch("charmm_gui_cli.build_command.load_token", return_value=("test-token", str(self.root / "session.token"))))
+        self.preview = self.stack.enter_context(patch("charmm_gui_cli.preview.preview_run", return_value={"status": "generated"}, create=True))
 
     def tearDown(self):
         self.stack.close()
@@ -81,6 +82,63 @@ class BuildCommandTests(unittest.TestCase):
         self.assertFalse(advance.call_args.kwargs["wait"])
         self.assertEqual(result["state"], "preparation_running")
         finalize.assert_not_called()
+
+    def test_reused_preparation_needs_api_token_but_no_cookie(self):
+        self.run.mkdir()
+        atomic_json(self.run / "full-run.json", {"schema_version": 2, "state": "prepared_reused", "reused_preparation": {"certificate": "mocked"}})
+        with patch("charmm_gui_cli.build_command.resolve_cookie_path", return_value=self.root / "missing.cookies"), \
+                patch("charmm_gui_cli.web.WebClient", side_effect=AssertionError("No website session")), \
+                patch("charmm_gui_cli.managed.remember_run"), patch("charmm_gui_cli.managed.record_recovery"), \
+                patch("charmm_gui_cli.full_build.advance", return_value={"state": "bilayer_submitted"}) as advance:
+            code, result, error = self.call(["build-resume", str(self.run), "--no-wait"])
+        self.assertEqual(code, 0, error)
+        self.token.assert_called_once()
+        self.assertIsNone(advance.call_args.args[1])
+
+    def test_preview_failure_does_not_invalidate_model_acceptance(self):
+        self.preview.side_effect = ToolError("Preview conversion unavailable")
+        with patch("charmm_gui_cli.managed.create_managed_build", return_value=self.run), \
+                patch("charmm_gui_cli.full_build.advance", return_value={"state": "ligands_present"}), \
+                patch("charmm_gui_cli.managed.finalize_managed_build", return_value={"passed": True, "checks": {}}):
+            code, result, error = self.call(["build", "--protein", "protein.pdb", "--ligand", "bound.sdf"])
+        self.assertEqual(code, 0, error)
+        self.assertEqual(result["state"], "validated")
+        self.assertEqual(result["preview"]["status"], "failed")
+
+    def test_no_preview_disables_optional_generation(self):
+        with patch("charmm_gui_cli.managed.create_managed_build", return_value=self.run), \
+                patch("charmm_gui_cli.full_build.advance", return_value={"state": "ligands_present"}), \
+                patch("charmm_gui_cli.managed.finalize_managed_build", return_value={"passed": True, "checks": {}}):
+            code, result, error = self.call(["build", "--protein", "p.pdb", "--ligand", "l.sdf", "--no-preview"])
+        self.assertEqual(code, 0, error)
+        self.preview.assert_not_called()
+        self.assertEqual(result["preview"]["status"], "disabled")
+
+    def test_components_dry_run_uses_component_builder_without_auth(self):
+        with patch("charmm_gui_cli.managed.create_component_build", return_value=self.run) as create, \
+                patch("charmm_gui_cli.managed.create_managed_build") as single:
+            code, result, error = self.call(["build", "--complex", "complex.pdb", "--components", "components.yaml",
+                                             "--salt", "KCl", "--salt-concentration", "0.1", "--dry-run"])
+        self.assertEqual(code, 0, error)
+        self.assertFalse(result["server_submitted"])
+        self.assertEqual(create.call_args.kwargs["components_config"], Path("components.yaml"))
+        self.assertEqual(create.call_args.kwargs["complex_pdb"], Path("complex.pdb"))
+        self.assertEqual(create.call_args.kwargs["ions"]["concentration_M"], 0.1)
+        single.assert_not_called()
+        self.token.assert_not_called()
+
+    def test_component_conflicts_rejected_before_auth(self):
+        cases = (["--components", "c.yaml"],
+                 ["--complex", "complex.pdb", "--components", "c.yaml", "--ligand", "ligand.sdf"],
+                 ["--complex", "complex.pdb", "--components", "c.yaml", "--ligand-resname", "LIG"],
+                 ["--complex", "complex.pdb", "--components", "c.yaml", "--accept-conect-bond-orders"],
+                 ["system.yaml", "--components", "c.yaml"])
+        for arguments in cases:
+            with self.subTest(arguments=arguments):
+                code, result, error = self.call(["build", *arguments, "--dry-run"])
+                self.assertEqual(code, 2)
+                self.assertTrue("components" in error or "not both" in error)
+        self.token.assert_not_called()
 
     def test_yaml_and_direct_flags_are_not_silently_mixed(self):
         code, _, error = self.call(["build", "system.yaml", "--salt", "NaCl"])

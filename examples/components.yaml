@@ -1,0 +1,14 @@
+version: 1
+water_policy: reject
+ion_policy: reject
+components:
+  - resname: LIG
+    chain: L
+    resid: 1
+    role: ligand
+    sdf: structures/ligand-with-atom-names.sdf
+  - resname: COF
+    chain: C
+    resid: 2
+    role: cofactor
+    sdf: structures/organic-cofactor-with-atom-names.sdf

@@ -1,6 +1,7 @@
 """Durable, bounded multi-build queue. Every job is prepared before networking."""
 
 from argparse import Namespace
+from contextlib import contextmanager
 import csv
 import hashlib
 import io
@@ -9,11 +10,12 @@ import math
 from pathlib import Path
 import re
 import shutil
+import shlex
 import time
 
 import yaml
 
-from .auth import ToolError, atomic_json, atomic_write
+from .auth import ToolError, atomic_json, atomic_write, recovery_guidance
 from .config import UniqueLoader, mapping, composition, number
 from .workflow import run_lock, now
 
@@ -72,7 +74,9 @@ def load_batch(path):
         raw = yaml.load(data.decode("utf-8"), Loader=UniqueLoader)
     except (OSError, UnicodeError, yaml.YAMLError):
         raise ToolError("Cannot read valid batch YAML.") from None
-    mapping(raw, ("version", "defaults", "jobs"), "batch")
+    mapping(raw, ("version", "defaults", "jobs", "reuse_preparation"), "batch")
+    if "reuse_preparation" in raw and type(raw["reuse_preparation"]) is not bool:
+        raise ToolError("reuse_preparation must be boolean.")
     if type(raw.get("version")) is not int or raw["version"] != 1:
         raise ToolError("Batch YAML requires version: 1.")
     defaults = _options(mapping(raw.get("defaults", {}), FIELDS, "batch defaults"), path.parent)
@@ -91,7 +95,8 @@ def load_batch(path):
         if not options.get("complex") and not (options.get("protein") and options.get("ligand")):
             raise ToolError("Each batch job needs protein + ligand, or complex.")
         jobs.append({"name": name, "options": options})
-    return {"version": 1, "source": str(path), "source_sha256": _hash(data), "jobs": jobs}
+    return {"version": 1, "source": str(path), "source_sha256": _hash(data), "jobs": jobs,
+            **({"reuse_preparation": raw["reuse_preparation"]} if "reuse_preparation" in raw else {})}
 
 
 def _arguments(directory, options=None, **kwargs):
@@ -106,7 +111,7 @@ def _arguments(directory, options=None, **kwargs):
                      wait=False, interval=kwargs.get("interval", 30), max_wait=kwargs.get("max_wait", 21600),
                      token_file=kwargs.get("token_file"), cookies=kwargs.get("cookies"),
                      grompp=kwargs.get("grompp", False), no_grompp=kwargs.get("no_grompp", False),
-                     gmx=kwargs.get("gmx", "gmx"))
+                     gmx=kwargs.get("gmx", "gmx"), no_preview=kwargs.get("no_preview", False))
 
 
 def _save(directory, manifest):
@@ -189,6 +194,9 @@ def _prepare(directory, manifest):
                     raise ValueError
                 managed.assign_name(output, _named_job(directory, job["name"]))
                 job["state"] = "inputs_ready"
+                if manifest["config"].get("reuse_preparation"):
+                    from .sweep import seal_preparation
+                    seal_preparation(output)
             except (OSError, ValueError, KeyError, TypeError, AttributeError, ToolError):
                 job.update(state="local_failed", error="Local preparation was interrupted; retained partial files require inspection. No task was recreated.")
             _save(directory, manifest)
@@ -203,6 +211,9 @@ def _prepare(directory, manifest):
                 # Prefix names with stable batch identity to avoid cross-batch collisions.
                 managed.assign_name(Path(job["directory"]), _named_job(directory, job["name"]))
                 job["state"] = result["state"]
+                if manifest["config"].get("reuse_preparation"):
+                    from .sweep import seal_preparation
+                    seal_preparation(output)
             except (ToolError, OSError) as error:
                 job.update(state="local_failed", error=str(error) if isinstance(error, ToolError) else "Local file operation failed.")
             _save(directory, manifest)
@@ -232,6 +243,7 @@ def _local(job):
             return
         job.pop("error_category", None)
     prior_final = job["state"] in ("validated", "validation_failed")
+    reused_source = False
     if prior_final:
         job["state"] = "validation_stale"
     for path in (directory / "full-run.json", directory / "bilayer" / "run.json"):
@@ -239,6 +251,8 @@ def _local(job):
             continue
         try:
             value = json.loads(path.read_text(encoding="utf-8"))
+            if path.name == "full-run.json":
+                reused_source = bool(value.get("reused_preparation"))
             # Final validation is accepted only after evidence is checked below.
             if job["state"] not in TERMINAL and isinstance(value.get("state"), str):
                 job["state"] = value["state"]
@@ -270,18 +284,20 @@ def _local(job):
     # pending is also a real remote status. A user may have advanced a later
     # named job independently of this batch, so infer occupancy from durable
     # submission evidence, never from the display status alone.
-    if (job.get("source_job_id") or job.get("build_job_id")
+    if ((job.get("source_job_id") and not reused_source) or job.get("build_job_id")
             or (directory / "bilayer" / "run.json").is_file()
             or (directory / "preparation" / "web-run.json").is_file()
             or any((directory / "preparation").glob("*.intent.json"))
-            or job["state"] not in ("pending", "preparing_local", "inputs_ready")):
+            or job["state"] not in ("pending", "preparing_local", "inputs_ready", "prepared_reused", "waiting_preparation")):
         job["started"] = True
     if job["state"] not in TERMINAL and time.time() < job.get("next_retry_unix", 0):
         job["state"] = "waiting_network"
+    elif job["state"] not in TERMINAL and job.get("error_category") == "transport_error":
+        job["state"] = "paused_network"
 
 
 def _summary(directory, manifest):
-    jobs = [{key: job[key] for key in ("name", "directory", "state", "error", "error_category", "cause_category", "next_retry_unix",
+    jobs = [{key: job[key] for key in ("name", "directory", "state", "error", "error_category", "cause_category", "next_retry_unix", "next_step",
                                       "source_job_id", "build_job_id", "remote", "gromacs_compiled", "compilation_status",
                                       "gromacs_note", "review_required", "report", "archive", "validation") if key in job}
             for job in manifest["jobs"]]
@@ -289,21 +305,62 @@ def _summary(directory, manifest):
     for job in jobs:
         job["named_job"] = _named_job(directory, job["name"])
         counts[job["state"]] = counts.get(job["state"], 0) + 1
-    return {"directory": str(directory), "state": manifest["state"], "counts": counts, "jobs": jobs,
+    resume = "charmm-gui-cli batch-resume " + shlex.quote(str(directory))
+    state = manifest["state"]
+    unknown = any(job.get("error_category") == "submission_unknown" for job in jobs)
+    if unknown:
+        guidance = recovery_guidance("submission_unknown", cause_category="authentication" if state == "paused_auth" else None) + " 核对并恢复后继续批次：" + resume
+    elif state == "paused_auth":
+        guidance = "先运行 charmm-gui-cli login，然后恢复同一批次：" + resume
+    elif state == "paused_network":
+        guidance = "检查网络、代理与 TLS 证书，不要禁用证书验证；修复后恢复同一批次：" + resume
+    elif state == "waiting_network":
+        guidance = "等待网络/限流恢复及 next_retry_unix 指定时间后，恢复同一批次：" + resume
+    elif state == "interrupted":
+        guidance = "已保留原任务和提交意图；恢复时不会自动重发未知 POST：" + resume
+    else:
+        guidance = resume
+    return {"directory": str(directory), "state": state, "counts": counts, "jobs": jobs,
             "total": len(jobs), "failed": sum(counts.get(state, 0) for state in TERMINAL - {"validated"}),
             "validated": counts.get("validated", 0),
             "reports": {"json": str(directory / "summary.json"), "csv": str(directory / "summary.csv")},
-            "next_step": "charmm-gui-cli batch-resume " + str(directory)}
+            "next_step": guidance}
 
 
 def _auth_error(error):
     from .api import AuthError
-    return isinstance(error, AuthError) or getattr(error, "category", None) == "authentication" or getattr(error, "cause_category", None) in ("authentication", "auth_required") or any(word in str(error).lower() for word in
+    return isinstance(error, AuthError) or getattr(error, "category", None) in ("authentication", "auth_required") or getattr(error, "cause_category", None) in ("authentication", "auth_required") or any(word in str(error).lower() for word in
         ("session expired", "session is missing", "no api token", "token file", "jwt", "authentication", "web-login"))
 
 
+@contextmanager
+def _record_interruption(directory, manifest):
+    try:
+        yield
+    except KeyboardInterrupt:
+        for job in manifest["jobs"]:
+            _local(job)
+            uncertain = job["state"] in ("submission_unknown", "submitting", "upload_submitting")
+            preparation = Path(job["directory"]) / "preparation"
+            for path in [preparation / "web-run.json", *preparation.glob("*.intent.json")]:
+                if path.is_file():
+                    try:
+                        value = json.loads(path.read_text(encoding="utf-8"))
+                        uncertain = uncertain or value.get("state") in ("submission_unknown", "submitting", "upload_submitting")
+                    except (OSError, ValueError, AttributeError):
+                        # An unreadable existing submission record cannot prove
+                        # that the interrupted POST was never sent.
+                        uncertain = True
+            if uncertain:
+                job.update(error_category="submission_unknown", state="blocked", started=True,
+                           next_step=recovery_guidance("submission_unknown"))
+        manifest["state"] = "interrupted"
+        _save(directory, manifest)
+        raise
+
+
 def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=30, max_wait=21600,
-            token_file=None, cookies=None, grompp=False, no_grompp=False, gmx="gmx"):
+            token_file=None, cookies=None, grompp=False, no_grompp=False, gmx="gmx", no_preview=False):
     """Advance no-wait rounds; active covers preparation through final validation."""
     from . import build_command
     if grompp and not shutil.which(gmx):
@@ -315,8 +372,7 @@ def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=
             raise ToolError(f"Invalid batch {label}.")
     directory = Path(directory).expanduser().resolve()
     deadline = time.monotonic() + max_wait
-    with run_lock(directory):
-        manifest = _read(directory)
+    with run_lock(directory), _record_interruption(directory, manifest := _read(directory)):
         if any(j["state"] in ("pending", "preparing_local") for j in manifest["jobs"]):
             _prepare(directory, manifest)
         manifest["state"] = "running"
@@ -327,6 +383,9 @@ def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=
                 return _summary(directory, manifest), 2 if manifest["state"] == "waiting_network" else 0
             for job in manifest["jobs"]:
                 _local(job)
+            if manifest["config"].get("reuse_preparation"):
+                from .sweep import bind_ready_sources
+                bind_ready_sources(directory, manifest)
             if any(j["state"] == "blocked" and j.get("error_category") == "submission_unknown" for j in manifest["jobs"]):
                 manifest["state"] = "paused_inspection"
                 _save(directory, manifest)
@@ -335,6 +394,8 @@ def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=
             network_waiting = False
             for job in manifest["jobs"]:
                 if job["state"] in TERMINAL:
+                    continue
+                if job.get("reuse_waiting"):
                     continue
                 if time.time() < job.get("next_retry_unix", 0):
                     job["state"] = "waiting_network"
@@ -353,7 +414,7 @@ def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=
                 _save(directory, manifest)
                 try:
                     result, code = build_command.execute(_arguments(Path(job["directory"]), interval=interval,
-                        max_wait=max_wait, token_file=token_file, cookies=cookies, grompp=grompp, no_grompp=no_grompp, gmx=gmx))
+                        max_wait=max_wait, token_file=token_file, cookies=cookies, grompp=grompp, no_grompp=no_grompp, gmx=gmx, no_preview=no_preview))
                     job.update({k: result[k] for k in ("state", "source_job_id", "build_job_id", "gromacs_compiled",
                                                        "gromacs_note", "report", "archive", "validation") if k in result})
                     if isinstance(result.get("validation"), dict):
@@ -364,16 +425,25 @@ def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=
                     job.pop("error_category", None)
                     job.pop("cause_category", None)
                     job.pop("next_retry_unix", None)
+                    job.pop("next_step", None)
                     if code and job["state"] not in TERMINAL:
                         job.update(state="blocked", error="Build needs manual inspection before continuing.")
                 except (ToolError, OSError) as error:
                     _local(job)
                     job["error"] = str(error) if isinstance(error, ToolError) else "Local file operation failed."
                     job["error_category"] = getattr(error, "category", "local_io")
+                    job["next_step"] = getattr(error, "next_step", None) or "检查此任务已保存的状态；不要删除提交意图或重复创建任务。"
                     if getattr(error, "cause_category", None):
                         job["cause_category"] = error.cause_category
+                    else:
+                        job.pop("cause_category", None)
                     if _auth_error(error):
                         manifest["state"] = "paused_auth"
+                        _save(directory, manifest)
+                        return _summary(directory, manifest), 2
+                    if job["error_category"] == "transport_error":
+                        job["state"] = "paused_network"
+                        manifest["state"] = "paused_network"
                         _save(directory, manifest)
                         return _summary(directory, manifest), 2
                     if (getattr(error, "retryable", False) and getattr(error, "category", "") in ("transient_network", "transient_http", "rate_limited")):
@@ -432,7 +502,7 @@ def status(directory, *, remote_check=False, token_file=None):
 def export_csv(summary):
     output = io.StringIO()
     columns = ("name", "named_job", "state", "directory", "source_job_id", "build_job_id", "compilation_status",
-               "gromacs_compiled", "review_required", "report", "archive", "error")
+               "gromacs_compiled", "review_required", "report", "archive", "error", "error_category", "next_step")
     writer = csv.DictWriter(output, fieldnames=columns, extrasaction="ignore")
     writer.writeheader()
     for job in summary["jobs"]:

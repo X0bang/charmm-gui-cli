@@ -5,6 +5,7 @@ import unittest
 
 from charmm_gui_cli.acceptance import (assess_acceptance, check_leaflets,
                                        extract_cgenff_penalties, summarize_charmm_minimization)
+from charmm_gui_cli.auth import ToolError
 
 
 WORKSPACE = Path(__file__).resolve().parents[1]
@@ -61,6 +62,24 @@ class AcceptanceTests(unittest.TestCase):
         self.assertEqual(result["leaflets"]["upper"]["lipid_counts"], {"POPC": 3, "CHL1": 1})
         self.assertFalse(result["checks"]["final_leaflet_side"]["box_ZCEN_used_as_midplane"])
         self.assertTrue(result["evidence"]["coordinates"]["sha256"])
+
+    def test_explicit_penalty_files_still_require_matching_residue_summary(self):
+        rtf, prm = self.root / "lig/cof.rtf", self.root / "lig/cof.prm"
+        rtf.write_text("RESI COF 0 ! param penalty= 70 ; charge penalty= 2\n")
+        prm.write_text("! penalty= 70\n")
+        result = extract_cgenff_penalties(self.root, "COF", rtf_path=rtf, prm_path=prm)
+        self.assertEqual(result["parameter_max"], 70)
+        self.assertTrue(result["review_required"])
+        result = extract_cgenff_penalties(self.root, "LIG", rtf_path=rtf, prm_path=prm)
+        self.assertEqual(result["status"], "incomplete")
+
+    def test_penalty_files_outside_extracted_system_are_refused(self):
+        outside = Path(tempfile.mkdtemp(prefix="charmm-unrelated-evidence-"))
+        rtf, prm = outside / "lig.rtf", outside / "lig.prm"
+        rtf.write_text("RESI LIG 0 ! param penalty= 1 ; charge penalty= 1\n")
+        prm.write_text("! penalty= 1\n")
+        with self.assertRaisesRegex(ToolError, "inside"):
+            extract_cgenff_penalties(self.root, "LIG", rtf_path=rtf, prm_path=prm)
 
     def test_mixed_ratio_allows_only_one_molecule_rounding(self):
         self.write_coordinates(upper=["POPC", "POPC", "CHL1", "CHL1"])

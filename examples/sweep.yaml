@@ -1,0 +1,19 @@
+# All input paths are relative to this file. Supply your own bound-pose inputs.
+version: 1
+inputs:
+  protein: ../structures/protein.pdb
+  ligand: ../structures/bound-ligand.sdf
+  hydrogens: add_missing
+  orientation: ppm
+  n_terminal: NTER
+  c_terminal: CTER
+defaults:
+  upper: POPC=1
+  lower: POPC=1
+  salt: KCl
+  water_padding: 22.5
+axes:
+  salt_concentration: [0.10, 0.15]
+  margin: [20, 25]
+# Optional: only a local run with a pre-upload seal and complete evidence works.
+# source_run: ../runs/evidence-tracked-source

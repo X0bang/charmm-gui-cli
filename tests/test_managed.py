@@ -18,9 +18,15 @@ class ManagedTests(unittest.TestCase):
         self.home_patch.start()
         self.acceptance_patch = patch.object(managed, "assess_acceptance", return_value={"passed": True, "review_required": False, "warnings": []})
         self.acceptance_patch.start()
+        # These tests isolate validation/cache plumbing using non-tar mock bytes.
+        # Real archive/ID/receipt enforcement is covered by test_managed_provenance.
+        self.provenance_patch = patch.object(managed, "_archive_binding", side_effect=lambda manifest, archive, **kwargs:
+                                             {"archive_provenance": {"archive_sha256": managed._digest(archive)}})
+        self.provenance_patch.start()
         self.directory = self.root / "run"
 
     def tearDown(self):
+        self.provenance_patch.stop()
         self.acceptance_patch.stop()
         self.home_patch.stop()  # Preserve all files and directories.
 

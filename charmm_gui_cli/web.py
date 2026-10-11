@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, urljoin, urlparse
 from bs4 import BeautifulSoup
 import requests
 
-from .auth import ToolError, atomic_json, atomic_write
+from .auth import ToolError, atomic_json, atomic_write, recovery_guidance
 from .api import AuthError, SubmissionUnknown
 from .http_retry import request as request_with_retry, retry_delay, transient_exception, RETRY_STATUSES
 
@@ -137,7 +137,7 @@ class WebClient:
                 raise ToolError("CHARMM-GUI web HTTP request failed; resume the existing run.",
                                 category="transient_network" if transient_exception(exc) else "transport_error",
                                 retryable=transient_exception(exc),
-                                next_step="Resume the existing run after checking connectivity.") from None
+                                next_step=recovery_guidance("transient_network" if transient_exception(exc) else "transport_error")) from None
             self.save_cookies()
             if result.is_redirect:
                 if result.status_code in (307, 308) and method.upper() not in ("GET", "HEAD"):
@@ -154,14 +154,13 @@ class WebClient:
                 if code in (401, 403):
                     raise AuthError(f"CHARMM-GUI web request returned HTTP {code}.",
                                     category="authentication" if code == 401 else "access_denied",
-                                    next_step=("Run charmm-gui-cli login, then build-resume." if code == 401 else
-                                               "Verify this account owns the job; login with the correct account, then build-resume."))
+                                    next_step=recovery_guidance("authentication" if code == 401 else "access_denied"))
                 raise ToolError(f"CHARMM-GUI web request returned HTTP {code}.",
                                 category="rate_limited" if code == 429 else ("transient_http" if code in RETRY_STATUSES else "http_error"),
                                 retryable=method.upper() == "GET" and code in RETRY_STATUSES,
                                 retry_after_seconds=(retry_delay(result.headers["Retry-After"], 0)
                                                      if "Retry-After" in result.headers and code in RETRY_STATUSES else None),
-                                next_step="Resume the existing run; do not repeat a modeling POST.")
+                                next_step=recovery_guidance("transient_http") if code in RETRY_STATUSES else "核对官网已有任务及 HTTP 错误；不要重复建模 POST。")
             return result
         raise ToolError("Too many redirects in website workflow.")
 
@@ -197,8 +196,7 @@ class WebClient:
                 "Modeling POST did not return a usable response; its outcome is unknown. No automatic resubmission.",
                 cause_category=(exc.cause_category or exc.category) if isinstance(exc, ToolError) else "interrupted",
                 retry_after_seconds=exc.retry_after_seconds if isinstance(exc, ToolError) else None,
-                next_step=((exc.next_step + " ") if isinstance(exc, ToolError) and exc.next_step else "") +
-                          "Inspect/recover this existing website job before continuing; do not repeat the POST.")
+                next_step=recovery_guidance("submission_unknown", cause_category=(exc.cause_category or exc.category) if isinstance(exc, ToolError) else "interrupted"))
             intent.update(state="submission_unknown", last_error=error.as_dict())
             atomic_json(intent_path, intent)
             if isinstance(exc, KeyboardInterrupt):

@@ -20,11 +20,13 @@ charmm-gui-cli jobs report receptor-a
 | authentication | `login` 后恢复原任务；程序不保存密码或静默重登录 |
 | access_denied | 确认登录账户拥有该任务，切换正确账户后恢复 |
 | transient_network / transient_http | GET 最多尝试三次；耗尽后记录可恢复错误 |
+| transport_error | TLS/代理等非瞬时错误进入 `paused_network`，修复后显式恢复同一批次，不关闭证书验证或循环自动重试 |
 | rate_limited | 遵守服务端 Retry-After；长等待交回调度器，批次保存最早重试时间 |
 | wait_timeout | 远端任务继续存在，之后恢复原任务 |
 | interrupted | 任务、阶段和错误历史保留，恢复同一任务 |
 | remote_failure | 已确认的服务端失败，检查具体阶段及服务端产物 |
 | submission_unknown | 写请求结果不确定，先核对既有任务，不自动重发 |
+| archive_provenance | 归档与任务 ID/下载收据/已记录哈希不符；保留文件并检查，不覆盖收据或自动重建 |
 
 自动重试只适用于只读 GET。上传与建模 POST 始终保留提交意图；网络失败、认证响应或 Ctrl-C 都不能证明服务端没有创建任务。认证问题也可能同时伴随 `submission_unknown`，此时登录后仍需核对原任务。
 
@@ -43,4 +45,6 @@ charmm-gui-cli jobs resume receptor-a
 
 验收包括坐标/拓扑一致性、配体图和相对位姿、盐种类与浓度、每叶脂质组成、CGenFF penalty 及 CHARMM 完成日志。短最小化警告和参数评分作为审阅项呈现，`review_required` 与检查通过状态分开记录；没有执行本地 MD。
 
-缓存绑定归档、输入、配置、工具版本、GROMACS 可执行文件身份以及编译日志/TPR 内容。证据变化或产物缺失后重新验收；批次状态也使用同一规则。恢复事件、旧报告、失败下载和旧安装均保留。
+每份归档保留不可变 `download-receipt.json`，绑定建膜 ID、SHA256 与官方 `charmm-gui-ID` 根目录；前处理源、完整流程和 bilayer 的任务谱系必须一致。已下载归档的哈希变化不得默默重算覆盖，也不能拿其他任务归档替代。旧下载只有原已记录哈希与任务根一致时才允许迁移收据；没有这两项证据的本地文件不能自动标为该任务的最终模型。
+
+缓存绑定任务谱系、下载收据、归档、输入、配置、工具版本、GROMACS 可执行文件身份以及编译日志/TPR 内容。证据变化或产物缺失后重新验收；归属不符则明确停止，批次状态也使用同一规则。恢复事件、旧报告、失败下载和旧安装均保留。

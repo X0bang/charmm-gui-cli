@@ -11,12 +11,13 @@ import tempfile
 import uuid
 
 from . import __version__
-from .acceptance import assess_acceptance
+from .acceptance import assess_acceptance, extract_cgenff_penalties
 from .auth import ToolError, atomic_json, default_token_path
 from .full_build import initialize
 from .pose_validation import validate_bound_pose
 from .validation import extract_for_validation, inspect_environment, validate_system
 from .workflow import run_lock
+from .multicomponent import prepare_build_components, validate_components
 
 
 def _read_json(path):
@@ -176,6 +177,12 @@ def inspect_run(target, *, remote_check=False, token_file=None):
             result["next_step"] = "Remote model is done. Use jobs resume to download and validate it."
     elif remote_check:
         result["remote_check_note"] = "No bilayer job exists yet; preparation state is recorded locally."
+    from .progress import result_presentation
+    result["presentation"] = result_presentation(result)
+    result["official_links"] = result["presentation"]["official_links"]
+    preview = directory / "results" / "preview.json"
+    if preview.is_file():
+        result["preview_file"] = str(preview)
     return result
 
 
@@ -304,6 +311,96 @@ def create_managed_build(*, protein=None, ligand=None, complex_pdb=None, ligand_
     return directory.resolve()
 
 
+def create_component_build(*, components_config, complex_pdb, output=None, membrane=None, ions=None,
+                           preparation=None, hydrogens="add_missing", allow_distant_pose=False):
+    """Initialize one locally verified multicomponent run, without remote calls."""
+    from .build_config import load_build_config
+    from .workflow import now
+
+    directory = new_run_path() if output is None else Path(output).expanduser().resolve()
+    if directory.exists():
+        raise ToolError("Build directory already exists; resume it instead of overwriting it.")
+    inputs = prepare_build_components(components_config=components_config, complex_pdb=complex_pdb,
+                                      out=directory / "inputs", hydrogens=hydrogens, allow_distant_pose=allow_distant_pose)
+    component_manifest = inputs["manifest"]
+    if any(group["mode"] != "cgenff_required" for group in component_manifest["chemistry_groups"]):
+        raise ToolError("Remote multicomponent builds currently support CGenFF SDF inputs only; trusted CHARMM topology upload is not yet verified. Local preparation has been retained.")
+    first = component_manifest["components"][0]
+    raw = {"version": 2, "protein": inputs["files"]["protein.pdb"], "ligand": first["sdf"],
+           "ligand_resname": first["resname"], "ligand_hydrogens": hydrogens,
+           "membrane": membrane if membrane is not None else {"upper": "POPC=1", "lower": "POPC=1", "margin_A": 20, "water_padding_A": 22.5},
+           "ions": ions if ions is not None else {"type": "NaCl", "concentration_M": 0.15},
+           "preparation": preparation if preparation is not None else {"orientation": "ppm", "n_terminal": "NTER", "c_terminal": "CTER"}}
+    config_path = directory / "component-build-config.json"
+    _new_json(config_path, raw)
+    config = load_build_config(config_path)
+    config.update(components_mode=True, component_resnames=[group["resname"] for group in component_manifest["chemistry_groups"]],
+                  components_config=str(Path(components_config).resolve()),
+                  component_manifest=inputs["files"]["input-manifest.json"])
+    manifest = {"schema_version": 2, "created_at": now(), "updated_at": now(), "state": "inputs_ready", "config": config, "inputs": inputs}
+    _new_json(directory / "full-run.json", manifest)
+    _new_json(directory / "managed.json", {"version": 1, "components_mode": True,
+                                            "sources_directory": str(directory / "inputs/sources"),
+                                            "source_report": component_manifest, "config_file": str(config_path)})
+    remember_run(directory)
+    return directory.resolve()
+
+
+def _component_penalties(system_dir, resnames):
+    """Discover actual residue-specific CGenFF files; never pick an ambiguous hit."""
+    root = Path(system_dir).resolve()
+    found = {name: [] for name in resnames}
+    for path in root.rglob("*.rtf"):
+        for line in path.read_text(errors="replace").splitlines():
+            fields = line.split("!", 1)[0].split()
+            if len(fields) >= 2 and fields[0].upper() == "RESI" and fields[1] in found:
+                found[fields[1]].append(path)
+    reports = {}
+    for name in resnames:
+        paths = found[name]
+        if len(paths) != 1 or not paths[0].with_suffix(".prm").is_file():
+            reports[name] = {"passed": None, "status": "incomplete", "blocking": False, "review_required": True,
+                             "warnings": [f"{name}: no unique residue-specific CGenFF RTF and same-stem PRM pair; review is incomplete."],
+                             "evidence": {"candidate_topologies": [str(path) for path in paths]}}
+        else:
+            try:
+                reports[name] = extract_cgenff_penalties(root, name, rtf_path=paths[0], prm_path=paths[0].with_suffix(".prm"))
+            except (ToolError, OSError, ValueError) as exc:
+                reports[name] = {"passed": None, "status": "incomplete", "blocking": False, "review_required": True,
+                                 "warnings": [f"{name}: CGenFF review is incomplete: {exc}"], "evidence": {}}
+    return reports
+
+
+def _component_final_report(extracted, input_manifest, reference, *, grompp, gmx, work, membrane):
+    aggregate = validate_components(extracted, input_manifest, reference, run_grompp=grompp, gmx=gmx, output_parent=work)
+    topologies = [entry["topology_validation"] for entry in aggregate.get("components", {}).values()]
+    compiled = [entry["checks"]["grompp"] for entry in topologies if "grompp" in entry.get("checks", {})]
+    report = {"passed": aggregate["passed"], "scientific_correctness_verified": False,
+              "component_validation": aggregate, "checks": {"components": {"passed": aggregate["passed"]}},
+              "files": topologies[0].get("files", {}) if topologies else {}, "errors": aggregate.get("errors", [])}
+    if compiled:
+        report["checks"]["grompp"] = compiled[0] if len(compiled) == 1 else {"passed": False, "error": "Expected a single shared grompp check."}
+    components = _read_json(input_manifest)
+    names = [group["resname"] for group in components["chemistry_groups"]]
+    acceptance = assess_acceptance(extracted, membrane=membrane, ligand_resname=names[0])
+    penalty_checks = _component_penalties(extracted, names)
+    # Replace the single-ligand review; leaflet/log blocking decisions remain.
+    checks = acceptance.get("checks", {})
+    checks.pop("cgenff", None)
+    for name, penalty in penalty_checks.items():
+        checks[f"cgenff:{name}"] = penalty
+    warnings = [warning for check in checks.values() for warning in check.get("warnings", [])]
+    acceptance.update(checks=checks, component_penalties=penalty_checks, warnings=warnings,
+                      review_required=any(check.get("review_required", False) for check in checks.values()) or bool(warnings),
+                      evidence={name: check.get("evidence", {}) for name, check in checks.items()})
+    if acceptance.get("passed"):
+        acceptance["status"] = "passed_with_warnings" if acceptance["review_required"] else "passed"
+    pose = {"passed": bool(aggregate.get("components")) and all(entry["bound_pose"]["passed"] and entry["same_protein_transform"] for entry in aggregate.get("components", {}).values()),
+            "components": {name: entry["bound_pose"] for name, entry in aggregate.get("components", {}).items()},
+            "scientific_correctness_verified": False}
+    return report, pose, acceptance
+
+
 def _digest(path):
     digest = hashlib.sha256()
     with Path(path).open("rb") as handle:
@@ -329,8 +426,34 @@ def _compiler_identity(gmx):
     return {"available": False, "requested": str(gmx)}
 
 
-def _evidence(manifest, archive, grompp, gmx):
-    return {"tool_version": __version__, "archive_sha256": _digest(archive),
+def _archive_binding(manifest, archive, *, create_receipt=False):
+    """Bind immutable archive provenance to both full-build and API job lineage."""
+    from .api import job_id
+    from .workflow import verify_archive_provenance
+
+    archive = Path(archive)
+    try:
+        source_id = job_id(manifest["source_job_id"])
+        build_id = job_id(manifest["build_job_id"])
+        bilayer = _read_json(archive.parent / "run.json")
+        bilayer_id = job_id(bilayer["job_id"])
+        bilayer_source = job_id(bilayer["config"]["source_job_id"])
+    except (KeyError, TypeError, ValueError):
+        raise ToolError("Archive provenance requires complete source/build job IDs and readable bilayer job lineage.") from None
+    if build_id != bilayer_id or source_id != bilayer_source or source_id == build_id:
+        raise ToolError("Archive provenance mismatch between full-build source/build IDs and the bilayer job; do not reuse another job's archive.")
+    provenance = verify_archive_provenance(archive.parent, bilayer, create_receipt=create_receipt)
+    receipt = archive.parent / "download-receipt.json"
+    return {"source_job_id": source_id, "build_job_id": build_id,
+            "bilayer_job_id": bilayer_id, "bilayer_source_job_id": bilayer_source,
+            "archive_provenance": provenance,
+            "download_receipt_sha256": _digest(receipt) if receipt.is_file() else None}
+
+
+def _evidence(manifest, archive, grompp, gmx, *, create_receipt=False):
+    binding = _archive_binding(manifest, archive, create_receipt=create_receipt)
+    return {"tool_version": __version__, "archive_sha256": binding["archive_provenance"]["archive_sha256"],
+            "job_binding": binding,
             "inputs_sha256": {name: _digest(path) for name, path in sorted(manifest["inputs"]["files"].items())},
             "config_sha256": _canonical_hash(manifest["config"]), "grompp": bool(grompp),
             "gmx": str(gmx) if grompp else None,
@@ -377,6 +500,7 @@ def _final_summary(directory):
         if _cache_reusable(report, evidence) and report.get("status") in ("validated", "validation_failed"):
             return {"state": report["status"], "passed": report.get("passed"),
                     "review_required": report.get("review_required", False),
+                    "review_warning_count": len(report.get("review_warnings", [])),
                     "acceptance_status": report.get("acceptance_validation", {}).get("status"),
                     "gromacs_compiled": report.get("checks", {}).get("grompp", {}).get("passed") is True,
                     "compilation_status": ("passed" if _grompp_artifacts(report) else "failed") if stored["grompp"] else "not_run",
@@ -401,7 +525,7 @@ def finalize_managed_build(directory, *, grompp=False, gmx="gmx"):
             inputs, config = manifest["inputs"]["files"], manifest["config"]
             input_manifest = Path(inputs["input-manifest.json"])
             reference = Path(inputs["complex.pdb"])
-            evidence = _evidence(manifest, archive, grompp, gmx)
+            evidence = _evidence(manifest, archive, grompp, gmx, create_receipt=True)
         except (KeyError, TypeError, OSError):
             raise ToolError("Completed build is missing readable input files/configuration required for final validation.") from None
         fingerprint = _canonical_hash(evidence)
@@ -416,7 +540,13 @@ def finalize_managed_build(directory, *, grompp=False, gmx="gmx"):
         checks.mkdir(exist_ok=True)
         work = Path(tempfile.mkdtemp(prefix=f"{fingerprint[:12]}-", dir=checks))
         extracted = extract_for_validation(archive, work / "system")
-        report = validate_system(extracted, input_manifest, run_grompp=grompp, gmx=gmx, output_parent=work)
+        if config.get("components_mode"):
+            report, pose, acceptance = _component_final_report(extracted, input_manifest, reference,
+                                                               grompp=grompp, gmx=gmx, work=work, membrane=config["membrane"])
+        else:
+            report = validate_system(extracted, input_manifest, run_grompp=grompp, gmx=gmx, output_parent=work)
+            pose = validate_bound_pose(extracted, input_manifest, reference)
+            acceptance = assess_acceptance(extracted, membrane=config["membrane"], ligand_resname=config.get("ligand_resname", "LIG"))
         compiled = report.get("checks", {}).get("grompp", {})
         if "log" in compiled and "output_dir" in compiled:
             paths = {"log": Path(compiled["log"]), "tpr": Path(compiled["output_dir"]) / "system.tpr"}
@@ -433,8 +563,6 @@ def finalize_managed_build(directory, *, grompp=False, gmx="gmx"):
                 environment = {"passed": False, "error": str(exc)}
         else:
             environment = {"passed": False, "error": "No final coordinate file was identified."}
-        pose = validate_bound_pose(extracted, input_manifest, reference)
-        acceptance = assess_acceptance(extracted, membrane=config["membrane"], ligand_resname=config.get("ligand_resname", "LIG"))
         report.update(environment_validation=environment, bound_pose_validation=pose,
                       acceptance_validation=acceptance, review_required=acceptance.get("review_required", False),
                       review_warnings=acceptance.get("warnings", []),

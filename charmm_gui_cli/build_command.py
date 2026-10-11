@@ -6,14 +6,12 @@ import sys
 
 from .api import Client
 from .auth import ToolError, load_token, resolve_cookie_path
+from .progress import emit_progress, ProgressReporter, result_presentation
 
 
 def progress(event):
     """Keep machine-readable JSON on stdout; send safe progress to stderr."""
-    state = event.get("state", "working")
-    identifier = event.get("job_id")
-    suffix = f" job={identifier}" if identifier else ""
-    print(f"[charmm-gui-cli] {state}{suffix}", file=sys.stderr, flush=True)
+    emit_progress(event)
 
 
 def failed_checks(report):
@@ -57,18 +55,23 @@ def _execute(args, holder):
     from .full_build import initialize, advance
     from .web import WebClient
 
+    reporter = ProgressReporter()
     dry_run = getattr(args, "dry_run", False)
     if args.interval < 10 or args.max_wait <= 0:
         raise ToolError("--interval must be >=10 seconds and --max-wait must be positive.")
     if args.grompp and not shutil.which(args.gmx):
         raise ToolError("--grompp requires GROMACS. Install gmx or supply --gmx /path/to/gmx; no job was submitted.")
     if args.command == "build":
+        components = getattr(args, "components", None)
         source_fields = ("protein", "ligand", "complex_pdb", "ligand_resname", "ligand_smiles", "hydrogens")
         model_fields = ("upper", "lower", "salt", "salt_concentration", "margin", "water_padding",
                         "orientation", "n_terminal", "c_terminal")
-        if args.config and (any(getattr(args, key) is not None for key in source_fields + model_fields)
+        if args.config and (components or any(getattr(args, key) is not None for key in source_fields + model_fields)
                             or args.accept_conect_bond_orders):
             raise ToolError("Choose either a YAML configuration or direct structure/model options, not both. See build -h.")
+        if components and (not args.complex_pdb or any(getattr(args, key) is not None for key in
+                           ("protein", "ligand", "ligand_resname", "ligand_smiles")) or args.accept_conect_bond_orders):
+            raise ToolError("--components requires --complex and cannot be mixed with --protein, --ligand, --ligand-resname, --ligand-smiles or --accept-conect-bond-orders.")
         if not args.config and not (args.complex_pdb or (args.protein and args.ligand)):
             raise ToolError("Provide --protein protein.pdb --ligand bound.sdf, or --complex complex.pdb. See charmm-gui-cli build -h.")
 
@@ -83,8 +86,10 @@ def _execute(args, holder):
         local_manifest = managed._read_json(directory / "full-run.json")
         local_complete = local_manifest.get("state") in ("ligands_present", "downloaded_unverified", "validation_failed", "validated", "complete", "completed")
     api_only = directory is not None and (directory / "bilayer" / "run.json").is_file()
+    if not api_only and directory is not None and (directory / "full-run.json").is_file():
+        api_only = "reused_preparation" in managed._read_json(directory / "full-run.json")
     offline_recovery = False
-    if directory is not None and api_only and not local_complete and (directory / "bilayer" / "charmm-gui.tgz").is_file():
+    if directory is not None and api_only and not local_complete and (directory / "bilayer" / "run.json").is_file() and (directory / "bilayer" / "charmm-gui.tgz").is_file():
         bilayer = managed._read_json(directory / "bilayer" / "run.json")
         full = managed._read_json(directory / "full-run.json")
         offline_recovery = (bilayer.get("schema_version") == 1 and bool(bilayer.get("job_id"))
@@ -100,22 +105,25 @@ def _execute(args, holder):
                             category="authentication", next_step=next_step)
 
     if args.command == "build":
-        progress({"state": "preparing_inputs (local)"})
+        reporter({"state": "preparing_inputs (local)"})
         if args.config:
             directory = args.out or managed.new_run_path()
             initialize(args.config, directory)
         else:
             default = lambda value, fallback: fallback if value is None else value
-            directory = managed.create_managed_build(
-                protein=args.protein, ligand=args.ligand, complex_pdb=args.complex_pdb,
-                ligand_resname=default(args.ligand_resname, "LIG"), ligand_smiles=args.ligand_smiles,
-                accept_conect_bond_orders=args.accept_conect_bond_orders, output=args.out,
+            common = dict(output=args.out,
                 membrane={"upper": default(args.upper, "POPC=1"), "lower": default(args.lower, "POPC=1"),
                           "margin_A": default(args.margin, 20), "water_padding_A": default(args.water_padding, 22.5)},
                 ions={"type": default(args.salt, "KCl"), "concentration_M": default(args.salt_concentration, 0.15)},
                 preparation={"orientation": default(args.orientation, "ppm"),
                              "n_terminal": default(args.n_terminal, "NTER"), "c_terminal": default(args.c_terminal, "CTER")},
                 hydrogens=default(args.hydrogens, "add_missing"))
+            if components:
+                directory = managed.create_component_build(components_config=components, complex_pdb=args.complex_pdb, **common)
+            else:
+                directory = managed.create_managed_build(protein=args.protein, ligand=args.ligand, complex_pdb=args.complex_pdb,
+                    ligand_resname=default(args.ligand_resname, "LIG"), ligand_smiles=args.ligand_smiles,
+                    accept_conect_bond_orders=args.accept_conect_bond_orders, **common)
     directory = Path(directory).resolve()
     holder.append(directory)
     if getattr(args, "name", None) and (directory / "full-run.json").is_file():
@@ -127,16 +135,20 @@ def _execute(args, holder):
                 **({"name": args.name} if getattr(args, "name", None) else {}),
                 "next_step": "charmm-gui-cli login; charmm-gui-cli build-resume"}, 0
     print(f"[charmm-gui-cli] run={directory}", file=sys.stderr, flush=True)
+    if (directory / "full-run.json").is_file():
+        saved = managed._read_json(directory / "full-run.json")
+        reporter = ProgressReporter(source_job_id=saved.get("source_job_id"), build_job_id=saved.get("build_job_id"))
     if local_complete:
         result = local_manifest
     else:
         result = advance(directory, None if api_only else WebClient(cookies), Client(token), wait=args.wait,
-                         interval=args.interval, max_wait=args.max_wait, progress=progress)
+                         interval=args.interval, max_wait=args.max_wait, progress=reporter)
     summary = {"directory": str(directory), **{key: result[key] for key in
                ("state", "source_job_id", "build_job_id") if key in result}}
     summary.update(managed._job_metadata(directory))
     if result.get("state") in ("ligands_present", "validation_failed", "downloaded_unverified", "validated") or local_complete:
-        progress({"state": "validating_final_archive (local)"})
+        reporter({"state": "validating_final_archive (local)",
+                  **{key: result[key] for key in ("source_job_id", "build_job_id") if key in result}})
         use_grompp = args.grompp or (not args.no_grompp and shutil.which(args.gmx) is not None)
         report = managed.finalize_managed_build(directory, grompp=use_grompp, gmx=args.gmx)
         summary.update(state="validated" if report.get("passed") else "validation_failed",
@@ -154,8 +166,20 @@ def _execute(args, holder):
             summary["gromacs_note"] = "GROMACS compilation was not run; install gmx and build-resume --grompp to add it."
         if (directory / "full-run.json").is_file():
             managed.record_recovery(directory, state=summary["state"])
+        summary["presentation"] = result_presentation(summary, report)
+        summary["official_links"] = summary["presentation"]["official_links"]
+        if getattr(args, "no_preview", False):
+            summary["preview"] = {"status": "disabled"}
+        else:
+            from .preview import preview_run
+            try:
+                summary["preview"] = preview_run(directory, report=report)
+            except (ToolError, OSError) as error:
+                summary["preview"] = {"status": "failed", "message": str(error) if isinstance(error, ToolError) else "Local preview output could not be generated."}
         return summary, 0 if report.get("passed") else 2
     summary["next_step"] = "charmm-gui-cli build-resume"
     if (directory / "full-run.json").is_file():
         managed.record_recovery(directory, state=summary.get("state"))
+    summary["presentation"] = result_presentation(summary)
+    summary["official_links"] = summary["presentation"]["official_links"]
     return summary, 0

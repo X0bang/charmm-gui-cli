@@ -14,7 +14,7 @@ def inspect_installation(gmx="gmx"):
         "python": {"passed": sys.version_info >= (3, 10), "version": platform.python_version()},
         "platform": {"passed": sys.platform in ("linux", "darwin"), "system": platform.system()},
     }
-    for module in ("requests", "yaml", "bs4", "numpy", "rdkit"):
+    for module in ("requests", "yaml", "bs4", "numpy", "PIL", "rdkit"):
         try:
             imported = importlib.import_module(module)
             checks[module] = {"passed": True, "version": getattr(imported, "__version__", "installed")}

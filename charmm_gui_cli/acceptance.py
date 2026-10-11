@@ -185,9 +185,14 @@ def check_leaflets(system_dir, membrane):
                             "A composition-ratio tolerance of one molecule per species accounts only for discrete rounding."]}
 
 
-def extract_cgenff_penalties(system_dir, ligand_resname="LIG", *, review_threshold=50.0):
+def extract_cgenff_penalties(system_dir, ligand_resname="LIG", *, review_threshold=50.0, rtf_path=None, prm_path=None):
     root = _root(system_dir)
-    rtf, prm = root / "lig/lig.rtf", root / "lig/lig.prm"
+    if (rtf_path is None) != (prm_path is None):
+        raise ToolError("Explicit CGenFF review requires both topology and parameter paths.")
+    rtf, prm = ((Path(rtf_path).resolve(), Path(prm_path).resolve()) if rtf_path is not None else
+                (root / "lig/lig.rtf", root / "lig/lig.prm"))
+    if not rtf.resolve().is_relative_to(root) or not prm.resolve().is_relative_to(root):
+        raise ToolError("CGenFF evidence must be inside the extracted system root.")
     if not math.isfinite(review_threshold) or review_threshold < 0:
         raise ToolError("CGenFF review threshold must be a finite nonnegative value.")
     if not rtf.is_file() or not prm.is_file():

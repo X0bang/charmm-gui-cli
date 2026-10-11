@@ -14,7 +14,7 @@ import requests
 
 from charmm_gui_cli import full_build, workflow
 from charmm_gui_cli.api import AuthError, Client, SubmissionUnknown
-from charmm_gui_cli.auth import ToolError, atomic_json, atomic_write
+from charmm_gui_cli.auth import ToolError, atomic_json, atomic_write, recovery_guidance, load_token
 from charmm_gui_cli.http_retry import request, retry_delay
 from charmm_gui_cli.web import WebClient
 
@@ -53,6 +53,39 @@ class RetryTests(unittest.TestCase):
         self.assertEqual(self.session.request.call_count, 3)
         self.assertEqual([call.args[0] for call in self.sleep.call_args_list], [1.0, 30.0])
         unavailable.close.assert_called_once()
+
+    def test_recovery_guidance_prioritizes_unknown_post_over_login_or_network(self):
+        for cause in ("authentication", "transport_error", "transient_network", "rate_limited"):
+            guidance = recovery_guidance("submission_unknown", cause_category=cause)
+            self.assertIn("禁止自动重发", guidance)
+            self.assertIn("attach", guidance)
+            if cause == "authentication":
+                self.assertIn("login", guidance)
+        self.assertIn("不要关闭证书验证", recovery_guidance("transport_error"))
+
+    def test_missing_and_invalid_token_files_have_structured_auth_guidance(self):
+        directory = Path(tempfile.mkdtemp(prefix="cgui-recovery-auth-"))
+        for path in (directory / "missing.token", directory / "invalid.token"):
+            if path.name == "invalid.token":
+                path.write_text("not-a-jwt")
+            with self.assertRaises(ToolError) as caught:
+                load_token(path)
+            self.assertEqual(caught.exception.category, "authentication")
+            self.assertIn("login", caught.exception.next_step)
+
+    def test_download_stream_tls_error_is_manual_recovery_not_transient(self):
+        item = response()
+        item.iter_content = Mock(side_effect=requests.exceptions.SSLError("SECRET CERT DETAIL"))
+        self.session.request.return_value = item
+        directory = Path(tempfile.mkdtemp(prefix="cgui-recovery-download-"))
+        with self.assertRaises(ToolError) as caught:
+            Client(token(), self.session).download("234", directory / "charmm-gui.tgz")
+        self.assertEqual(caught.exception.category, "transport_error")
+        self.assertFalse(caught.exception.retryable)
+        self.assertEqual(self.session.request.call_count, 1)
+        self.assertNotIn("SECRET", str(caught.exception))
+        self.assertFalse((directory / "charmm-gui.tgz").exists())
+        self.assertEqual(len(list(directory.glob(".download-*"))), 1)
 
     def test_all_transient_statuses_are_bounded_and_actionable(self):
         for status in (429, 502, 503, 504):

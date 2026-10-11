@@ -59,10 +59,14 @@ python3 scripts/build_release.py --out /path/to/new-release-directory
 
 ## 平台验证说明
 
+2026-10-11 的 0.5.0 扩展版已重新在新建 Ubuntu 22.04 / Python 3.10.12 容器中以非 root 用户一键安装，RDKit 2026.9.1、NumPy 2.2.6、Pillow 12.3.0 及基础依赖成功安装；doctor 和报告帮助通过。公开源包全套 512 项测试，487 通过、25 明确跳过，退出码 0。宿主 Ubuntu 22.04.5 的 Python 3.13.13 新隔离安装也成功，512 项全部通过。用于下载依赖的可达镜像并不证明 CHARMM-GUI 连接可用；本轮官网/API 的 TLS 连接失败、真实扫描和多配体验收尚未完成。
+
 2026-10-02 已在本地 `nvidia/cuda:12.0.0-base-ubuntu22.04` 容器中验证：容器报告 Ubuntu 22.04.3 LTS；先验证缺少 Python 的明确提示，再仅在容器内安装 Python 3.10.12/venv，然后以非 root 用户运行发布源包中的 `bash install.sh`。安装到该用户的默认 `~/.local`，RDKit 2026.3.6 和其他依赖安装成功；`--version`、`--help`、`doctor` 通过。再次安装也通过，命令链接切换到新目录，原版本目录完整保留。此容器没有 GROMACS，doctor 正确将其报告为可选项。
 
 同一 Ubuntu 22.04 / Python 3.10 容器对不含用户测试结构的 0.4.0 代码源码包执行 `python -m unittest discover -s tests -q`：325 项测试，300 项通过、25 项按缺少私有结构等条件跳过，退出码 0。宿主完整 325 项全部通过，其中包含发布/安装器测试（wheel RECORD 哈希、源码白名单、pip 离线装本地 wheel、拒绝未知入口覆盖等）。
 
 0.4.0 以非 root 用户重新运行一键安装，`doctor`、全局帮助和批量帮助通过；未配置登录凭据时，从其他工作目录执行两项合成蛋白/SDF 的 `batch --dry-run`，结果均为 `inputs_ready`，生成 JSON/CSV 汇总。旧 0.3.0 安装保留。宿主已升级到 0.4.0，并从其他目录无 token 恢复两个真实归档的批次，返回两项 `validated` 和 GROMACS 编译通过。
+
+0.5.0 在同一 Ubuntu 22.04 / Python 3.10 容器完成公开源码包全套 485 项（460 通过、25 明确跳过）及非 root 一键升级。独立 `check`/PNG 与 `sweep --dry-run` 合成输入用例无需认证；doctor 验证 NumPy/Pillow/RDKit，扫描帮助通过。宿主全套 485 项通过，并检查源码白名单、wheel RECORD/许可证和安装后的 30 个模块内容一致。此前安装、候选包和失败产物不删除。
 
 这些结果验证 Ubuntu 22.04 用户级安装、CLI/依赖检查和离线自动化测试，不是容器内远端建模或 GROMACS 验收；科学建模结果见项目验收记录。发布后的新增改动应重新执行相同检查。
