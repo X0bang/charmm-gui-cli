@@ -36,8 +36,8 @@ def precheck_summary(report):
         for component in report.get("chemistry", [])]
     if "spatial_review" in report:
         result["spatial_review"] = report["spatial_review"].get("summary", {})
-    result["next_step"] = ("Review check.json; then build with the same original inputs. No remote task was created."
-                           if report.get("passed") else "Fix the reported input errors before build; retained files are in check.json. No remote task was created.")
+    result["next_step"] = ("本地预检通过；确认审查项后，用同一组原始输入执行 charmm-gui-cli build。尚未创建远端任务。"
+                           if report.get("passed") else "按报告修正原始输入后重新 check；已有诊断文件保留，尚未创建远端任务。")
     return result
 
 
@@ -63,6 +63,8 @@ def report_summary(report, name, path):
                 "ligand_rmsd_after_protein_fit_A", "ligand_max_displacement_A") if key in pose},
             "components": {resname: {"passed": entry.get("passed"), "copies": entry.get("exact_copy_count"),
                 "ligand_rmsd_A": entry.get("bound_pose", {}).get("ligand_rmsd_after_protein_fit_A"),
+                "ligand_max_displacement_A": entry.get("bound_pose", {}).get("ligand_max_displacement_A"),
+                "pose_error": entry.get("bound_pose", {}).get("error"),
                 "cgenff": {key: acceptance.get("component_penalties", {}).get(resname, {}).get(key)
                     for key in ("status", "parameter_max", "charge_max", "review_required")}}
                 for resname, entry in report.get("component_validation", {}).get("components", {}).items()},
@@ -525,7 +527,7 @@ def dispatch(args):
         atomic_write(destination, token + "\n")
         result = {"logged_in": True, "api_authenticated": True, **web_result,
                   "saved_to": str(destination), "cookie_file": str(cookies), "permissions": "0600",
-                  "next_step": "charmm-gui-cli build system.yaml --out runs/my-build --wait"}
+                  "next_step": "charmm-gui-cli build --protein protein.pdb --ligand bound-ligand.sdf --name receptor-a"}
         if os.environ.get("CHARMMGUI_TOKEN"):
             result["notice"] = "CHARMMGUI_TOKEN is set and overrides the saved login. Unset it to use this session by default."
         emit(result)

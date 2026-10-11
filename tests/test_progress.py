@@ -67,7 +67,7 @@ class ProgressTests(unittest.TestCase):
         self.assertEqual(value["terminal_semantics"], "in_progress")
 
     def test_last_output_never_claims_completion(self):
-        for name in ("step4_lipid_checkchol.out", "step4.3_ion.out", "step5_assembly.out", "step5_input.out"):
+        for name in ("step4_lipid_checkchol.out", "step4.2_waterbox.out", "step4.3_ion.out", "step5_assembly.out", "step5_input.out"):
             value = describe_progress({"state": "running quick_bilayer", "lastOutFile": name})
             self.assertEqual(value["last_output_file"], name)
             self.assertIsNone(value["remote_done"])

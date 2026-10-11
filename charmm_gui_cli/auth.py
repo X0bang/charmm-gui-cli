@@ -21,6 +21,8 @@ def recovery_guidance(category, *, cause_category=None):
         return "HTTP 403 不一定是登录过期；确认当前账户拥有该任务，必要时用 charmm-gui-cli login 登录正确账户，再恢复原任务。"
     if category == "transport_error":
         return "检查网络、代理及 TLS 证书配置；不要关闭证书验证。此错误不自动循环重试。" + resume
+    if category == "archive_preparing":
+        return "远端构建完成但官网归档仍在压缩；等待至少 120 秒或记录的重试时间，再 jobs resume NAME / build-resume 原任务目录。仅重试原任务的下载 GET，不创建新任务；尚未完成本地验收。"
     if category in ("transient_network", "transient_http", "rate_limited"):
         return "只读 GET 的有限重试已结束；等待网络或服务器恢复，并遵守 Retry-After 等待时间。" + resume
     if category == "interrupted":

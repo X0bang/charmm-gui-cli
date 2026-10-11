@@ -6,6 +6,7 @@ step adapters must explicitly translate each form's fields and validate results.
 
 import json
 import os
+import re
 from contextlib import ExitStack
 from pathlib import Path
 from urllib.parse import parse_qs, urljoin, urlparse
@@ -91,6 +92,23 @@ def describe_page(html):
             "login_form_present": soup.select_one('form input[type="password"]') is not None,
             "forms": forms,
             "scripts": [script["src"] for script in soup.select("script[src]")]}
+
+
+def assert_nonpolymer_parameterization(form, resnames):
+    """Do not turn misclassified protein residues into invented ligand fields."""
+    engineered = form.select_one("#prot_rename_option")
+    if engineered is None:
+        return
+    for name in resnames:
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Z][A-Z0-9]{0,2}", name):
+            raise ToolError("Invalid requested nonpolymer residue name.")
+        protein_control = engineered.find("input", {"name": f"rename[{name}]"})
+        sdf_fields = form.find_all("input", {"name": f"sdf_cgenff[{name}]"})
+        actual_sdf = any(field.get("type", "").lower() == "file" and not field.has_attr("disabled") for field in sdf_fields)
+        if protein_control is not None and not actual_sdf:
+            raise ToolError(f"非共价组分 {name} 被官网识别为蛋白工程残基，未提供配体 SDF 参数化字段。",
+                            category="component_classification",
+                            next_step="检查输入 PDB 的 TER 链/组分分隔。保留当前源任务、输入及响应；不要伪造 CGenFF 字段、删除意图或重传。修正输入后须明确创建新任务，当前源无法通过此表单安全恢复。")
 
 
 class WebClient:

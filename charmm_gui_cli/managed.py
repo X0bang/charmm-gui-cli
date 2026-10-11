@@ -175,6 +175,9 @@ def inspect_run(target, *, remote_check=False, token_file=None):
                       last_output_file=response.get("lastOutFile"), archive_available=response.get("hasTarFile") is True)
         if result["remote_status"] == "done" and result.get("state") not in ("validated", "validation_failed"):
             result["next_step"] = "Remote model is done. Use jobs resume to download and validate it."
+        elif result["remote_status"] == "archive_preparing" and result.get("state") not in ("validated", "validation_failed"):
+            from .auth import recovery_guidance
+            result["next_step"] = recovery_guidance("archive_preparing")
     elif remote_check:
         result["remote_check_note"] = "No bilayer job exists yet; preparation state is recorded locally."
     from .progress import result_presentation
@@ -357,27 +360,43 @@ def _component_penalties(system_dir, resnames):
                 found[fields[1]].append(path)
     reports = {}
     for name in resnames:
-        paths = found[name]
-        if len(paths) != 1 or not paths[0].with_suffix(".prm").is_file():
+        candidates = sorted(set(found[name]))
+        # Coordinate-generation RTF derivatives need not have parameter pairs.
+        # Count actual same-stem RTF/PRM pairs, not every RESI-bearing file.
+        paths = [path for path in candidates if path.with_suffix(".prm").is_file()]
+        if len(paths) != 1:
             reports[name] = {"passed": None, "status": "incomplete", "blocking": False, "review_required": True,
                              "warnings": [f"{name}: no unique residue-specific CGenFF RTF and same-stem PRM pair; review is incomplete."],
-                             "evidence": {"candidate_topologies": [str(path) for path in paths]}}
+                             "evidence": {"candidate_topologies": [str(path) for path in candidates],
+                                          "paired_topologies": [str(path) for path in paths]}}
         else:
             try:
                 reports[name] = extract_cgenff_penalties(root, name, rtf_path=paths[0], prm_path=paths[0].with_suffix(".prm"))
+                reports[name].setdefault("evidence", {})["unpaired_topologies"] = [str(path) for path in candidates if path not in paths]
             except (ToolError, OSError, ValueError) as exc:
                 reports[name] = {"passed": None, "status": "incomplete", "blocking": False, "review_required": True,
                                  "warnings": [f"{name}: CGenFF review is incomplete: {exc}"], "evidence": {}}
     return reports
 
 
-def _component_final_report(extracted, input_manifest, reference, *, grompp, gmx, work, membrane):
-    aggregate = validate_components(extracted, input_manifest, reference, run_grompp=grompp, gmx=gmx, output_parent=work)
+def _component_final_report(extracted, input_manifest, reference, *, grompp, gmx, work, membrane, archive_path=None):
+    aggregate = validate_components(extracted, input_manifest, reference, run_grompp=grompp, gmx=gmx, output_parent=work,
+                                    archive_path=archive_path)
     topologies = [entry["topology_validation"] for entry in aggregate.get("components", {}).values()]
     compiled = [entry["checks"]["grompp"] for entry in topologies if "grompp" in entry.get("checks", {})]
     report = {"passed": aggregate["passed"], "scientific_correctness_verified": False,
               "component_validation": aggregate, "checks": {"components": {"passed": aggregate["passed"]}},
               "files": topologies[0].get("files", {}) if topologies else {}, "errors": aggregate.get("errors", [])}
+    counts = [entry.get("checks", {}).get("total_atom_count") for entry in topologies]
+    if counts and all(isinstance(count, dict) for count in counts):
+        if all(count == counts[0] for count in counts):
+            report["checks"]["total_atom_count"] = counts[0]
+        else:
+            report["checks"]["total_atom_count"] = {"passed": False, "error": "Components disagree on shared system atom counts."}
+            report["passed"] = False
+    residue_counts = [entry.get("coordinate_residue_counts") for entry in topologies]
+    if residue_counts and isinstance(residue_counts[0], dict) and all(count == residue_counts[0] for count in residue_counts):
+        report["coordinate_residue_counts"] = residue_counts[0]
     if compiled:
         report["checks"]["grompp"] = compiled[0] if len(compiled) == 1 else {"passed": False, "error": "Expected a single shared grompp check."}
     components = _read_json(input_manifest)
@@ -453,6 +472,7 @@ def _archive_binding(manifest, archive, *, create_receipt=False):
 def _evidence(manifest, archive, grompp, gmx, *, create_receipt=False):
     binding = _archive_binding(manifest, archive, create_receipt=create_receipt)
     return {"tool_version": __version__, "archive_sha256": binding["archive_provenance"]["archive_sha256"],
+            **({"component_validation_revision": 2} if manifest.get("config", {}).get("components_mode") else {}),
             "job_binding": binding,
             "inputs_sha256": {name: _digest(path) for name, path in sorted(manifest["inputs"]["files"].items())},
             "config_sha256": _canonical_hash(manifest["config"]), "grompp": bool(grompp),
@@ -542,7 +562,7 @@ def finalize_managed_build(directory, *, grompp=False, gmx="gmx"):
         extracted = extract_for_validation(archive, work / "system")
         if config.get("components_mode"):
             report, pose, acceptance = _component_final_report(extracted, input_manifest, reference,
-                                                               grompp=grompp, gmx=gmx, work=work, membrane=config["membrane"])
+                                                               grompp=grompp, gmx=gmx, work=work, membrane=config["membrane"], archive_path=archive)
         else:
             report = validate_system(extracted, input_manifest, run_grompp=grompp, gmx=gmx, output_parent=work)
             pose = validate_bound_pose(extracted, input_manifest, reference)

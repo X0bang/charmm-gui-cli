@@ -22,6 +22,8 @@ charmm-gui-cli jobs report receptor-a
 | transient_network / transient_http | GET 最多尝试三次；耗尽后记录可恢复错误 |
 | transport_error | TLS/代理等非瞬时错误进入 `paused_network`，修复后显式恢复同一批次，不关闭证书验证或循环自动重试 |
 | rate_limited | 遵守服务端 Retry-After；长等待交回调度器，批次保存最早重试时间 |
+| archive_preparing | 官网正在按需压缩归档；等待记录的重试时间后恢复原任务，仅重试下载，不重新建模 |
+| component_classification | 官网把非共价组分识别成蛋白工程残基；保留原源任务，检查 TER 和分类，不伪造字段或重传旧意图 |
 | wait_timeout | 远端任务继续存在，之后恢复原任务 |
 | interrupted | 任务、阶段和错误历史保留，恢复同一任务 |
 | remote_failure | 已确认的服务端失败，检查具体阶段及服务端产物 |
@@ -29,6 +31,8 @@ charmm-gui-cli jobs report receptor-a
 | archive_provenance | 归档与任务 ID/下载收据/已记录哈希不符；保留文件并检查，不覆盖收据或自动重建 |
 
 自动重试只适用于只读 GET。上传与建模 POST 始终保留提交意图；网络失败、认证响应或 Ctrl-C 都不能证明服务端没有创建任务。认证问题也可能同时伴随 `submission_unknown`，此时登录后仍需核对原任务。
+
+官网可能先报告 `done`，但尚未生成归档；第一次下载会触发压缩，状态变成 `compressing`。程序将其显示为 `archive_preparing`，保留原响应和任务 ID，记录至少 120 秒的下载重试间隔。`--wait` 在时限内等待；单轮运行则提示稍后恢复。压缩可能超过官网提示的 1–2 分钟，这不等于模型失败，也不等于已经下载或验收通过。批量任务仍占用活动槽位，不另建替代任务。其他未知文本、HTML 或损坏归档仍会拒绝。
 
 若不确定的 Quick Bilayer 提交实际上已创建任务，关联其**新建膜** job ID：
 

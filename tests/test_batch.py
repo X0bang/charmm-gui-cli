@@ -387,6 +387,43 @@ class BatchTests(unittest.TestCase):
             batch.advance(self.directory, wait=False, submit_interval=0)
         self.assertEqual(execute.call_count, 1)
 
+    def test_archive_compression_pending_keeps_slot_and_waits_before_resume(self):
+        self.prepare()
+        error = ToolError("官网正在压缩归档", category="archive_preparing", retryable=True, retry_after_seconds=120)
+        with patch("charmm_gui_cli.build_command.execute", side_effect=error), patch("charmm_gui_cli.batch.time.time", return_value=1000):
+            result, code = batch.advance(self.directory, wait=False, submit_interval=0)
+        self.assertEqual(result["state"], "archive_preparing")
+        self.assertEqual(result["jobs"][0]["state"], "archive_preparing")
+        self.assertEqual(result["jobs"][0]["next_retry_unix"], 1120)
+        self.assertEqual(result["failed"], 0)
+        self.assertEqual(result["validated"], 0)
+        self.assertIn("压缩归档", result["next_step"])
+        with patch("charmm_gui_cli.build_command.execute") as execute, patch("charmm_gui_cli.batch.time.time", return_value=1100):
+            result, code = batch.advance(self.directory, wait=False, submit_interval=0)
+        execute.assert_not_called()
+        self.assertEqual(result["state"], "archive_preparing")
+        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "ligands_present"}, 0)) as execute, \
+                patch("charmm_gui_cli.batch.time.time", return_value=1121):
+            result, code = batch.advance(self.directory, wait=False, submit_interval=0)
+        self.assertEqual(execute.call_count, 1)
+        self.assertEqual(execute.call_args.args[0].directory, self.directory / "jobs" / "first")
+        self.assertNotIn("next_retry_unix", result["jobs"][0])
+
+    def test_archive_wait_respects_batch_budget_without_early_retry(self):
+        self.prepare()
+        error = ToolError("Archive preparing", category="archive_preparing", retryable=True, retry_after_seconds=120)
+        clock = [1000.0]
+        with patch("charmm_gui_cli.build_command.execute", side_effect=error) as execute, \
+                patch("charmm_gui_cli.batch.time.time", side_effect=lambda: clock[0]), \
+                patch("charmm_gui_cli.batch.time.monotonic", side_effect=lambda: clock[0]), \
+                patch("charmm_gui_cli.batch.time.sleep", side_effect=lambda delay: clock.__setitem__(0, clock[0] + delay)):
+            result, code = batch.advance(self.directory, wait=True, max_wait=45, submit_interval=0)
+        self.assertEqual(execute.call_count, 1)
+        self.assertEqual(result["state"], "archive_preparing")
+        self.assertEqual(result["jobs"][0]["next_retry_unix"], 1120)
+        self.assertEqual(result["failed"], 0)
+        self.assertEqual(clock[0], 1045)
+
     def test_independently_started_later_pending_job_occupies_slot(self):
         self.prepare()
         later = self.directory / "jobs" / "third"

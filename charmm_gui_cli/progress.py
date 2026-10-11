@@ -31,6 +31,7 @@ _LABELS = {
     "running": ("build", "膜系统构建正在运行"),
     "done": ("build", "远端报告完成；还需下载归档并进行本地验收"),
     "downloading": ("build", "正在下载最终归档；尚未完成本地验收"),
+    "archive_preparing": ("build", "远端构建完成，官网正在压缩归档；等待后重试原任务下载，尚未验收"),
     "downloaded_unverified": ("archive", "归档已下载；完整性与模型检查尚未全部确认"),
     "ligands_present": ("archive", "归档初检通过、已发现配体；仍需完整模型验收"),
     "validating_final_archive (local)": ("validation", "正在本地验收拓扑、配体位姿、脂膜、离子与日志"),
@@ -64,6 +65,7 @@ _OUTPUTS = {
     "step4_lipid.out": "脂质坐标构建",
     "step4_lipid_checkchol.out": "脂质与胆固醇结构检查",
     "step4.1_waterbox.out": "水盒构建",
+    "step4.2_waterbox.out": "水盒构建",
     "step4.2_water.out": "溶剂构建",
     "step4.3_ion.out": "离子放置",
     "step5_assembly.out": "系统组装",
@@ -98,7 +100,7 @@ def describe_progress(event, *, source_job_id=None, build_job_id=None):
     state = event.get("state")
     state = state if isinstance(state, str) else "unknown"
     running = state.startswith("running ")
-    base = "running" if running else state
+    base = "running" if running else "archive_preparing" if state == "compressing" else state
     stage, label = _LABELS.get(base, ("unknown", "状态尚未识别；请查看任务记录"))
     source = _identifier(event.get("source_job_id")) or _identifier(source_job_id)
     build = _identifier(event.get("build_job_id")) or _identifier(build_job_id)
@@ -115,7 +117,7 @@ def describe_progress(event, *, source_job_id=None, build_job_id=None):
     elif running and output:
         label = "膜系统构建正在运行"
     semantics = {
-        "done": "remote_done_not_validated", "downloaded_unverified": "archive_downloaded_not_validated",
+        "done": "remote_done_not_validated", "archive_preparing": "remote_done_archive_preparing", "downloaded_unverified": "archive_downloaded_not_validated",
         "ligands_present": "archive_precheck_passed", "validated": "validation_recorded",
         "validation_failed": "validation_failed", "remote_error": "remote_failed", "error": "remote_failed",
         "preparation_failed": "preparation_failed", "preparation_error": "preparation_failed",
@@ -124,7 +126,7 @@ def describe_progress(event, *, source_job_id=None, build_job_id=None):
     result = {"stage": stage, "label": label, "terminal_semantics": semantics,
               "source_job_id": source, "build_job_id": build,
               "official_links": official_links(source_job_id=source, build_job_id=build),
-              "remote_done": True if base == "done" else None, "archive_verified": base == "ligands_present",
+              "remote_done": True if base in ("done", "archive_preparing") else None, "archive_verified": base == "ligands_present",
               "validation_passed": None, "ui_note": UI_NOTE}
     if internal:
         result["internal_stage"] = internal

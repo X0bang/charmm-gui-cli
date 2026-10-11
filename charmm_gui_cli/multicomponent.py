@@ -14,7 +14,7 @@ import re
 
 from .auth import ToolError
 from .input_sources import _chemical_sdf_in_complex, _internal
-from .inputs import Ligand, _apply_hydrogen_policy, _conect, _pdb, _sdf, _validate_ligand, _validate_protein, read_ligand
+from .inputs import Ligand, _apply_hydrogen_policy, _conect, _pdb, _protein_pdb_lines, _sdf, _validate_ligand, _validate_protein, read_ligand
 
 
 _PROTEIN = set("ALA ARG ASN ASP CYS GLN GLU GLY HIS ILE LEU LYS MET PHE PRO SER THR TRP TYR VAL HSD HSE HSP HID HIE HIP ASH GLH LYN CYM CYX".split())
@@ -266,7 +266,8 @@ def prepare_multicomponent(*, complex_pdb, components, out, water_policy, ion_po
         group.setdefault("representative_sdf", str(sdf_path))
         group.setdefault("files", {"sdf": str(sdf_path), **({"rtf": topology["rtf"]["path"], "prm": topology["prm"]["path"]} if topology else {})})
     protein_serials = {a.serial for a in protein}
-    files["protein.pdb"] = "\n".join(a.line for a in protein) + "\n" + _conect({edge: order for edge, order in bonds.items() if set(edge) <= protein_serials}) + "END\n"
+    metadata = [line for line in source.read_text().splitlines() if line.startswith("SSBOND")]
+    files["protein.pdb"] = "\n".join(metadata + _protein_pdb_lines(source, protein)) + "\n" + _conect({edge: order for edge, order in bonds.items() if set(edge) <= protein_serials}) + "END\n"
     report = {"schema_version": 1, "source": _evidence(source), "complex": str(destination / "complex.pdb"),
               "protein": str(destination / "protein.pdb"), "components": reports, "chemistry_groups": list(groups.values()),
               "policies": {"water": water_policy, "ions": ion_policy}, "retained_waters": retained_waters, "retained_ions": retained_ions,
@@ -290,14 +291,15 @@ def prepare_multicomponent(*, complex_pdb, components, out, water_policy, ion_po
             "manifest": str(destination / "multicomponent-manifest.json"), "report": report}
 
 
-def validate_components(system_dir, input_manifest, reference_pdb, run_grompp=False, gmx=None, output_parent=None):
+def validate_components(system_dir, input_manifest, reference_pdb, run_grompp=False, gmx=None, output_parent=None,
+                        *, archive_path=None):
     """Aggregate exact-copy topology and common-protein-frame pose checks.
 
     Distinct residue names with one copy each are supported. Repeated copies and
     retained input solvent/ions fail explicitly until residue-level lineage can
     be proved; merely finding the same number of bulk waters is not such proof.
     """
-    from .pose_validation import validate_bound_pose
+    from .pose_validation import validate_bound_pose, derive_server_atom_mapping
     from .validation import validate_system
 
     report = {"passed": False, "scientific_correctness_verified": False, "checks": {}, "components": {}, "errors": [],
@@ -328,12 +330,45 @@ def validate_components(system_dir, input_manifest, reference_pdb, run_grompp=Fa
                 raise ToolError("Expected ligand residue name differs from its chemistry group.")
             checked = validate_system(system_dir, expected, run_grompp=run_grompp and index == 0,
                                       gmx=gmx, output_parent=output_parent)
+            name_map, mapping_evidence = None, None
+            if checked.get("checks", {}).get("ligand_heavy_atom_names", {}).get("passed") is False:
+                try:
+                    mapping_evidence = derive_server_atom_mapping(system_dir, reference_pdb, expected["ligand"], archive_path=archive_path)
+                    if "heavy_atom_bonds" not in expected["ligand"]:
+                        raise ToolError("Mapped names require an explicit complete input heavy-atom bond graph.")
+                    mapped = validate_system(system_dir, expected, atom_name_map=mapping_evidence["mapping"],
+                                             gmx=gmx, output_parent=output_parent)
+                    # Mapping only resolves atom correspondence. It must not
+                    # erase an earlier compiler/setup failure or retry grompp.
+                    mapped["errors"] = list(dict.fromkeys([*checked.get("errors", []), *mapped.get("errors", [])]))
+                    mapped["passed"] = mapped["passed"] and not mapped["errors"]
+                    if "grompp" in checked.get("checks", {}):
+                        mapped["checks"]["grompp"] = checked["checks"]["grompp"]
+                        mapped["passed"] = mapped["passed"] and checked["checks"]["grompp"]["passed"]
+                    elif run_grompp and index == 0:
+                        mapped["checks"]["grompp"] = {"passed": False, "reason": "Requested grompp did not complete; original errors retained."}
+                        mapped["passed"] = False
+                    checks = mapped.get("checks", {})
+                    graph_proved = all(checks.get(name, {}).get("passed") is True for name in (
+                        "ligand_heavy_bond_connectivity", "ligand_heavy_atom_names", "ligand_mapped_elements"))
+                    copies_proved = (checks.get("ligand_topology_presence", {}).get("copies") == 1
+                                     and checks.get("ligand_coordinate_retention", {}).get("copies") == 1)
+                    mapping_evidence["final_graph_and_elements_passed"] = graph_proved
+                    mapping_evidence["passed"] = graph_proved and copies_proved
+                    checked = mapped
+                    if mapping_evidence["passed"]:
+                        name_map = mapping_evidence["mapping"]
+                    else:
+                        mapping_evidence["error"] = "Mapped final heavy-atom graph, elements or copy counts disagree; mapping was not accepted for pose validation."
+                except (ToolError, OSError, ValueError, KeyError, TypeError) as exc:
+                    mapping_evidence = {**(mapping_evidence or {}), "passed": False, "error": str(exc)}
             counts = checked.get("checks", {})
             topo_copies = counts.get("ligand_topology_presence", {}).get("copies")
             coord_copies = counts.get("ligand_coordinate_retention", {}).get("copies")
             exact = {"passed": topo_copies == coord_copies == len(group["instances"]), "expected": len(group["instances"]),
                      "topology": topo_copies, "coordinates": coord_copies}
-            pose = validate_bound_pose(system_dir, expected, reference_pdb)
+            pose = (validate_bound_pose(system_dir, expected, reference_pdb, atom_name_map=name_map) if name_map is not None
+                    else validate_bound_pose(system_dir, expected, reference_pdb))
             same_frame = False
             if "rotation_row_vector" in pose and "translation_A" in pose:
                 transform = [*sum(pose["rotation_row_vector"], []), *pose["translation_A"]]
@@ -343,6 +378,8 @@ def validate_components(system_dir, input_manifest, reference_pdb, run_grompp=Fa
             component_passed = checked["passed"] and exact["passed"] and pose["passed"] and same_frame
             report["components"][group["resname"]] = {"passed": component_passed, "topology_validation": checked,
                                                        "exact_copy_count": exact, "bound_pose": pose, "same_protein_transform": same_frame}
+            if mapping_evidence is not None:
+                report["components"][group["resname"]]["atom_name_mapping"] = mapping_evidence
         report["checks"]["all_components"] = {"passed": bool(report["components"]) and all(c["passed"] for c in report["components"].values())}
         report["checks"]["same_protein_transform"] = {"passed": common_transform is not None and all(c["same_protein_transform"] for c in report["components"].values()),
                                                       "scope": "All components use the identical protein CA fit; no component is independently fitted"}
@@ -408,7 +445,7 @@ def prepare_build_components(*, components_config, complex_pdb, out, hydrogens="
     source = _file(complex_pdb, "Complex PDB")
     protein, protein_bonds = _pdb(prepared["protein"])
     protein_map = {a.serial: i + 1 for i, a in enumerate(protein)}
-    protein_lines = [a.line[:6] + f"{protein_map[a.serial]:5d}" + a.line[11:] for a in protein]
+    protein_lines = _protein_pdb_lines(prepared["protein"], protein, protein_map)
     mapped_bonds = {tuple(protein_map[i] for i in edge): order for edge, order in protein_bonds.items()}
     all_lines, serial = list(protein_lines), len(protein)
     file_text, groups = {}, {group["resname"]: group for group in manifest["chemistry_groups"]}
@@ -443,6 +480,11 @@ def prepare_build_components(*, components_config, complex_pdb, out, hydrogens="
                                  "element": atom.element, "input_coordinates_A": list(atom.xyz)})
         instance_bonds = {tuple(start + i + 1 for i in edge): order for edge, order in molecule.bonds.items()}
         mapped_bonds.update(instance_bonds)
+        # Same-chain noncovalent HETATMs otherwise become engineered protein
+        # residues in CHARMM-GUI. Preserve identities but separate polymers and
+        # independent components explicitly, without renumbering atom serials.
+        if all_lines[-1] != "TER":
+            all_lines.append("TER")
         all_lines.extend(instance_lines)
         sdf_name, pdb_name = component["id"] + ".sdf", component["id"] + ".pdb"
         file_text[sdf_name] = molecule.sdf

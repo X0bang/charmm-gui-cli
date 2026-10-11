@@ -71,6 +71,20 @@ class ReportingTests(unittest.TestCase):
         self.assertNotIn("private-value", content)
         self.assertIn("charmm-gui.org", content)
 
+    def test_components_have_individual_readable_counts_poses_and_penalties(self):
+        result = reporting.display_result(self.summary, self.context, self.manifest, self.report)
+        result["components"] = {"LIG": {"passed": True, "copies": {"coordinates": 1, "topology": 1},
+            "ligand_rmsd_A": 0.2, "ligand_max_displacement_A": 0.5,
+            "cgenff": {"parameter_max": 0.6, "charge_max": 2.2, "status": "passed"}},
+            "COF": {"passed": False, "pose_error": "No unique mapping"}}
+        content = reporting.render_text(result)
+        self.assertIn("LIG：通过；副本 坐标 1 / 拓扑 1", content)
+        self.assertIn("重原子 RMSD：0.2 Å；最大位移：0.5 Å", content)
+        self.assertIn("参数 0.6 / 电荷 2.2", content)
+        self.assertIn("COF：未通过", content)
+        self.assertIn("位姿检查：No unique mapping", content)
+        self.assertNotIn("各组分：{", content)
+
     def test_valid_images_embedded_without_mutation(self):
         saved, image, model = self.fixture()
         before = model.read_bytes()

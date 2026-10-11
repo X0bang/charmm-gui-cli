@@ -6,6 +6,7 @@ import fcntl
 import gzip
 import hashlib
 import json
+import math
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -89,7 +90,8 @@ def verify_archive_provenance(directory, manifest=None, *, create_receipt=False)
 
     Legacy downloads need a previously recorded hash and a matching official
     archive root. An interrupted first download can be sealed only after its
-    durable downloading/done intent. Read-only consumers never bootstrap it.
+    durable downloading intent after done or the observed compressing status.
+    Read-only consumers never bootstrap it.
     """
     directory = Path(directory)
     manifest = read(directory) if manifest is None else manifest
@@ -122,7 +124,8 @@ def verify_archive_provenance(directory, manifest=None, *, create_receipt=False)
                 reject("Invalid download receipt.")
         elif recorded_hash is None and not (
                 create_receipt and manifest.get("state") == "downloading"
-                and manifest.get("remote_status") == "done"):
+                and (manifest.get("remote_status") == "done" or
+                     (manifest.get("remote_status") == "archive_preparing" and manifest.get("raw_remote_status") == "compressing"))):
             reject("Existing archive has no download receipt or previously recorded SHA256; ownership cannot be established.")
 
         expected_root = "charmm-gui-" + identifier
@@ -207,6 +210,8 @@ def start(client, config, directory):
 
 def status_summary(data):
     status = data.get("status")
+    if status == "compressing":
+        return {"status": "archive_preparing", "raw_status": status}
     if status == "submitted":
         return {"status": "pending", "raw_status": status}
     if isinstance(status, str) and re.fullmatch(r"running [A-Za-z0-9_.-]+", status):
@@ -230,6 +235,42 @@ def attach(client, directory, identifier):
         return manifest
 
 
+def _download_archive(client, directory, manifest, archive, *, wait, deadline, progress):
+    """Wait for on-demand compression, respecting a durable GET-only backoff."""
+    identifier = manifest["job_id"]
+    while not archive.exists():
+        retry_at = manifest.get("archive_retry_at_unix", 0)
+        if isinstance(retry_at, bool) or not isinstance(retry_at, (int, float)) or not math.isfinite(retry_at):
+            raise ToolError("Invalid saved archive retry time; inspect run.json before resuming.")
+        delay = retry_at - time.time()
+        if retry_at and wait and time.monotonic() >= deadline:
+            raise ToolError("等待归档准备的本地时限已到；原任务和下载重试时间已保留。",
+                            category="archive_preparing", retryable=True, retry_after_seconds=max(0, math.ceil(delay)))
+        if delay > 0:
+            if not wait or time.monotonic() >= deadline:
+                raise ToolError("官网归档仍在准备；等待记录的重试时间后恢复同一任务。",
+                                category="archive_preparing", retryable=True, retry_after_seconds=math.ceil(delay))
+            time.sleep(min(30, delay, max(0, deadline - time.monotonic())))
+            continue
+        if progress:
+            progress({"state": "downloading", "job_id": identifier, "build_job_id": identifier})
+        manifest["state"] = "downloading"
+        save(directory, manifest)
+        try:
+            client.download(identifier, archive)
+        except ToolError as error:
+            if error.category != "archive_preparing":
+                raise
+            manifest.update(state="archive_preparing", archive_retry_at_unix=time.time() + 120)
+            save(directory, manifest)
+            if progress:
+                progress({"state": "archive_preparing", "job_id": identifier, "build_job_id": identifier})
+            if not wait or time.monotonic() >= deadline:
+                raise
+        else:
+            manifest.pop("archive_retry_at_unix", None)
+
+
 def resume(client, directory, *, wait=False, interval=30, max_wait=21600, pdb_member=None, progress=None):
     if interval < 10 or max_wait <= 0:
         raise ToolError("Polling interval must be >= 10 seconds and max-wait must be positive.")
@@ -240,7 +281,10 @@ def resume(client, directory, *, wait=False, interval=30, max_wait=21600, pdb_me
             raise SubmissionUnknown("Submission outcome is unknown. Check website jobs and use attach; resume never resubmits.")
         deadline = time.monotonic() + max_wait
         archive = directory / "charmm-gui.tgz"
-        if not archive.exists():
+        awaiting_archive = manifest.get("state") == "archive_preparing" and (
+            manifest.get("remote_status") == "done" or
+            (manifest.get("remote_status") == "archive_preparing" and manifest.get("raw_remote_status") == "compressing"))
+        if not archive.exists() and not awaiting_archive:
             while True:
                 data = client.status(identifier)
                 status = status_summary(data)["status"]
@@ -250,7 +294,7 @@ def resume(client, directory, *, wait=False, interval=30, max_wait=21600, pdb_me
                 manifest["state"] = "remote_error" if status == "error" else status
                 save(directory, manifest)
                 if progress:
-                    event = {"state": data.get("status", status), "job_id": identifier, "build_job_id": identifier}
+                    event = {"state": status if status == "archive_preparing" else data.get("status", status), "job_id": identifier, "build_job_id": identifier}
                     output = data.get("lastOutFile")
                     # Expose recognized internal output basenames only, never
                     # raw log lines, URLs, arbitrary server text or credentials.
@@ -263,6 +307,10 @@ def resume(client, directory, *, wait=False, interval=30, max_wait=21600, pdb_me
                                     category="remote_failure", next_step="Inspect saved job output and the failed remote job; resume never resubmits.")
                 if status == "done":
                     break
+                if status == "archive_preparing":
+                    manifest["archive_retry_at_unix"] = time.time() + 120
+                    save(directory, manifest)
+                    break
                 if not wait:
                     return manifest
                 remaining = deadline - time.monotonic()
@@ -270,11 +318,8 @@ def resume(client, directory, *, wait=False, interval=30, max_wait=21600, pdb_me
                     raise ToolError("Wait limit reached. The remote job is retained; run resume later.",
                                     category="wait_timeout", retryable=True)
                 time.sleep(min(interval, remaining))
-            if progress:
-                progress({"state": "downloading", "job_id": identifier, "build_job_id": identifier})
-            manifest["state"] = "downloading"
-            save(directory, manifest)
-            client.download(identifier, archive)
+        if not archive.exists():
+            _download_archive(client, directory, manifest, archive, wait=wait, deadline=deadline, progress=progress)
         receipt = verify_archive_provenance(directory, manifest, create_receipt=True)
         manifest["state"] = "downloaded_unverified"
         manifest["archive_sha256"] = receipt["archive_sha256"]

@@ -101,6 +101,10 @@ class ManagedComponentTests(unittest.TestCase):
         self.assertEqual(reports["LIG"]["parameter_max"], 1.4)
         (system / "duplicate.rtf").write_text("RESI COF 0.0\n")
         reports = managed._component_penalties(system, ["COF"])
+        self.assertEqual(reports["COF"]["parameter_max"], 75)
+        self.assertIn(str(system / "duplicate.rtf"), reports["COF"]["evidence"]["unpaired_topologies"])
+        (system / "duplicate.prm").write_text("! penalty= 0\n")
+        reports = managed._component_penalties(system, ["COF"])
         self.assertEqual(reports["COF"]["status"], "incomplete")
         self.assertTrue(reports["COF"]["review_required"])
 
@@ -114,7 +118,7 @@ class ManagedComponentTests(unittest.TestCase):
         def validate(system, manifest, reference, **kwargs):
             components = {}
             for index, name in enumerate(("LIG", "COF")):
-                checks = {}
+                checks = {"total_atom_count": {"passed": True, "coordinates": 120, "topology": 120}}
                 if kwargs["run_grompp"] and index == 0:
                     output = Path(kwargs["output_parent"]) / "grompp-test"
                     output.mkdir()
@@ -122,7 +126,8 @@ class ManagedComponentTests(unittest.TestCase):
                     (output / "grompp.log").write_text("No warnings\n")
                     checks["grompp"] = {"passed": True, "log": str(output / "grompp.log"), "output_dir": str(output)}
                 components[name] = {"passed": not (failed_component and name == "COF"),
-                                    "topology_validation": {"passed": True, "checks": checks, "files": {"coordinates": str(system / "step5_input.pdb")}},
+                                    "topology_validation": {"passed": True, "checks": checks,
+                                        "coordinate_residue_counts": {"LIG": 1, "COF": 1}, "files": {"coordinates": str(system / "step5_input.pdb")}},
                                     "bound_pose": {"passed": not (failed_component and name == "COF")}, "same_protein_transform": True}
             return {"passed": not failed_component, "components": components, "errors": []}
 
@@ -148,6 +153,12 @@ class ManagedComponentTests(unittest.TestCase):
         self.assertEqual(extract.call_count, 1)
         self.assertEqual(validate.call_count, 1)
         self.assertTrue(report["checks"]["grompp"]["passed"])
+        self.assertEqual(report["checks"]["total_atom_count"]["coordinates"], 120)
+        self.assertEqual(report["coordinate_residue_counts"], {"LIG": 1, "COF": 1})
+        self.assertEqual(report["evidence"]["component_validation_revision"], 2)
+        old_evidence = dict(report["evidence"])
+        old_evidence.pop("component_validation_revision")
+        self.assertFalse(managed._cache_reusable({**report, "fingerprint": managed._canonical_hash(old_evidence)}, report["evidence"]))
         self.assertTrue(report["review_required"])
         self.assertEqual(report["acceptance_validation"]["component_penalties"]["COF"]["parameter_max"], 75)
         self.assertTrue(managed.inspect_run(directory)["gromacs_compiled"])

@@ -121,11 +121,19 @@ def render_text(result):
              f"  上叶脂质：{_value(leaflets.get('upper', {}).get('lipid_counts'))}；下叶脂质：{_value(leaflets.get('lower', {}).get('lipid_counts'))}",
              "  离子：" + _value(environment.get("ions")),
              f"  盐浓度直接证据：{_value(environment.get('concentration_verified'))}",
-             "", "结合位姿（同一蛋白拟合后）",
-             f"  配体重原子 RMSD：{_value(pose.get('ligand_rmsd_after_protein_fit_A'))} Å",
-             f"  配体最大位移：{_value(pose.get('ligand_max_displacement_A'))} Å"]
+             "", "结合位姿（同一蛋白拟合后）"]
     if result.get("components"):
-        lines.append("各组分：" + _value(result["components"]))
+        for name, component in result["components"].items():
+            copies = component.get("copies") or {}
+            penalty = component.get("cgenff") or {}
+            lines.extend([f"  {name}：{_value(component.get('passed'))}；副本 坐标 {_value(copies.get('coordinates'))} / 拓扑 {_value(copies.get('topology'))}",
+                          f"    重原子 RMSD：{_value(component.get('ligand_rmsd_A'))} Å；最大位移：{_value(component.get('ligand_max_displacement_A'))} Å",
+                          f"    CGenFF penalty：参数 {_value(penalty.get('parameter_max'))} / 电荷 {_value(penalty.get('charge_max'))}；审阅状态 {_value(penalty.get('status'))}"])
+            if component.get("pose_error"):
+                lines.append("    位姿检查：" + _value(component["pose_error"]))
+    else:
+        lines.extend([f"  配体重原子 RMSD：{_value(pose.get('ligand_rmsd_after_protein_fit_A'))} Å",
+                      f"  配体最大位移：{_value(pose.get('ligand_max_displacement_A'))} Å"])
     lines.extend(["", "需要复核的警告："])
     warnings = result.get("warnings", [])
     lines.extend("- " + _value(item) for item in warnings)

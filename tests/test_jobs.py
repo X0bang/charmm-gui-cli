@@ -97,6 +97,21 @@ class JobsTests(unittest.TestCase):
         self.assertEqual(execute.call_args.args[0].directory, self.directory)
         self.assertFalse(execute.call_args.args[0].wait)
 
+    def test_remote_compressing_is_readonly_and_guides_original_job_recovery(self):
+        managed.assign_name(self.directory, "example")
+        (self.directory / "bilayer").mkdir()
+        atomic_json(self.directory / "bilayer/run.json", {"job_id": "123", "state": "done"})
+        before = (self.directory / "bilayer/run.json").read_bytes()
+        with patch("charmm_gui_cli.auth.load_token", return_value=("test-token", "mock")), \
+                patch("charmm_gui_cli.api.Client.status", return_value={"status": "compressing", "hasTarFile": False}):
+            result = managed.inspect_run("example", remote_check=True)
+        self.assertEqual(result["remote_status"], "archive_preparing")
+        self.assertFalse(result["archive_available"])
+        self.assertNotIn("passed", result)
+        self.assertIn("120", result["next_step"])
+        self.assertIn("GET", result["next_step"])
+        self.assertEqual((self.directory / "bilayer/run.json").read_bytes(), before)
+
     def test_recovery_history_is_retained_and_resolved_success_is_not_active(self):
         managed.assign_name(self.directory, "example")
         managed.record_recovery(self.directory, ToolError("Temporary network failure", category="transient_network", retryable=True))

@@ -380,9 +380,32 @@ def run_grompp_check(topology, coordinates, mdp, output_parent, *, index=None,
             "scope": "GROMACS preprocessing with maxwarn=0; no minimization or dynamics executed"}
 
 
+def validate_atom_name_map(expected, atom_name_map):
+    """Validate a complete heavy-atom bijection, never infer one from names."""
+    heavy = [a["pdb_atom_name"] for a in expected.get("atom_mapping", [])
+             if a["element"].upper() not in ("H", "D", "T")]
+    if (not heavy or len(set(heavy)) != len(heavy) or not isinstance(atom_name_map, dict)
+            or set(atom_name_map) != set(heavy)
+            or any(not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9'_*+-]{1,4}", value) for value in atom_name_map.values())
+            or len(set(atom_name_map.values())) != len(heavy)):
+        raise ToolError("Atom-name correspondence must be a complete, unique heavy-atom bijection.")
+    return dict(atom_name_map)
+
+
+def element_from_natural_mass(mass):
+    """Conservative organic-element identity; unsupported/repartitioned masses fail."""
+    masses = {"H": 1.008, "B": 10.81, "C": 12.011, "N": 14.007, "O": 15.9994,
+              "F": 18.9984, "Si": 28.0855, "P": 30.9738, "S": 32.06, "Cl": 35.45,
+              "Br": 79.904, "I": 126.9045}
+    matches = [name for name, expected in masses.items() if math.isfinite(mass) and abs(mass - expected) <= 0.02]
+    if len(matches) != 1:
+        raise ToolError("Cannot establish an unambiguous natural-mass element identity.")
+    return matches[0]
+
+
 def validate_system(system_dir, manifest, *, topology=None, coordinates=None, mdp=None,
                     ligand_resname=None, run_grompp=False, gmx=None, index=None,
-                    output_parent=None):
+                    output_parent=None, atom_name_map=None):
     """Return readable checks; a passing result is never scientific certification.
 
     manifest is the prepare_inputs return's manifest, or its JSON file path.
@@ -400,6 +423,7 @@ def validate_system(system_dir, manifest, *, topology=None, coordinates=None, md
                               "CGenFF parameter penalties and missing chemistry require separate review."],
               "checks": checks, "errors": errors, "expected_ligand_resname": resname}
     try:
+        name_map = validate_atom_name_map(expected, atom_name_map) if atom_name_map is not None else None
         top = _choose(root, topology, ["topol.top", "*.top"], "GROMACS topology")
         coord = _choose(root if coordinates else top.parent, coordinates, ["step5_input.gro", "step5_input.pdb", "*.gro", "*.pdb"], "GROMACS coordinates")
         mdp_path = _choose(root if mdp else top.parent, mdp, ["*minimization*.mdp", "*min*.mdp"], "minimization MDP") if mdp or run_grompp else None
@@ -445,7 +469,8 @@ def validate_system(system_dir, manifest, *, topology=None, coordinates=None, md
         checks["ligand_bond_count"] = {"passed": bool(ligand_groups) and all(n >= expected["bonds"] for n in ligand_bond_counts),
                                        "input_bonds": expected["bonds"], "topology_bonds_including_hydrogen": ligand_bond_counts}
         if "heavy_atom_bonds" in expected:
-            expected_edges = {tuple(sorted(bond["atoms"])) for bond in expected["heavy_atom_bonds"]}
+            expected_edges = {tuple(sorted(name_map[name] if name_map is not None else name for name in bond["atoms"]))
+                              for bond in expected["heavy_atom_bonds"]}
             edge_checks = []
             for group in ligand_groups:
                 names = {a["nr"]: a["name"] for a in group["atoms"] if a["heavy"] is True}
@@ -472,11 +497,26 @@ def validate_system(system_dir, manifest, *, topology=None, coordinates=None, md
         checks["ligand_coordinate_retention"] = {"passed": copies == len(ligand_groups) and copies > 0
                                                 and heavy_count == expected["heavy_atoms"] * copies,
                                                 "copies": copies, "heavy_atoms": heavy_count, "method": method}
-        expected_names = Counter(a["pdb_atom_name"] for a in expected.get("atom_mapping", []) if a["element"] not in ("H", "D", "T"))
+        expected_names = Counter(name_map[a["pdb_atom_name"]] if name_map is not None else a["pdb_atom_name"]
+                                 for a in expected.get("atom_mapping", []) if a["element"] not in ("H", "D", "T"))
         if expected_names:
             checks["ligand_heavy_atom_names"] = {"passed": bool(ligand_groups) and all(
                 Counter(a["name"] for a in g["atoms"] if a["heavy"] is True) == expected_names for g in ligand_groups),
                 "scope": "Input heavy atom names must be preserved; explicit remapping is needed if the server renames them"}
+        if name_map is not None:
+            expected_elements = {name_map[a["pdb_atom_name"]]: a["element"].title()
+                                 for a in expected["atom_mapping"] if a["element"].upper() not in ("H", "D", "T")}
+            atomic_numbers = {"B": 5, "C": 6, "N": 7, "O": 8, "F": 9, "Si": 14, "P": 15, "S": 16, "Cl": 17, "Br": 35, "I": 53}
+            element_checks = []
+            for group in ligand_groups:
+                observed = {a["name"]: a for a in group["atoms"] if a["heavy"] is True}
+                element_checks.append(set(observed) == set(expected_elements) and all(
+                    (observed[name]["atomic_number"] == atomic_numbers.get(element) if observed[name]["atomic_number"] is not None
+                     else element_from_natural_mass(observed[name]["natural_mass"]) == element)
+                    for name, element in expected_elements.items()))
+            checks["ligand_mapped_elements"] = {"passed": bool(element_checks) and all(element_checks),
+                                                 "scope": "Mapped final atomtype atomic number or natural mass, never HMR atom mass"}
+            report["atom_name_correspondence"] = name_map
         if run_grompp:
             index_path = (root / index).resolve() if index else next(iter(sorted(top.parent.glob("*.ndx"))), None)
             if index is None and len(list(top.parent.glob("*.ndx"))) > 1:
@@ -484,7 +524,7 @@ def validate_system(system_dir, manifest, *, topology=None, coordinates=None, md
             checks["grompp"] = run_grompp_check(top, coord, mdp_path, output_parent or root / "validation-results",
                                                  index=index_path, gmx=gmx)
         report["passed"] = bool(checks) and all(check["passed"] for check in checks.values())
-    except (ToolError, OSError, ValueError) as exc:
+    except (ToolError, OSError, ValueError, KeyError, TypeError) as exc:
         errors.append(str(exc))
     return report
 
@@ -605,6 +645,7 @@ def inspect_environment(coordinates, *, expected_lipids, ion_type, concentration
 
 
 def compare_bound_pose(reference_pdb, final_pdb, *, ligand_resname="LIG", ligand_atom_names=None,
+                       final_ligand_atom_names=None,
                        reference_protein_chain=None, final_protein_segment=None,
                        protein_rmsd_limit_A=1.0, ligand_rmsd_limit_A=2.0):
     """Fit protein CA atoms, then test ligand pose under that same rigid transform.
@@ -667,15 +708,22 @@ def compare_bound_pose(reference_pdb, final_pdb, *, ligand_resname="LIG", ligand
             raise ToolError("Supply ligand_atom_names when reference ligand PDB element columns are absent.")
         ligand_atom_names = [a["name"] for a in source_ligand if a["element"] not in ("H", "D", "T")]
     selected = set(ligand_atom_names)
+    final_ligand_atom_names = ligand_atom_names if final_ligand_atom_names is None else final_ligand_atom_names
+    if (len(ligand_atom_names) != len(selected) or len(final_ligand_atom_names) != len(ligand_atom_names)
+            or len(set(final_ligand_atom_names)) != len(final_ligand_atom_names)
+            or any(not isinstance(name, str) or not name for name in final_ligand_atom_names)):
+        raise ToolError("Pose atom-name correspondence must be a complete unique bijection.")
+    target_selected = set(final_ligand_atom_names)
+    correspondence = dict(zip(ligand_atom_names, final_ligand_atom_names))
     source_ligand = [a for a in source_ligand if a["name"] in selected]
-    target_ligand = [a for a in final if a["resname"] == ligand_resname and a["name"] in selected]
+    target_ligand = [a for a in final if a["resname"] == ligand_resname and a["name"] in target_selected]
     source_names, target_names = {a["name"]: a for a in source_ligand}, {a["name"]: a for a in target_ligand}
     if (not selected or len(source_names) != len(source_ligand) or len(target_names) != len(target_ligand)
-            or set(source_names) != selected or set(target_names) != selected):
+            or set(source_names) != selected or set(target_names) != target_selected):
         raise ToolError("Ligand atom correspondence is incomplete/ambiguous; select a single ligand copy.")
     names = sorted(selected)
     a = np.array([source_names[name]["xyz"] for name in names])
-    b = np.array([target_names[name]["xyz"] for name in names])
+    b = np.array([target_names[correspondence[name]]["xyz"] for name in names])
     displacement = np.linalg.norm(a @ rotation + translation - b, axis=1)
     ligand_rmsd = float(np.sqrt(np.mean(displacement ** 2)))
     return {"passed": protein_rmsd <= protein_rmsd_limit_A and ligand_rmsd <= ligand_rmsd_limit_A,

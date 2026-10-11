@@ -235,7 +235,7 @@ def _local(job):
             recovered = (isinstance(attached, dict) and isinstance(attached.get("job_id"), str)
                          and re.fullmatch(r"[0-9]{1,32}", attached["job_id"])
                          and attached.get("state") in ("submitted", "pending", "running", "done", "remote_error",
-                                                       "downloaded_unverified", "ligands_present", "validation_failed"))
+                                                       "archive_preparing", "downloading", "downloaded_unverified", "ligands_present", "validation_failed"))
         except (OSError, ValueError):
             recovered = False
         if not recovered:
@@ -291,7 +291,7 @@ def _local(job):
             or job["state"] not in ("pending", "preparing_local", "inputs_ready", "prepared_reused", "waiting_preparation")):
         job["started"] = True
     if job["state"] not in TERMINAL and time.time() < job.get("next_retry_unix", 0):
-        job["state"] = "waiting_network"
+        job["state"] = "archive_preparing" if job.get("error_category") == "archive_preparing" else "waiting_network"
     elif job["state"] not in TERMINAL and job.get("error_category") == "transport_error":
         job["state"] = "paused_network"
 
@@ -316,6 +316,8 @@ def _summary(directory, manifest):
         guidance = "检查网络、代理与 TLS 证书，不要禁用证书验证；修复后恢复同一批次：" + resume
     elif state == "waiting_network":
         guidance = "等待网络/限流恢复及 next_retry_unix 指定时间后，恢复同一批次：" + resume
+    elif state == "archive_preparing":
+        guidance = "官网正在压缩归档，尚未下载验收；等待 next_retry_unix 后，仅下载原任务归档：" + resume
     elif state == "interrupted":
         guidance = "已保留原任务和提交意图；恢复时不会自动重发未知 POST：" + resume
     else:
@@ -378,9 +380,10 @@ def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=
         manifest["state"] = "running"
         while True:
             if time.monotonic() >= deadline:
-                manifest["state"] = "waiting_network" if any(j["state"] == "waiting_network" for j in manifest["jobs"]) else "waiting"
+                manifest["state"] = ("waiting_network" if any(j["state"] == "waiting_network" for j in manifest["jobs"]) else
+                                     "archive_preparing" if any(j["state"] == "archive_preparing" for j in manifest["jobs"]) else "waiting")
                 _save(directory, manifest)
-                return _summary(directory, manifest), 2 if manifest["state"] == "waiting_network" else 0
+                return _summary(directory, manifest), 2 if manifest["state"] in ("waiting_network", "archive_preparing") else 0
             for job in manifest["jobs"]:
                 _local(job)
             if manifest["config"].get("reuse_preparation"):
@@ -398,7 +401,7 @@ def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=
                 if job.get("reuse_waiting"):
                     continue
                 if time.time() < job.get("next_retry_unix", 0):
-                    job["state"] = "waiting_network"
+                    job["state"] = "archive_preparing" if job.get("error_category") == "archive_preparing" else "waiting_network"
                     network_waiting = True
                     continue
                 if not job.get("started"):
@@ -446,8 +449,8 @@ def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=
                         manifest["state"] = "paused_network"
                         _save(directory, manifest)
                         return _summary(directory, manifest), 2
-                    if (getattr(error, "retryable", False) and getattr(error, "category", "") in ("transient_network", "transient_http", "rate_limited")):
-                        job["state"] = "waiting_network"
+                    if (getattr(error, "retryable", False) and getattr(error, "category", "") in ("transient_network", "transient_http", "rate_limited", "archive_preparing")):
+                        job["state"] = "archive_preparing" if error.category == "archive_preparing" else "waiting_network"
                         network_waiting = True
                         delay = getattr(error, "retry_after_seconds", None)
                         if isinstance(delay, (int, float)) and not isinstance(delay, bool) and math.isfinite(delay) and delay > 0:
@@ -458,21 +461,21 @@ def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=
                 if job["state"] in TERMINAL:
                     active -= 1
                 _save(directory, manifest)
-                if job["state"] == "blocked" or (not wait and job["state"] == "waiting_network"):
+                if job["state"] == "blocked" or (not wait and job["state"] in ("waiting_network", "archive_preparing")):
                     break
             if all(j["state"] in TERMINAL for j in manifest["jobs"]):
                 manifest["state"] = "complete"
             elif any(j["state"] == "blocked" for j in manifest["jobs"]):
                 manifest["state"] = "paused_inspection"
             elif network_waiting and (not wait or time.monotonic() >= deadline):
-                manifest["state"] = "waiting_network"
+                manifest["state"] = "waiting_network" if any(j["state"] == "waiting_network" for j in manifest["jobs"]) else "archive_preparing"
             elif time.monotonic() >= deadline:
                 manifest["state"] = "waiting"
             _save(directory, manifest)
             if manifest["state"] != "running" or not wait:
                 summary = _summary(directory, manifest)
                 failed = any(j["state"] in TERMINAL - {"validated"} for j in manifest["jobs"])
-                return summary, 2 if failed or manifest["state"].startswith("paused") or manifest["state"] == "waiting_network" else 0
+                return summary, 2 if failed or manifest["state"].startswith("paused") or manifest["state"] in ("waiting_network", "archive_preparing") else 0
             time.sleep(min(interval, max(0, deadline - time.monotonic())))
 
 

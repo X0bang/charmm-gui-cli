@@ -12,6 +12,11 @@ from .archive_transport import normalize_download
 from .http_retry import request as request_with_retry, retry_delay, transient_exception, RETRY_STATUSES
 
 API_BASE = "https://charmm-gui.org/api"
+ARCHIVE_PREPARING_MESSAGE = b"Start compressing now, please download after 1-2 minutes"
+ARCHIVE_PREPARING_MESSAGES = (
+    ARCHIVE_PREPARING_MESSAGE,
+    b"Still running compressing process, please download after 1-2 minutes",
+)
 
 
 class AuthError(ToolError):
@@ -151,6 +156,14 @@ class Client:
                     handle.write(chunk)
                 handle.flush()
                 os.fsync(handle.fileno())
+            # The live endpoint may start archive compression on the first
+            # download GET. Recognize only this complete, observed response;
+            # arbitrary text/HTML and malformed gzip still fail normalization.
+            if temporary.stat().st_size <= max(map(len, ARCHIVE_PREPARING_MESSAGES)) + 2:
+                if temporary.read_bytes() in tuple(message + suffix for message in ARCHIVE_PREPARING_MESSAGES
+                                                    for suffix in (b"", b"\n", b"\r\n")):
+                    raise ToolError("官网正在压缩此任务的归档，尚未提供可下载的模型文件；原始响应已保留。",
+                                    category="archive_preparing", retryable=True, retry_after_seconds=120)
             normalize_download(temporary, destination)
         except requests.RequestException as exc:
             raise ToolError("Download interrupted. Resume will retry the download, not submit a new job.",

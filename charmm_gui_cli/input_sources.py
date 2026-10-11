@@ -10,7 +10,7 @@ from pathlib import Path
 import re
 
 from .auth import ToolError
-from .inputs import (Ligand, _conect, _pdb, _sdf, _validate_ligand,
+from .inputs import (Ligand, _conect, _pdb, _protein_pdb_lines, _sdf, _validate_ligand,
                      _validate_protein, read_ligand)
 
 
@@ -176,7 +176,8 @@ def prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand_
             _check_protein(protein, protein_atoms)
             report["supplied_protein_checked_against_complex"] = True
         protein_ids = {a.serial for a in protein_atoms}
-        generated["protein.pdb"] = "\n".join(a.line for a in protein_atoms) + "\n" + _conect(
+        metadata = [line for line in complex_pdb.read_text().splitlines() if line.startswith("SSBOND")]
+        generated["protein.pdb"] = "\n".join(metadata + _protein_pdb_lines(complex_pdb, protein_atoms)) + "\n" + _conect(
             {edge: order for edge, order in all_bonds.items() if set(edge) <= protein_ids}) + "END\n"
         resolved_protein = destination / "protein.pdb"
         coordinate_source = complex_pdb

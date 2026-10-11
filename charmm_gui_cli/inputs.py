@@ -35,6 +35,36 @@ class Ligand:
     name: str = "LIG"
 
 
+def _protein_pdb_lines(path, atoms, serial_map=None):
+    """Retain explicit polymer breaks while optionally renumbering atoms.
+
+    TER has no serial here so it cannot collide with unchanged atom/CONECT
+    numbering. Chain/segment changes remain distinct; numbering gaps alone
+    never invent a break. Callers preserve residue-addressed SSBOND metadata.
+    """
+    selected = {atom.serial: atom for atom in atoms}
+    lines, previous, boundary = [], None, False
+    for line in Path(path).read_text().splitlines():
+        record = line[:6].strip()
+        if record == "TER":
+            if lines and lines[-1] != "TER":
+                lines.append("TER")
+            boundary = True
+        elif record in ("ATOM", "HETATM"):
+            serial = int(line[6:11])
+            if serial not in selected:
+                boundary = True
+                continue
+            atom = selected[serial]
+            identity = (atom.line[21:22], atom.line[72:76].strip())
+            if previous is not None and (boundary or identity != previous) and lines[-1] != "TER":
+                lines.append("TER")
+            serial = serial_map[serial] if serial_map is not None else serial
+            lines.append(atom.line[:6] + f"{serial:5d}" + atom.line[11:])
+            previous, boundary = identity, False
+    return lines
+
+
 def _xyz(values):
     try:
         values = tuple(float(x) for x in values)
@@ -340,7 +370,8 @@ def split_complex(complex_pdb, output_dir, *, ligand_resname="LIG", ligand_chain
                    "stereochemistry": "No explicit stereochemical labels inferred; input coordinates preserved"})
     protein_ids = {a.serial for a in protein}
     protein_bonds = {edge: order for edge, order in bonds.items() if set(edge) <= protein_ids}
-    files = {"protein.pdb": "\n".join(a.line for a in protein) + "\n" + _conect(protein_bonds) + "END\n",
+    metadata = [line for line in Path(complex_pdb).read_text().splitlines() if line.startswith("SSBOND")]
+    files = {"protein.pdb": "\n".join(metadata + _protein_pdb_lines(complex_pdb, protein)) + "\n" + _conect(protein_bonds) + "END\n",
              "ligand.sdf": sdf,
              "ligand.pdb": "\n".join(a.line for a in selected) + "\n" + _conect({edge: order for edge, order in bonds.items() if set(edge) <= ids}) + "END\n",
              "split-report.json": json.dumps(report, indent=2) + "\n"}
@@ -405,7 +436,8 @@ def prepare_inputs(protein_pdb, ligand_sdf, output_dir, *, ligand_resname="LIG",
     if distance > 6 and not allow_distant_pose:
         raise ToolError("Ligand is >6 A from protein; supply a bound pose in the same coordinate frame or explicitly allow_distant_pose.")
     protein_map = {a.serial: i + 1 for i, a in enumerate(protein)}
-    protein_lines = [a.line[:6] + f"{i + 1:5d}" + a.line[11:] for i, a in enumerate(protein)]
+    metadata = [line for line in Path(protein_pdb).read_text().splitlines() if line.startswith("SSBOND")]
+    protein_lines = metadata + _protein_pdb_lines(protein_pdb, protein, protein_map)
     ligand_lines, atom_map = [], []
     for i, atom in enumerate(ligand.atoms):
         serial = len(protein) + i + 1
@@ -441,7 +473,7 @@ def prepare_inputs(protein_pdb, ligand_sdf, output_dir, *, ligand_resname="LIG",
     files = {"protein.pdb": "\n".join(protein_lines) + "\n" + _conect(mapped_protein) + "END\n",
              "ligand.pdb": "\n".join(ligand_lines) + "\n" + _conect(mapped_ligand) + "END\n",
              "ligand.sdf": ligand.sdf,
-             "complex.pdb": "\n".join(protein_lines) + "\nTER\n" + "\n".join(ligand_lines) + "\n"
+             "complex.pdb": "\n".join(protein_lines + ([] if protein_lines[-1] == "TER" else ["TER"])) + "\n" + "\n".join(ligand_lines) + "\n"
                             + _conect({**mapped_protein, **mapped_ligand}) + "END\n",
              "input-manifest.json": json.dumps(manifest, indent=2) + "\n"}
     return {"files": _write_outputs(output_dir, files), "manifest": manifest}

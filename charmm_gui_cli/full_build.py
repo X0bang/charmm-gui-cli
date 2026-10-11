@@ -11,7 +11,7 @@ from .auth import ToolError, atomic_json, atomic_write
 from .build_config import api_config, load_build_config
 from .config import validate_config
 from .inputs import prepare_inputs
-from .web import soup_for
+from .web import soup_for, assert_nonpolymer_parameterization
 from .web_state import parse_page_state
 from .workflow import now, tracked_run, start as start_api, resume as resume_api
 
@@ -126,6 +126,7 @@ def _preparation_fields(snapshot, config, groups=None):
             raise ToolError("Multi-component parameterization needs exactly one identifiable modeling form.")
         soup = forms[0]
     names = [group["resname"] for group in groups] if groups is not None else [config["ligand_resname"]]
+    assert_nonpolymer_parameterization(soup, names)
     def available(name, *, value=None, kind=None):
         return any(not field.has_attr("disabled") and (value is None or field.get("value") == value)
                    and (kind is None or field.get("type", "text").lower() == kind)
