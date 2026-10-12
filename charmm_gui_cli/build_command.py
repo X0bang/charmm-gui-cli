@@ -141,7 +141,7 @@ def _execute(args, holder):
     if local_complete:
         result = local_manifest
     else:
-        result = advance(directory, None if api_only else WebClient(cookies), Client(token), wait=args.wait,
+        result = advance(directory, None if api_only else WebClient(cookies, post_timeout=getattr(args, "post_timeout", 900)), Client(token), wait=args.wait,
                          interval=args.interval, max_wait=args.max_wait, progress=reporter)
     summary = {"directory": str(directory), **{key: result[key] for key in
                ("state", "source_job_id", "build_job_id") if key in result}}

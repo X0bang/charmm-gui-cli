@@ -90,6 +90,7 @@ def report_summary(report, name, path):
 
 
 def add_build_runtime_options(command):
+    command.add_argument("--post-timeout", type=float, default=900, help=t("help.post_timeout"))
     command.add_argument("--cookies", type=Path, help=t('help.text.00'))
     waiting = command.add_mutually_exclusive_group()
     waiting.add_argument("--wait", dest="wait", action="store_true", help=t('help.text.01'))

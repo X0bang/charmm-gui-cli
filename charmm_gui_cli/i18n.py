@@ -4,6 +4,9 @@ import os
 
 
 MESSAGES = {
+    "help.post_timeout": {"zh": "网页 POST 响应读取超时（秒，默认 900）；不自动重发 POST", "en": "Website POST read timeout in seconds (default: 900); POST is never automatically retried"},
+    "web.timeout_invalid": {"zh": "POST 超时必须是有限的正数。", "en": "POST timeout must be a finite positive number."},
+    "web.post_wait": {"zh": "已等待 {elapsed}，服务器正在处理建模或配体参数，请勿中断。", "en": "Waiting {elapsed}; the server is processing modeling or ligand parameters. Please do not interrupt."},
     "input.inspect": {"zh": "检查输入 PDB 后重新运行 charmm-gui-cli check --protein protein.pdb --ligand bound-ligand.sdf。", "en": "Inspect the input PDB, then run charmm-gui-cli check --protein protein.pdb --ligand bound-ligand.sdf."},
     "input.fix_serials": {"zh": "修正 PDB 与 CONECT 中的歧义序号，再重新运行 charmm-gui-cli check。", "en": "Resolve ambiguous PDB/CONECT serial numbers, then run charmm-gui-cli check again."},
     "input.atom_record": {"zh": "PDB 第 {line} 行原子序号无效。", "en": "Invalid atom serial on PDB line {line}."},

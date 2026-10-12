@@ -7,6 +7,10 @@ step adapters must explicitly translate each form's fields and validate results.
 import json
 import os
 import re
+import math
+import threading
+import time
+import sys
 from contextlib import ExitStack
 from pathlib import Path
 from urllib.parse import parse_qs, urljoin, urlparse
@@ -139,7 +143,11 @@ def assert_nonpolymer_parameterization(form, resnames):
 
 
 class WebClient:
-    def __init__(self, cookie_path=None, session=None):
+    def __init__(self, cookie_path=None, session=None, *, post_timeout=900, heartbeat_interval=30):
+        if not math.isfinite(post_timeout) or post_timeout <= 0 or heartbeat_interval <= 0:
+            raise ToolError(key="web.timeout_invalid", next_step="charmm-gui-cli build -h")
+        self.post_timeout = post_timeout
+        self.heartbeat_interval = heartbeat_interval
         self.session = session or requests.Session()
         self.cookie_path = Path(cookie_path) if cookie_path else None
         self.session.headers.update({"User-Agent": "charmm-gui-cli/0.2 (Python requests; research workflow)"})
@@ -174,7 +182,8 @@ class WebClient:
                     ("www.charmm-gui.org", "charmm-gui.org", "www.charmm-gui.org:443", "charmm-gui.org:443")):
                 raise ToolError("Refusing to send website session credentials outside CHARMM-GUI HTTPS origins.")
             try:
-                result = request_with_retry(self.session, method, url, allow_redirects=False, timeout=(15, 90), **kwargs)
+                result = request_with_retry(self.session, method, url, allow_redirects=False,
+                                            timeout=(15, self.post_timeout if method.upper() == "POST" else 90), **kwargs)
             except requests.RequestException as exc:
                 if method.upper() not in ("GET", "HEAD"):
                     raise SubmissionUnknown("Website request failed after a POST attempt; its outcome is unknown. No automatic resubmission.",
@@ -234,6 +243,15 @@ class WebClient:
 
     def _modeling_post(self, target, intent_path, intent, **kwargs):
         """Keep uncertainty durable even when the server sends an HTTP error."""
+        stopped = threading.Event()
+        started = time.monotonic()
+        def heartbeat():
+            while not stopped.wait(self.heartbeat_interval):
+                elapsed = int(time.monotonic() - started)
+                print(t("web.post_wait", elapsed=f"{elapsed // 60}:{elapsed % 60:02d}"),
+                      file=sys.stderr, flush=True)
+        worker = threading.Thread(target=heartbeat, daemon=True)
+        worker.start()
         try:
             return self.request("POST", target, **kwargs)
         except (ToolError, KeyboardInterrupt) as exc:
@@ -247,6 +265,9 @@ class WebClient:
             if isinstance(exc, KeyboardInterrupt):
                 raise
             raise error from None
+        finally:
+            stopped.set()
+            worker.join(timeout=1)
 
     def upload_structure(self, pdb_path, directory, project="membrane_bilayer"):
         """Start one explicit user-requested upload; never retry this POST."""
