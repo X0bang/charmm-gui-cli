@@ -7,6 +7,7 @@ import yaml
 
 from .auth import ToolError
 from .config import UniqueLoader, mapping, validate_config
+from .pdb_normalization import N_TERMINALS, C_TERMINALS
 
 
 def load_build_config(path):
@@ -41,10 +42,10 @@ def load_build_config(path):
                              "c_terminal": prep.get("c_terminal", "CTER"),
                              "orientation": prep.get("orientation", "ppm")}
     if (not isinstance(result["preparation"]["n_terminal"], str)
-            or result["preparation"]["n_terminal"] not in ("NTER", "NNEU", "ACE", "ACP", "NONE")):
+            or result["preparation"]["n_terminal"] not in N_TERMINALS):
         raise ToolError("Unsupported N-terminal patch.")
     if (not isinstance(result["preparation"]["c_terminal"], str)
-            or result["preparation"]["c_terminal"] not in ("CTER", "CNEU", "CT1", "CT2", "CT3", "NONE")):
+            or result["preparation"]["c_terminal"] not in C_TERMINALS):
         raise ToolError("Unsupported C-terminal patch.")
     # Reuse the tested membrane/ion validators without treating a dummy job as
     # evidence of remote preparation. A real ID is supplied only after step 3.

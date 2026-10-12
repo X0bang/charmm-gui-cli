@@ -18,6 +18,7 @@ import yaml
 from .auth import ToolError, atomic_json, atomic_write, recovery_guidance
 from .config import UniqueLoader, mapping, composition, number
 from .workflow import run_lock, now
+from .pdb_normalization import N_TERMINALS, C_TERMINALS
 
 
 FIELDS = ("protein", "ligand", "complex", "ligand_resname", "ligand_smiles",
@@ -57,8 +58,8 @@ def _options(raw, base):
         if key in result:
             composition(result[key])
     choices = {"salt": ("KCl", "NaCl"), "hydrogens": ("add_missing", "preserve"),
-               "orientation": ("ppm", "prepared"), "n_terminal": ("NTER", "NNEU", "ACE", "ACP", "NONE"),
-               "c_terminal": ("CTER", "CNEU", "CT1", "CT2", "CT3", "NONE")}
+               "orientation": ("ppm", "prepared"), "n_terminal": N_TERMINALS,
+               "c_terminal": C_TERMINALS}
     for key, allowed in choices.items():
         if key in result and result[key] not in allowed:
             raise ToolError(f"Unsupported batch {key}.")

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import re
 import time
+import sys
 from urllib.parse import parse_qs, urlparse
 
 from .api import AuthError, SubmissionUnknown, job_id
@@ -11,7 +12,9 @@ from .auth import ToolError, atomic_json, atomic_write
 from .build_config import api_config, load_build_config
 from .config import validate_config
 from .inputs import prepare_inputs
-from .web import soup_for, assert_nonpolymer_parameterization
+from .web import soup_for, assert_nonpolymer_parameterization, snapshot_error
+from .i18n import t
+from .pdb_normalization import finding
 from .web_state import parse_page_state
 from .workflow import now, tracked_run, start as start_api, resume as resume_api
 
@@ -53,7 +56,7 @@ def _source_id(path):
     soup = soup_for(Path(path).read_text(encoding="utf-8"))
     field = soup.select_one('input[name="jobid"]')
     if not field:
-        raise ToolError("Upload did not return a recognizable job ID. Inspect the saved page before retrying.")
+        raise snapshot_error(path, t("web.no_job"))
     return job_id(field.get("value"))
 
 
@@ -70,7 +73,7 @@ def _chains(snapshot):
     selected = {field["name"]: "1" for field in soup.select('input[type="checkbox"][name]')
                 if re.fullmatch(r"chains\[[^]]+\]\[checked\]", field["name"])}
     if not selected:
-        raise ToolError("No protein/ligand chain choices found in the upload response.")
+        raise snapshot_error(snapshot, t("web.no_chains"))
     return selected
 
 
@@ -118,12 +121,12 @@ def _remote_groups(manifest, *, check_files=True):
     return resolved
 
 
-def _preparation_fields(snapshot, config, groups=None):
+def _preparation_fields(snapshot, config, groups=None, adjustments=None):
     soup = soup_for(Path(snapshot).read_text(encoding="utf-8"))
     if groups is not None:
         forms = [form for form in soup.find_all("form") if form.select_one('input[name="jobid"]')]
         if len(forms) != 1:
-            raise ToolError("Multi-component parameterization needs exactly one identifiable modeling form.")
+            raise snapshot_error(snapshot, t("web.no_form"))
         soup = forms[0]
     names = [group["resname"] for group in groups] if groups is not None else [config["ligand_resname"]]
     assert_nonpolymer_parameterization(soup, names)
@@ -133,23 +136,35 @@ def _preparation_fields(snapshot, config, groups=None):
                    for field in soup.find_all("input", {"name": name}))
     overrides = {"rename_checked": "1"}
     if groups is not None and not available("rename_checked"):
-        raise ToolError("The server page lacks an enabled hetero-residue parameterization control.")
+        raise snapshot_error(snapshot, t("web.no_form"))
     for name in names:
         if not available(f"sdf_cgenff[{name}]", kind="file"):
-            raise ToolError(f"The expected ligand SDF field for {name} is absent or disabled; unsupported ligand-reading page.")
+            raise snapshot_error(snapshot, t("web.no_sdf_field", name=name))
         if groups is not None and not (
                 available(f"rename[{name}]", value="cgenff", kind="radio")
                 and available(f"rename_option[cgenff][{name}]", value="sdf", kind="radio")
                 and available(f"newname[{name}]") and available(f"comment[{name}]")):
-            raise ToolError(f"The server page does not expose all required CGenFF/SDF controls for {name}; no parameterization POST was sent.")
+            raise snapshot_error(snapshot, t("web.no_sdf_field", name=name))
         overrides.update({f"rename[{name}]": "cgenff", f"rename_option[cgenff][{name}]": "sdf",
                           f"newname[{name}]": name, f"comment[{name}]": "cgenff"})
     for field in soup.select("select[name]"):
-        match = re.fullmatch(r"terminal\[[^]]+\]\[(first|last)\]", field["name"])
+        match = re.fullmatch(r"terminal\[([^]]+)\]\[(first|last)\]", field["name"])
         if match:
-            value = config["preparation"]["n_terminal" if match.group(1) == "first" else "c_terminal"]
-            if not field.find("option", {"value": value}):
-                raise ToolError("Requested terminal patch is unavailable in the server form.")
+            chain, end = match.groups()
+            value = config["preparation"]["n_terminal" if end == "first" else "c_terminal"]
+            options = [option.get("value", "") for option in field.find_all("option") if not option.has_attr("disabled")]
+            if value not in options and value == "NTER" and end == "first":
+                replacement = next((patch for patch in ("GLYP", "PROP") if patch in options), None)
+                if replacement:
+                    entry = finding("terminal.adjusted", chain=chain, residue="Gly" if replacement == "GLYP" else "Pro", patch=replacement)
+                    if adjustments is None or entry not in adjustments:
+                        if adjustments is not None:
+                            adjustments.append(entry)
+                        print(t(entry["key"], **entry["params"]), file=sys.stderr, flush=True)
+                    value = replacement
+            if value not in options:
+                raise ToolError(key="terminal.unavailable", params={"chain": chain, "end": "N" if end == "first" else "C",
+                                "requested": value, "options": ", ".join(options)}, next_step=t("terminal.next"))
             overrides[field["name"]] = value
     return overrides
 
@@ -198,7 +213,10 @@ def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, pro
             progress({"state": "parameterizing", "job_id": identifier, "source_job_id": identifier})
         uploads = ({f"sdf_cgenff[{group['resname']}]": group["sdf"] for group in groups} if groups is not None else
                    {f"sdf_cgenff[{config['ligand_resname']}]": manifest["inputs"]["files"]["ligand.sdf"]})
-        _submit(web, selected, parameterized, _preparation_fields(selected, config, groups), uploads)
+        adjustments = manifest.setdefault("terminal_adjustments", [])
+        fields = _preparation_fields(selected, config, groups, adjustments)
+        _save(directory, manifest)
+        _submit(web, selected, parameterized, fields, uploads)
         # Completed-page parsing is kept separate from transport because API
         # status=null and monitor.php output cannot classify web preparation.
         _await_preparation(web, directory, manifest, parameterized, wait, interval, max_wait, progress)

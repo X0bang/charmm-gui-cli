@@ -227,8 +227,9 @@ def parser():
     model.add_argument("--margin", type=float, help=t('help.text.50'))
     model.add_argument("--water-padding", type=float, help=t('help.text.51'))
     model.add_argument("--orientation", choices=("ppm", "prepared"), help=t('help.text.52'))
-    model.add_argument("--n-terminal", help=t('help.text.53'))
-    model.add_argument("--c-terminal", help=t('help.text.54'))
+    from .pdb_normalization import N_TERMINALS, C_TERMINALS
+    model.add_argument("--n-terminal", choices=N_TERMINALS, help=t('help.text.53'))
+    model.add_argument("--c-terminal", choices=C_TERMINALS, help=t('help.text.54'))
     build.add_argument("--out", type=Path, help=t('help.text.55'))
     build.add_argument("--name", help=t('help.text.56'))
     build.add_argument("--dry-run", action="store_true", help=t('help.text.57'))

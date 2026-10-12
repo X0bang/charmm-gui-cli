@@ -14,6 +14,7 @@ from pathlib import Path
 from .auth import ToolError
 from .input_sources import prepare_sources
 from .inputs import _pdb, inspect_ligand, prepare_inputs, read_ligand
+from .pdb_normalization import normalize_lines
 
 
 _BACKBONE = {"N", "CA", "C", "O"}
@@ -314,6 +315,11 @@ def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_res
         stage = "protein_inventory"
         coordinate_source = complex_pdb or protein
         if coordinate_source is not None:
+            normalization = {}
+            normalize_lines(coordinate_source, normalization)
+            report["input_normalization"] = normalization
+            report["automatic_repairs"] = normalization["repairs"]
+            report["terminal_predictions"] = normalization["terminal_predictions"]
             excluded = [item.get("resname") for item in component_config["components"]] if components is not None else [ligand_resname]
             inventory = inspect_protein(coordinate_source, excluded_resnames=excluded)
             report["protein_inventory"] = inventory

@@ -165,8 +165,9 @@ def prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand_
     generated, report = {}, {"coordinate_transform": "none", "source_inputs": {
         "protein": str(protein) if protein else None, "ligand": str(ligand) if ligand else None,
         "complex": str(complex_pdb) if complex_pdb else None}}
+    report["input_normalization"] = {}
     if complex_pdb:
-        all_atoms, all_bonds = _pdb(complex_pdb)
+        all_atoms, all_bonds = _pdb(complex_pdb, report=report["input_normalization"])
         selected = _one_ligand(all_atoms, resname=ligand_resname)
         selected_ids = {a.serial for a in selected}
         protein_atoms = [a for a in all_atoms if a.serial not in selected_ids]
@@ -207,7 +208,7 @@ def prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand_
             report["complex_connectivity_check"] = "matches supplied ligand PDB graph" if pose_edges else \
                 "Complex contains no CONECT graph; connectivity comes from the supplied named ligand PDB."
     else:
-        protein_atoms, _ = _pdb(protein)
+        protein_atoms, _ = _pdb(protein, report=report["input_normalization"])
         _validate_protein(protein_atoms)
         resolved_protein, coordinate_source = protein, ligand
         if ligand.suffix.lower() == ".sdf":

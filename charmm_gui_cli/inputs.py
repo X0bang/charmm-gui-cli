@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 
 from .auth import ToolError
+from .pdb_normalization import normalize_lines
 
 
 @dataclass
@@ -44,7 +45,7 @@ def _protein_pdb_lines(path, atoms, serial_map=None):
     """
     selected = {atom.serial: atom for atom in atoms}
     lines, previous, boundary = [], None, False
-    for line in Path(path).read_text().splitlines():
+    for line in normalize_lines(path):
         record = line[:6].strip()
         if record == "TER":
             if lines and lines[-1] != "TER":
@@ -75,8 +76,8 @@ def _xyz(values):
         raise ToolError("Coordinates must be three finite numbers.") from None
 
 
-def _pdb(path):
-    lines = Path(path).read_text().splitlines()
+def _pdb(path, *, report=None):
+    lines = normalize_lines(path, report)
     atoms, bonds, directed = [], {}, {}
     if sum(line.startswith("MODEL ") for line in lines) > 1:
         raise ToolError("Select one PDB model before input preparation.")
@@ -413,7 +414,8 @@ def prepare_inputs(protein_pdb, ligand_sdf, output_dir, *, ligand_resname="LIG",
         raise ToolError("ligand_resname must be a 1-3 character PDB residue name beginning with a letter.")
     if type(ligand_resid) is not int or not 1 <= ligand_resid <= 9999:
         raise ToolError("ligand_resid must be an integer between 1 and 9999.")
-    protein, protein_bonds = _pdb(protein_pdb)
+    normalization = {}
+    protein, protein_bonds = _pdb(protein_pdb, report=normalization)
     _validate_protein(protein)
     ligand = _apply_hydrogen_policy(read_ligand(ligand_sdf), hydrogen_policy)
     report = _validate_ligand(ligand)
@@ -470,6 +472,7 @@ def prepare_inputs(protein_pdb, ligand_sdf, output_dir, *, ligand_resname="LIG",
     manifest = {"protein": {"path": str(Path(protein_pdb).resolve()), "sha256": _hash(protein_pdb), "atoms": len(protein)},
                 "ligand_input": {"path": str(Path(ligand_sdf).resolve()), "sha256": _hash(ligand_sdf)},
                 "ligand": report, "coordinate_transform": "none", "force_field_parameters_generated": False}
+    manifest["input_normalization"] = normalization
     files = {"protein.pdb": "\n".join(protein_lines) + "\n" + _conect(mapped_protein) + "END\n",
              "ligand.pdb": "\n".join(ligand_lines) + "\n" + _conect(mapped_ligand) + "END\n",
              "ligand.sdf": ligand.sdf,
