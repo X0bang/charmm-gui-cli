@@ -7,6 +7,7 @@ Neither page numbers nor output filenames establish validation or MD execution.
 import re
 import sys
 from urllib.parse import urlencode
+from .i18n import t, translate_literal
 
 
 WEB_BASE = "https://www.charmm-gui.org/"
@@ -90,7 +91,7 @@ def official_links(*, source_job_id=None, build_job_id=None):
     return links
 
 
-def describe_progress(event, *, source_job_id=None, build_job_id=None):
+def describe_progress(event, *, source_job_id=None, build_job_id=None, localized=False):
     """Translate known events without reflecting raw server messages or secrets.
 
     Legacy callbacks use job_id for two roles. Preparation/submission events
@@ -133,18 +134,22 @@ def describe_progress(event, *, source_job_id=None, build_job_id=None):
     if output:
         result.update(last_output_file=output, last_output_label=_OUTPUTS[output],
                       output_note="最近输出文件只说明已到达的内部环节，不单独证明当前阶段或任务完成。")
+    if localized:
+        for key in ("label", "ui_note", "last_output_label", "output_note"):
+            if key in result:
+                result[key] = translate_literal(result[key], prefix="progress.")
     return result
 
 
 def format_progress(event, **context):
-    detail = describe_progress(event, **context)
+    detail = describe_progress(event, localized=True, **context)
     fields = ["[charmm-gui-cli] " + detail["label"]]
     if detail["source_job_id"]:
-        fields.append("源任务=" + detail["source_job_id"])
+        fields.append(t("progress.source", jobid=detail["source_job_id"]))
     if detail["build_job_id"]:
-        fields.append("建膜任务=" + detail["build_job_id"])
+        fields.append(t("progress.build", jobid=detail["build_job_id"]))
     if detail.get("last_output_label"):
-        fields.append("最近内部输出=" + detail["last_output_label"] + "（不代表完成）")
+        fields.append(t("progress.last", label=detail["last_output_label"]))
     return " | ".join(fields)
 
 
@@ -170,10 +175,10 @@ class ProgressReporter:
         for role, url in detail["official_links"].items():
             if url not in self._seen_links:
                 self._seen_links.add(url)
-                title = "结构准备源任务" if role == "source_preparation" else "建膜任务/结果页（Quick Bilayer Step 2）"
+                title = t("progress.source_link") if role == "source_preparation" else t("progress.build_link")
                 print(f"[charmm-gui-cli] {title}: {url}", file=stream, flush=True)
                 if role == "build_results":
-                    print("[charmm-gui-cli] " + UI_NOTE, file=stream, flush=True)
+                    print("[charmm-gui-cli] " + translate_literal(UI_NOTE, prefix="progress."), file=stream, flush=True)
 
 
 def result_presentation(summary, report=None):

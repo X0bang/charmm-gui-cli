@@ -199,7 +199,8 @@ class BatchTests(unittest.TestCase):
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
         execute.assert_not_called()
         self.assertEqual(result["state"], "paused_inspection")
-        self.assertIn("网页上传", result["next_step"])
+        from charmm_gui_cli.i18n import t
+        self.assertIn(t("recovery.submission_unknown"), result["next_step"])
 
     def test_uncertain_submission_preserves_active_slot(self):
         self.prepare()

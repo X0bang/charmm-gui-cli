@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import tarfile
 import tempfile
@@ -11,10 +12,17 @@ from unittest.mock import patch
 from charmm_gui_cli.auth import ToolError
 from charmm_gui_cli.cli import main
 from charmm_gui_cli import reporting
+from charmm_gui_cli import i18n
 
 
 class ReportingTests(unittest.TestCase):
     def setUp(self):
+        # These legacy snapshots intentionally exercise Chinese rendering.
+        self.addCleanup(i18n.set_language)
+        language = patch.dict(os.environ, {"CHARMM_GUI_CLI_LANG": "zh"})
+        language.start()
+        self.addCleanup(language.stop)
+        i18n.set_language("zh")
         self.root = Path(tempfile.mkdtemp(prefix="cgui-report-test-"))
         self.report = {"fingerprint": "current", "passed": True, "status": "validated",
                        "review_warnings": ["<script>alert(1)</script>"], "review_required": True}

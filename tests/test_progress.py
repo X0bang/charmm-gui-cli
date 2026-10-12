@@ -10,6 +10,7 @@ from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
 from charmm_gui_cli import build_command, managed
+from charmm_gui_cli.i18n import t, translate_literal
 from charmm_gui_cli.progress import (
     ProgressReporter, describe_progress, emit_progress, format_progress,
     official_links, result_presentation,
@@ -132,8 +133,8 @@ class ProgressTests(unittest.TestCase):
             emit_progress({"state": "pending", "job_id": "234"})
             build_command.progress({"state": "parameterizing", "job_id": "123"})
         self.assertEqual(stdout.getvalue(), "")
-        self.assertIn("建膜任务=234", stderr.getvalue())
-        self.assertIn("源任务=123", stderr.getvalue())
+        self.assertIn(t("progress.build", jobid="234"), stderr.getvalue())
+        self.assertIn(t("progress.source", jobid="123"), stderr.getvalue())
 
     def test_reporter_retains_roles_and_prints_links_once(self):
         output = io.StringIO()
@@ -148,7 +149,8 @@ class ProgressTests(unittest.TestCase):
         links = official_links(source_job_id="123", build_job_id="234")
         for url in links.values():
             self.assertEqual(output.getvalue().count(url), 1)
-        self.assertIn("Step 2 是", output.getvalue())
+        from charmm_gui_cli.progress import UI_NOTE
+        self.assertIn(translate_literal(UI_NOTE, prefix="progress."), output.getvalue())
 
     def test_offline_build_summary_keeps_json_and_adds_presentation(self):
         args = Namespace(command="build-resume", directory=Path("/virtual/progress-check"), interval=30,
@@ -174,7 +176,7 @@ class ProgressTests(unittest.TestCase):
         self.assertEqual(parsed["presentation"]["terminal_semantics"], "validation_passed_with_warnings")
         self.assertIn("build_results", parsed["official_links"])
         self.assertFalse(parsed["gromacs_compiled"])
-        self.assertIn("正在本地验收", stderr.getvalue())
+        self.assertIn(describe_progress({"state": "validating_final_archive (local)"}, localized=True)["label"], stderr.getvalue())
 
 
 if __name__ == "__main__":

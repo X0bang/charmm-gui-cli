@@ -15,6 +15,7 @@ import requests
 from charmm_gui_cli import full_build, workflow
 from charmm_gui_cli.api import AuthError, Client, SubmissionUnknown
 from charmm_gui_cli.auth import ToolError, atomic_json, atomic_write, recovery_guidance, load_token
+from charmm_gui_cli.i18n import t
 from charmm_gui_cli.http_retry import request, retry_delay
 from charmm_gui_cli.web import WebClient
 
@@ -57,11 +58,11 @@ class RetryTests(unittest.TestCase):
     def test_recovery_guidance_prioritizes_unknown_post_over_login_or_network(self):
         for cause in ("authentication", "transport_error", "transient_network", "rate_limited"):
             guidance = recovery_guidance("submission_unknown", cause_category=cause)
-            self.assertIn("禁止自动重发", guidance)
+            self.assertIn(t("recovery.submission_unknown"), guidance)
             self.assertIn("attach", guidance)
             if cause == "authentication":
                 self.assertIn("login", guidance)
-        self.assertIn("不要关闭证书验证", recovery_guidance("transport_error"))
+        self.assertIn(t("recovery.transport_error"), recovery_guidance("transport_error"))
 
     def test_missing_and_invalid_token_files_have_structured_auth_guidance(self):
         directory = Path(tempfile.mkdtemp(prefix="cgui-recovery-auth-"))

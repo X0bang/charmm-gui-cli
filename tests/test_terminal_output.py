@@ -75,3 +75,20 @@ class TerminalOutputTests(unittest.TestCase):
                 self.assertEqual(output.getvalue(), json.dumps(value, indent=2, ensure_ascii=False) + "\n")
             else:
                 self.assertIn("CHARMM-GUI job", output.getvalue())
+
+    def test_status_recovery_preserves_inspection_and_authentication_priority(self):
+        i18n.set_language("en")
+        value = {"state": "submission_unknown", "name": "example", "last_error": {"cause_category": "authentication"}}
+        output = format_build(value)
+        self.assertIn("automatic resubmission is prohibited", output)
+        self.assertIn("login", output)
+        self.assertIn("attach", output)
+        value = {"state": "paused_auth", "recovery": {"error": {"category": "authentication"}}}
+        self.assertIn("login", format_build(value))
+
+    def test_stale_status_never_displays_old_success_as_a_pass(self):
+        i18n.set_language("en")
+        output = format_build({"state": "validated", "validation_status": "stale_or_unreadable", "report_file": "/tmp/validation.json"})
+        self.assertIn("old pass is not valid", output)
+        self.assertNotIn("State: passed", output)
+        self.assertIn("Validation report:", output)

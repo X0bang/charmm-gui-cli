@@ -73,6 +73,20 @@ charmm-gui-cli build --complex bound.pdb --components components.yaml
 
 扫描使用 [清单示例](examples/sweep.yaml)，复用核验过的前处理；[多组分清单](examples/components.yaml) 为实验性入口。不在本地自动运行最小化、平衡或生产模拟。
 
+## 语言与输出
+
+支持中文与英文，默认英文。自动检测优先级为 `--lang` > `CHARMM_GUI_CLI_LANG` > `LANGUAGE`（按冒号分隔顺序）> `LC_ALL` > `LC_MESSAGES` > `LANG`。中文区域映射为中文，其他语言映射为英文；空值、`C`、`POSIX`（包括 `C.UTF-8`）跳过并继续检测。
+
+```bash
+charmm-gui-cli --lang zh login
+charmm-gui-cli --lang en build -h
+charmm-gui-cli --json jobs status receptor-a
+```
+
+全局参数放在子命令前。login、build/build-resume、status 和 jobs status/resume 在交互终端显示易读摘要；重定向、管道、未注册摘要的命令及 `--json` 保持 JSON 输出。JSON 字段名、结构及错误 category 不翻译。`jobs report --format text/html` 可显式选择报告格式。
+
+服务器语言为 C 或英文时，可在 `~/.bashrc` 中设置 `export CHARMM_GUI_CLI_LANG=zh`，再打开新终端。高频登录/API/CLI 错误、恢复提示、帮助、终端进度及报告标签已有双语支持；其余旧错误和科学审阅详情仍可能为英文，待迁移位置见 [清单](docs/I18N-TODO.md)。
+
 ## 免责声明与负责任使用
 
 本项目面向科研与教学，属于实验性工具，非 CHARMM-GUI 官方软件。建模结果须由使用者独立审核，不构成医疗、临床或其他专业建议，也不保证适用于任何特定目的。

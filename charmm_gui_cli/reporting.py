@@ -9,6 +9,7 @@ import tarfile
 
 from .auth import ToolError
 from .progress import official_links
+from .i18n import get_language, t
 
 
 def _hash(path):
@@ -24,7 +25,7 @@ def verified_images(directory, report):
     directory = Path(directory).resolve()
     cache = directory / "results/preview.json"
     if not cache.is_file():
-        return [], "尚无模型预览；可运行 charmm-gui-cli preview NAME。"
+        return [], t("report.no_preview")
     try:
         saved = json.loads(cache.read_text(encoding="utf-8"))
         identity = saved["identity"]
@@ -65,10 +66,9 @@ def verified_images(directory, report):
             if not data.startswith(b"\x89PNG\r\n\x1a\n") or hashlib.sha256(data).hexdigest() != entry["sha256"]:
                 raise ValueError("changed preview image")
             images.append({"view": entry["view"], "file": str(path), "data": data})
-        return images, ("最终模拟输入坐标预览" if saved["scope"] == "final_simulation_input" else
-                        "组装阶段坐标预览，不是最终模拟输入")
+        return images, t("report.final_preview" if saved["scope"] == "final_simulation_input" else "report.assembly_preview")
     except (OSError, ValueError, KeyError, TypeError, tarfile.TarError):
-        return [], "已有预览过期、损坏或与当前归档不一致；未载入图片，请重新运行 preview。"
+        return [], t("report.stale_preview")
 
 
 def display_result(summary, context, manifest, report):
@@ -90,79 +90,79 @@ def display_result(summary, context, manifest, report):
 
 def _value(value):
     if value is None:
-        return "未确认"
+        return t("output.unconfirmed")
     if value is True:
-        return "通过"
+        return t("output.passed")
     if value is False:
-        return "未通过"
+        return t("output.failed")
     return json.dumps(value, ensure_ascii=False, sort_keys=True) if isinstance(value, (dict, list)) else str(value)
 
 
 def render_text(result):
     passed = result.get("passed")
-    state = "通过，需人工复核" if passed is True and result.get("review_required") else _value(passed)
-    compilation = {"passed": "通过", "failed": "未通过", "not_run": "未执行", "unknown": "未确认"}
+    state = t("report.review_pass") if passed is True and result.get("review_required") else _value(passed)
+    compilation = {"passed": t("output.passed"), "failed": t("output.failed"),
+                   "not_run": t("output.not_run"), "unknown": t("output.unconfirmed")}
     parameters = result.get("parameters", {})
     membrane, ions = parameters.get("membrane") or {}, parameters.get("ions") or {}
     environment = result.get("environment") or {}
     leaflets = result.get("acceptance", {}).get("leaflets") or {}
-    atoms = result.get("atom_counts") or {}
-    pose = result.get("bound_pose") or {}
-    lines = ["CHARMM-GUI 建模结果", f"任务：{result.get('name') or result.get('directory')}",
-             f"自动验收：{state}", f"GROMACS 输入编译：{compilation.get(result.get('compilation_status'), '未确认')}",
-             f"源任务：{_value(result.get('source_job_id'))}；建膜任务：{_value(result.get('build_job_id'))}",
-             "", "建模参数",
-             f"  上叶：{_value(membrane.get('upper'))}；下叶：{_value(membrane.get('lower'))}",
-             f"  盐：{_value(ions.get('type'))} {_value(ions.get('concentration_M'))} M；取向：{_value(parameters.get('orientation'))}",
-             f"  膜边界：{_value(membrane.get('margin_A'))} Å；水层边界：{_value(membrane.get('water_padding_A'))} Å",
-             "", "最终体系",
-             f"  原子：坐标 {_value(atoms.get('coordinates'))} / 拓扑 {_value(atoms.get('topology'))}",
-             f"  脂质：{_value(environment.get('lipids'))}；水分子：{_value(environment.get('water_molecules'))}",
-             f"  上叶脂质：{_value(leaflets.get('upper', {}).get('lipid_counts'))}；下叶脂质：{_value(leaflets.get('lower', {}).get('lipid_counts'))}",
-             "  离子：" + _value(environment.get("ions")),
-             f"  盐浓度直接证据：{_value(environment.get('concentration_verified'))}",
-             "", "结合位姿（同一蛋白拟合后）"]
+    atoms, pose = result.get("atom_counts") or {}, result.get("bound_pose") or {}
+    lines = [t("report.title"), t("report.task", name=result.get("name") or result.get("directory")),
+             t("report.validation", state=state),
+             t("output.compilation", state=compilation.get(result.get("compilation_status"), t("output.unconfirmed"))),
+             t("report.ids", source=_value(result.get("source_job_id")), build=_value(result.get("build_job_id"))),
+             "", t("report.parameters"),
+             t("report.leaflets", upper=_value(membrane.get("upper")), lower=_value(membrane.get("lower"))),
+             t("report.salt", salt=_value(ions.get("type")), concentration=_value(ions.get("concentration_M")), orientation=_value(parameters.get("orientation"))),
+             t("report.padding", margin=_value(membrane.get("margin_A")), water=_value(membrane.get("water_padding_A"))),
+             "", t("report.system"),
+             t("report.atoms", coordinates=_value(atoms.get("coordinates")), topology=_value(atoms.get("topology"))),
+             t("report.solvent", lipids=_value(environment.get("lipids")), waters=_value(environment.get("water_molecules"))),
+             t("report.lipids", upper=_value(leaflets.get("upper", {}).get("lipid_counts")), lower=_value(leaflets.get("lower", {}).get("lipid_counts"))),
+             t("report.ions", ions=_value(environment.get("ions"))),
+             t("report.concentration", state=_value(environment.get("concentration_verified"))),
+             "", t("report.pose")]
     if result.get("components"):
         for name, component in result["components"].items():
-            copies = component.get("copies") or {}
-            penalty = component.get("cgenff") or {}
-            lines.extend([f"  {name}：{_value(component.get('passed'))}；副本 坐标 {_value(copies.get('coordinates'))} / 拓扑 {_value(copies.get('topology'))}",
-                          f"    重原子 RMSD：{_value(component.get('ligand_rmsd_A'))} Å；最大位移：{_value(component.get('ligand_max_displacement_A'))} Å",
-                          f"    CGenFF penalty：参数 {_value(penalty.get('parameter_max'))} / 电荷 {_value(penalty.get('charge_max'))}；审阅状态 {_value(penalty.get('status'))}"])
+            copies, penalty = component.get("copies") or {}, component.get("cgenff") or {}
+            lines.extend([t("report.component", name=name, state=_value(component.get("passed")), coordinates=_value(copies.get("coordinates")), topology=_value(copies.get("topology"))),
+                          t("report.displacement", rmsd=_value(component.get("ligand_rmsd_A")), maximum=_value(component.get("ligand_max_displacement_A"))),
+                          t("report.penalty", parameter=_value(penalty.get("parameter_max")), charge=_value(penalty.get("charge_max")), state=_value(penalty.get("status")))])
             if component.get("pose_error"):
-                lines.append("    位姿检查：" + _value(component["pose_error"]))
+                lines.append(t("report.pose_error", error=_value(component["pose_error"])))
     else:
-        lines.extend([f"  配体重原子 RMSD：{_value(pose.get('ligand_rmsd_after_protein_fit_A'))} Å",
-                      f"  配体最大位移：{_value(pose.get('ligand_max_displacement_A'))} Å"])
-    lines.extend(["", "需要复核的警告："])
+        lines.extend([t("report.ligand_rmsd", rmsd=_value(pose.get("ligand_rmsd_after_protein_fit_A"))),
+                      t("report.ligand_max", maximum=_value(pose.get("ligand_max_displacement_A")))])
+    lines.extend(["", t("report.warnings")])
     warnings = result.get("warnings", [])
     lines.extend("- " + _value(item) for item in warnings)
     if not warnings:
-        lines.append("未记录审查警告；这不等于科学质量已充分验证。")
-    lines.extend(["", "归档：" + _value(result.get("archive")), "完整报告：" + _value(result.get("report")),
-                  result["simulation_note"]])
+        lines.append(t("report.no_warnings"))
+    lines.extend(["", t("report.archive", path=_value(result.get("archive"))),
+                  t("report.path", path=_value(result.get("report"))), t("report.simulation")])
     return "\n".join(lines) + "\n"
 
 
 def render_html(result, images=(), preview_note=""):
     escape = lambda value: html.escape(str(value), quote=True)
-    labels = {"side": "侧视图", "top": "俯视图", "ligand": "配体邻域"}
+    labels = {"side": t("report.side"), "top": t("report.top"), "ligand": t("report.ligand")}
     figures = "".join('<figure><figcaption>' + labels[item["view"]] + '</figcaption><img alt="' +
                       labels[item["view"]] + '" src="data:image/png;base64,' +
                       base64.b64encode(item["data"]).decode("ascii") + '"></figure>' for item in images)
     links = "".join('<li><a rel="noreferrer" href="' + escape(url) + '">' + escape(role) + '</a></li>'
                     for role, url in result.get("official_links", {}).items())
-    return ('<!doctype html><html lang="zh-CN"><meta charset="utf-8">'
+    return ('<!doctype html><html lang="' + ("zh-CN" if get_language() == "zh" else "en") + '"><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
             '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src data:; '
             'style-src \'unsafe-inline\'; base-uri \'none\'; form-action \'none\'">'
-            '<title>CHARMM-GUI 建模结果</title><style>body{font-family:system-ui,sans-serif;'
+            '<title>' + escape(t("report.title")) + '</title><style>body{font-family:system-ui,sans-serif;'
             'max-width:1100px;margin:2rem auto;padding:0 1rem;color:#20303d}pre{white-space:pre-wrap;'
             'overflow-wrap:anywhere;background:#f4f7fa;padding:1rem}img{width:100%;height:auto}'
             'figure{margin:1rem 0}figcaption{font-weight:600}a{color:#156781}</style>'
-            '<h1>CHARMM-GUI 建模结果</h1><pre>' + escape(render_text(result)) + '</pre>'
-            '<h2>坐标预览</h2><p>' + escape(preview_note) + '</p>' + figures +
-            '<h2>官方任务页面</h2><ul>' + links + '</ul></html>')
+            '<h1>' + escape(t("report.title")) + '</h1><pre>' + escape(render_text(result)) + '</pre>'
+            '<h2>' + escape(t("report.previews")) + '</h2><p>' + escape(preview_note) + '</p>' + figures +
+            '<h2>' + escape(t("report.links")) + '</h2><ul>' + links + '</ul></html>')
 
 
 def write_new(path, content):

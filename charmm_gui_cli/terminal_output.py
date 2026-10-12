@@ -34,12 +34,15 @@ def format_login(value, *, email=None):
 
 def format_build(value, **context):
     from .progress import describe_progress
+    from .auth import recovery_guidance
     state = value.get("state", value.get("status", "unknown"))
-    label = describe_progress({"state": state})["label"]
+    label = describe_progress({"state": state}, localized=True)["label"]
     lines = [t("output.task", name=_text(value.get("name") or value.get("job_id") or "—")),
              t("output.state", state=label)]
     if value.get("remote_status") is not None:
-        lines.append(t("output.remote_state", state=describe_progress({"state": value["remote_status"]})["label"]))
+        remote = value["remote_status"]
+        remote_label = t("output.remote_done") if remote == "done" else describe_progress({"state": remote}, localized=True)["label"]
+        lines.append(t("output.remote_state", state=remote_label))
     for field, key in (("source_job_id", "output.source"), ("build_job_id", "output.build_id"), ("job_id", "output.build_id")):
         identifier = value.get(field)
         if field == "job_id" and value.get("build_job_id"):
@@ -49,6 +52,8 @@ def format_build(value, **context):
     for field, key in (("directory", "output.directory"), ("archive", "output.archive"), ("report", "output.report")):
         if isinstance(value.get(field), str):
             lines.append(t(key, path=_path(value[field])))
+    if not value.get("report") and isinstance(value.get("report_file"), str):
+        lines.append(t("output.report", path=_path(value["report_file"])))
     passed = value.get("passed")
     validation = value.get("validation")
     if isinstance(validation, dict):
@@ -59,6 +64,8 @@ def format_build(value, **context):
         lines[1] = t("output.state", state=t("output.failed"))
     else:
         lines.append(t("output.pending"))
+    if value.get("validation_status") == "stale_or_unreadable":
+        lines.append(t("output.stale"))
     compilation = value.get("compilation_status", "unknown")
     if value.get("gromacs_compiled") is True:
         compilation = "passed"
@@ -66,11 +73,23 @@ def format_build(value, **context):
     if value.get("review_required") or isinstance(validation, dict) and validation.get("review_required"):
         lines.append(t("output.review"))
     lines.append(t("output.simulation"))
+    recovery = value.get("recovery")
+    recovery = recovery if isinstance(recovery, dict) else {}
+    error = recovery.get("error", value.get("last_error"))
+    error = error if isinstance(error, dict) else {}
+    category = "submission_unknown" if state == "submission_unknown" else error.get("category", state)
+    guidance = recovery_guidance(category, cause_category=error.get("cause_category"))
+    if guidance:
+        lines.append(guidance)
     name = value.get("name")
     if isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", name):
         action = "charmm-gui-cli jobs report " + name if state == "validated" and passed is True else "charmm-gui-cli jobs resume " + name
     else:
         action = "charmm-gui-cli jobs / charmm-gui-cli build-resume"
+    if category in ("authentication", "auth_required", "paused_auth"):
+        action = "charmm-gui-cli login; " + action
+    elif category == "submission_unknown":
+        action = t("output.inspect_next")
     lines.append(t("cli.next", action=action))
     return "\n".join(lines)
 
