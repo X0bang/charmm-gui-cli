@@ -1,5 +1,19 @@
 # 下载
 
+## 0.6.1 安装包
+
+- [源码安装包](charmm-gui-cli-0.6.1.tar.gz)
+- [Python wheel](charmm_gui_cli-0.6.1-py3-none-any.whl)
+- [校验和](SHA256SUMS)
+
+完成后自动交付到创建任务时所在目录的 `./任务名/`；支持 `jobs export NAME [--to DIR]` 导出旧任务，内部证据保留。成功下载的临时文件会清理。已有安装可用 `charmm-gui-cli update` 更新。
+
+```bash
+tar -xzf charmm-gui-cli-0.6.1.tar.gz
+cd charmm-gui-cli-0.6.1
+bash install.sh
+```
+
 ## 0.6.0 安装包
 
 - [源码安装包](charmm-gui-cli-0.6.0.tar.gz)
