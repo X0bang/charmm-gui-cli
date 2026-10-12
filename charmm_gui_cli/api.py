@@ -178,6 +178,6 @@ class Client:
                                        if transient_exception(exc) else recovery_guidance("transport_error"))) from None
         finally:
             response.close()
-            # Retain the temporary response for recovery/diagnosis, including
-            # after failure; the current user explicitly prohibits deletion.
+            # Successful normalization removes its owned temporary files;
+            # failed responses remain available for recovery/diagnosis.
         return destination

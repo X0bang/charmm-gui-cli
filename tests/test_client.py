@@ -225,6 +225,8 @@ class ApiTests(TemporaryTest):
         destination = self.root / "result.tgz"
         self.client.download("123", destination)
         self.assertTrue(tarfile.is_tarfile(destination))
+        self.assertFalse(list(self.root.glob(".download-*")))
+        self.assertFalse(list(self.root.glob(".normalized-*")))
         with self.assertRaisesRegex(ToolError, "overwrite"):
             self.client.download("123", destination)
 

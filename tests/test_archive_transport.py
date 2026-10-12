@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from charmm_gui_cli.archive_transport import normalize_download
+from charmm_gui_cli.archive_transport import normalize_download, cleanup_download_duplicates
 from charmm_gui_cli.auth import ToolError
 
 
@@ -37,6 +37,28 @@ class ArchiveTransportTests(unittest.TestCase):
         self.assertEqual(self.raw.read_bytes(), data)
         self.assertEqual(report["footer"], "none")
         self.assertEqual(report["compressed_bytes"], len(data))
+        self.assertFalse(list(self.root.glob(".normalized-*")))
+
+    def test_owned_download_response_is_removed_after_success(self):
+        raw = self.root / ".download-owned"
+        raw.write_bytes(packed_tar())
+        normalize_download(raw, self.destination)
+        self.assertFalse(raw.exists())
+        self.assertFalse(list(self.root.glob(".normalized-*")))
+
+    def test_old_matching_temporaries_removed_but_other_files_retained(self):
+        data = packed_tar()
+        self.destination.write_bytes(data)
+        (self.root / ".download-old").write_bytes(data + str(len(data)).encode())
+        (self.root / ".normalized-old").write_bytes(data)
+        (self.root / ".download-failed").write_bytes(b"invalid response")
+        (self.root / ".normalized-wrong").write_bytes(b"x" * len(data))
+        (self.root / ".download-symlink").symlink_to(self.destination)
+        self.assertEqual(cleanup_download_duplicates(self.destination), 2)
+        self.assertTrue((self.root / ".download-failed").exists())
+        self.assertTrue((self.root / ".normalized-wrong").exists())
+        self.assertTrue((self.root / ".download-symlink").is_symlink())
+        self.assertEqual(self.destination.read_bytes(), data)
 
     def test_exact_decimal_length_footer_removed_without_recompressing(self):
         data = packed_tar()

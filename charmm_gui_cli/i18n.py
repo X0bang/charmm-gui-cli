@@ -4,6 +4,17 @@ import os
 
 
 MESSAGES = {
+    "delivery.model_changed": {"zh": "内部解压模型与已验收的官网归档不一致，已停止导出，请核对内部文件。", "en": "The extracted internal model differs from the validated official archive; export stopped. Inspect the internal files."},
+    "delivery.layout": {"zh": "任务：{name}\ncharmm-gui.tgz：官网归档\nmodel/：解压后的模型与模拟输入\nreports/：验收报告与可用的编译产物\ninputs/：实际使用的结构和建模参数\n交付文件是独立副本，可移动或删除，不影响 jobs report 和任务恢复。\n", "en": "Task: {name}\ncharmm-gui.tgz: official archive\nmodel/: extracted model and simulation inputs\nreports/: validation reports and available compilation artifacts\ninputs/: structures and modeling parameters actually used\nThese are independent copies; moving or deleting them does not affect jobs report or recovery.\n"},
+    "help.export": {"zh": "将已完成任务的模型、报告和实际输入独立导出", "en": "Export a completed task's model, reports and actual inputs independently"},
+    "help.export_to": {"zh": "交付目录的完整路径（默认：创建目录/任务名；旧任务使用当前目录）", "en": "Exact delivery directory (default: creation directory/task name; current directory for old tasks)"},
+    "output.delivery": {"zh": "交付目录：{path}", "en": "Delivery directory: {path}"},
+    "delivery.incomplete": {"zh": "任务尚未完成下载及验收，暂时不能导出。", "en": "The task has not completed downloading and validation; it cannot be exported yet."},
+    "delivery.foreign": {"zh": "目标已存在且不属于本任务，不会覆盖：{path}", "en": "The destination exists and does not belong to this task; it will not be overwritten: {path}"},
+    "delivery.unsafe": {"zh": "交付路径不安全、不可读取或包含链接：{path}", "en": "The delivery path is unsafe, unreadable or contains links: {path}"},
+    "delivery.modified": {"zh": "交付目录中的文件被修改、移动或被其他文件占用，不会覆盖：{path}", "en": "Files in the delivery directory were changed, moved or occupied by other files; refusing to overwrite: {path}"},
+    "delivery.partial": {"zh": "此目录包含未完成的导出，文件已保留，请使用新的 --to 目录：{path}", "en": "This directory contains an incomplete export; files are preserved. Use a new --to directory: {path}"},
+    "delivery.changed_source": {"zh": "导出时源文件发生变化，请检查任务后导出到新目录：{path}", "en": "A source file changed during export; inspect the task and export to a new directory: {path}"},
     "background.runtime_invalid": {"zh": "查询间隔至少 10 秒，等待上限和 POST 超时必须为有限的正数。", "en": "Polling interval must be at least 10 seconds; wait limit and POST timeout must be finite positive numbers."},
     "background.gromacs_missing": {"zh": "--grompp 需要可用的 GROMACS；请先安装或指定 --gmx。", "en": "--grompp requires an available GROMACS executable; install it or supply --gmx."},
     "help.background_overview": {"zh": "后台运行（默认）\n  charmm-gui-cli jobs watch NAME           跟踪日志；Ctrl-C 只退出查看\n  charmm-gui-cli --foreground build ...    前台运行并返回最终退出码\n  charmm-gui-cli jobs reconcile NAME       仅 GET 核对结果不明的提交\n  check 输出在当前目录 charmm-gui-checks/；--open 打开预览图。\n", "en": "Background execution (default)\n  charmm-gui-cli jobs watch NAME           Follow logs; Ctrl-C only stops watching\n  charmm-gui-cli --foreground build ...    Run synchronously with the final exit code\n  charmm-gui-cli jobs reconcile NAME       Reconcile uncertain submissions using GET only\n  check writes to charmm-gui-checks/ in the current directory; --open opens a preview.\n"},

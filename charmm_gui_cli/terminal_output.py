@@ -62,10 +62,13 @@ def format_build(value, **context):
             continue
         if isinstance(identifier, str) and re.fullmatch(r"[0-9]{1,32}", identifier):
             lines.append(t(key, jobid=identifier))
-    for field, key in (("directory", "output.directory"), ("archive", "output.archive"), ("report", "output.report")):
+    delivery = value.get("delivery", {})
+    if isinstance(delivery, dict) and delivery.get("directory"):
+        lines.append(t("output.delivery", path=_path(delivery["directory"])))
+    for field, key in (() if delivery.get("directory") else (("directory", "output.directory"), ("archive", "output.archive"), ("report", "output.report"))):
         if isinstance(value.get(field), str):
             lines.append(t(key, path=_path(value[field])))
-    if not value.get("report") and isinstance(value.get("report_file"), str):
+    if not delivery.get("directory") and not value.get("report") and isinstance(value.get("report_file"), str):
         lines.append(t("output.report", path=_path(value["report_file"])))
     passed = value.get("passed")
     validation = value.get("validation")

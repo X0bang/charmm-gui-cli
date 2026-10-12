@@ -180,6 +180,9 @@ def _execute(args, holder):
         managed.assign_name(directory, args.name)
     if (directory / "full-run.json").is_file():
         managed.remember_run(directory)
+        if args.command == "build":
+            from .delivery import check_destination
+            check_destination(directory)
     if dry_run:
         return {"directory": str(directory), "state": "inputs_ready", "server_submitted": False,
                 **({"name": args.name} if getattr(args, "name", None) else {}),
@@ -235,6 +238,9 @@ def _execute(args, holder):
                 summary["preview"] = preview_run(directory, report=report)
             except (ToolError, OSError) as error:
                 summary["preview"] = {"status": "failed", "message": str(error) if isinstance(error, ToolError) else "Local preview output could not be generated."}
+        if report.get("validation_complete") is True:
+            from .delivery import auto_export
+            summary["delivery"] = auto_export(directory)
         return summary, 0 if report.get("passed") else 2
     summary["next_step"] = "charmm-gui-cli build-resume"
     if (directory / "full-run.json").is_file():

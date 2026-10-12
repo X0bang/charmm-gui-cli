@@ -30,7 +30,9 @@ def initialize(config_path, directory):
     if directory.exists():
         raise ToolError("Build directory already exists; use build-resume.")
     directory.mkdir(parents=True)
-    manifest = {"schema_version": 2, "created_at": now(), "state": "preparing_inputs", "config": config}
+    from .delivery import creation_context
+    manifest = {"schema_version": 2, "created_at": now(), "state": "preparing_inputs", "config": config,
+                "delivery_context": creation_context()}
     _save(directory, manifest)
     prepared = prepare_inputs(config["protein"], config["ligand"], directory / "inputs",
                               ligand_resname=config["ligand_resname"],

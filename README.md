@@ -70,6 +70,21 @@ charmm-gui-cli jobs reconcile receptor-a --confirm-not-submitted
 
 新任务默认位于当前目录的 `charmm-gui-runs/<任务名>/`，完整日志为 `run.log`；预检位于 `charmm-gui-checks/<时间戳>/`。`--out DIR` 可覆盖，全局索引让 `jobs` 在任意目录找到任务。旧任务保留原位置，不迁移。`check --open` 可打开 PNG 预览。
 
+### 完成交付与旧任务导出（0.6.1）
+
+任务完成下载和验收后，自动将结果独立复制到**创建任务时所在目录的 `./<任务名>/`**；从其他目录恢复任务也不会改变这个位置。目录中包含官网 `charmm-gui.tgz`、`model/` 解压模型、`reports/` 验收报告和可用的 GROMACS 编译产物、`inputs/` 实际使用的结构与参数，以及 `README.txt`。
+
+内部状态、日志和原始验收证据仍在原任务目录。交付文件不是硬链接；用户可移动或删除交付目录，不影响 `jobs report` 或恢复。完成摘要只显示交付目录，不再列出内部文件路径；JSON 保留原字段，新增 `delivery`。
+
+```bash
+charmm-gui-cli jobs export receptor-a
+charmm-gui-cli jobs export receptor-a --to ./my-model
+```
+
+`--to` 指定的是交付目录本身，不是其父目录。没有记录创建目录的旧任务默认导出到运行 `jobs export` 时的 `./<任务名>/`。目标属于其他任务、没有归属标记或包含用户修改的交付文件时，拒绝覆盖，请改用新的 `--to` 目录。同任务的未修改交付目录可以重复导出或刷新。中断的部分导出保留，需换新目录再导出。
+
+验收未通过的任务也可交付诊断报告，报告和终端仍明确显示失败，不会标成通过。尚未完成下载及验收的任务不能导出。成功下载后清理本次 `.download-*` 与 `.normalized-*`；导出及下载恢复时，也会清理与已验证归档字节完全匹配的历史临时副本。失败或不匹配的响应保留用于诊断，不做全目录清理。
+
 默认批次和扫描也放入当前目录 `charmm-gui-runs/`，独立 `preview` 输出在 `charmm-gui-previews/`；批次调度仍保持原有前台运行方式。
 
 输入准备自动修复可安全重编号的蛋白原子序号、可推断的元素列、空链 ID；记录写入 `check.json` 和准备报告，不修改原始输入。涉及歧义 CONECT 的重复序号仍报错。Gly/Pro 末端支持 `GLYP`/`PROP`，默认 `NTER` 不可用时依据官网选项调整并记录。

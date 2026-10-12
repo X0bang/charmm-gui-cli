@@ -1,3 +1,3 @@
 """Independent CHARMM-GUI API client; no upstream source is vendored."""
 
-__version__ = "0.6.0"
+__version__ = "0.6.1"

@@ -192,6 +192,9 @@ def inspect_run(target, *, remote_check=False, token_file=None):
     preview = directory / "results" / "preview.json"
     if preview.is_file():
         result["preview_file"] = str(preview)
+    delivery = directory / "delivery.json"
+    if delivery.is_file():
+        result["delivery"] = _read_json(delivery)
     return result
 
 
@@ -350,7 +353,9 @@ def create_component_build(*, components_config, complex_pdb, output=None, membr
     config.update(components_mode=True, component_resnames=[group["resname"] for group in component_manifest["chemistry_groups"]],
                   components_config=str(Path(components_config).resolve()),
                   component_manifest=inputs["files"]["input-manifest.json"])
-    manifest = {"schema_version": 2, "created_at": now(), "updated_at": now(), "state": "inputs_ready", "config": config, "inputs": inputs}
+    from .delivery import creation_context
+    manifest = {"schema_version": 2, "created_at": now(), "updated_at": now(), "state": "inputs_ready", "config": config, "inputs": inputs,
+                "delivery_context": creation_context()}
     _new_json(directory / "full-run.json", manifest)
     _new_json(directory / "managed.json", {"version": 1, "components_mode": True,
                                             "sources_directory": str(directory / "inputs/sources"),

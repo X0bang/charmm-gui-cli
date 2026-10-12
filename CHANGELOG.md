@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.1 (unreleased)
+
+- Completed builds independently deliver the official archive, extracted model, validation reports, available compilation artifacts and actual prepared inputs under `<creation directory>/<task name>/`.
+- Internal state and immutable evidence remain at the original task location; moving or deleting an export does not invalidate reports or recovery. JSON retains internal paths and adds `delivery`.
+- Add `jobs export NAME [--to DIR]` for completed legacy runs; runs without a recorded creation directory use the invocation directory.
+- Refuse foreign destinations, symlinks, edited exports and stale validation evidence. Unchanged owned exports can be refreshed; interrupted partial exports are preserved and require a new destination.
+- Remove successful download staging files and verified matching historical download duplicates. Failed/unrelated responses remain for diagnosis.
+
 ## 0.6.0
 
 ### Breaking changes

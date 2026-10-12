@@ -197,6 +197,9 @@ def parser():
     job_commands.add_parser("list", help=t('help.text.25'))
     job_watch = job_commands.add_parser("watch", help=t("help.watch"))
     job_watch.add_argument("target")
+    job_export = job_commands.add_parser("export", help=t("help.export"))
+    job_export.add_argument("target", help=t('help.text.27'))
+    job_export.add_argument("--to", type=Path, help=t("help.export_to"))
     job_reconcile = job_commands.add_parser("reconcile", help=t("help.reconcile"))
     job_reconcile.add_argument("target")
     job_reconcile.add_argument("--confirm-not-submitted", action="store_true", help=t("help.confirm_not_submitted"))
@@ -408,6 +411,13 @@ def dispatch(args):
         from . import managed
         if args.jobs_command in (None, "list"):
             emit({"jobs": managed.list_runs(), "next_step": "charmm-gui-cli jobs resume NAME"}, command="jobs.list")
+        elif args.jobs_command == "export":
+            from .delivery import export_run
+            directory = managed.resolve_run(args.target)
+            result = export_run(directory, to=args.to)
+            emit({"name": managed._job_metadata(directory).get("name", directory.name),
+                  "state": result["status"], "passed": result["passed"], "delivery": result}, command="build")
+            return 0
         elif args.jobs_command == "watch":
             from .background import watch
             directory = managed.resolve_run(args.target)

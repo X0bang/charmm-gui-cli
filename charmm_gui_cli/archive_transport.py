@@ -20,8 +20,9 @@ def normalize_download(raw_path, destination):
     other trailers are rejected. Memory use is bounded by chunk size; decoded
     molecular data are neither altered nor extracted.
 
-    Both raw and staging files are retained, including on failure. Destination
-    is created by a hard link, so existing files cannot be overwritten.
+    Failed responses/staging files are retained. After successful publication,
+    the staging link and an owned .download-* response are removed. Explicit
+    non-temporary raw inputs are preserved. Existing destinations are never overwritten.
     """
     raw_path, destination = Path(raw_path), Path(destination)
     if destination.exists():
@@ -70,7 +71,53 @@ def normalize_download(raw_path, destination):
         os.link(staging, destination)
     except FileExistsError:
         raise ToolError("Archive destination already exists; refusing to overwrite it.") from None
+    staging.unlink()
+    if raw_path.parent.resolve() == destination.parent.resolve() and raw_path.name.startswith(".download-") and not raw_path.is_symlink():
+        raw_path.unlink()
     return {"archive": str(destination.resolve()), "raw_response": str(raw_path.resolve()),
             "normalized_staging": str(staging.resolve()), "compressed_bytes": compressed_bytes,
             "decoded_bytes": decoded_bytes, "members": members,
             "footer": "compressed_byte_length" if footer else "none"}
+
+
+def cleanup_download_duplicates(destination):
+    """Remove only named temporary files matching an already verified archive.
+
+    Older clients retained these files. Unknown/failed responses, symlinks and
+    unrelated files are preserved; no recursive deletion or broad directory cleanup.
+    """
+    import hashlib
+    destination = Path(destination)
+    if destination.is_symlink() or not destination.is_file():
+        return 0
+    size = destination.stat().st_size
+    digest = hashlib.sha256()
+    with destination.open("rb") as source:
+        for chunk in iter(lambda: source.read(CHUNK_SIZE), b""):
+            digest.update(chunk)
+    expected = digest.digest()
+    removed = 0
+    for prefix in (".download-", ".normalized-"):
+        for candidate in destination.parent.glob(prefix + "*"):
+            if candidate.is_symlink() or not candidate.is_file():
+                continue
+            before = candidate.stat()
+            if before.st_size not in (size, size + len(str(size))):
+                continue
+            observed = hashlib.sha256()
+            remaining = size
+            with candidate.open("rb") as source:
+                while remaining:
+                    chunk = source.read(min(CHUNK_SIZE, remaining))
+                    if not chunk:
+                        break
+                    observed.update(chunk)
+                    remaining -= len(chunk)
+                footer = source.read(len(str(size)) + 1)
+            after = candidate.stat()
+            if (remaining == 0 and observed.digest() == expected and footer in (b"", str(size).encode("ascii"))
+                    and (before.st_ino, before.st_dev, before.st_size, before.st_mtime_ns)
+                    == (after.st_ino, after.st_dev, after.st_size, after.st_mtime_ns)):
+                candidate.unlink()
+                removed += 1
+    return removed

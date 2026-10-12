@@ -321,6 +321,8 @@ def resume(client, directory, *, wait=False, interval=30, max_wait=21600, pdb_me
         if not archive.exists():
             _download_archive(client, directory, manifest, archive, wait=wait, deadline=deadline, progress=progress)
         receipt = verify_archive_provenance(directory, manifest, create_receipt=True)
+        from .archive_transport import cleanup_download_duplicates
+        cleanup_download_duplicates(archive)
         manifest["state"] = "downloaded_unverified"
         manifest["archive_sha256"] = receipt["archive_sha256"]
         save(directory, manifest)
