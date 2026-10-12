@@ -1,0 +1,177 @@
+"""Detached, locked workers and read-only log following (POSIX platforms)."""
+
+import argparse
+import contextlib
+from datetime import datetime, timezone
+import fcntl
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+
+from .auth import ToolError, atomic_json, load_token, resolve_cookie_path
+from .i18n import set_language, t
+
+
+def claim(directory):
+    path = Path(directory) / "run.lock"
+    fd = os.open(path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        raise ToolError(key="background.running", next_step="charmm-gui-cli jobs list") from None
+    os.fchmod(fd, 0o600)
+    return fd
+
+
+def metadata(directory):
+    path = Path(directory) / "run.lock"
+    try:
+        value = json.loads(path.read_text())
+        if not isinstance(value, dict):
+            value = {}
+    except (OSError, ValueError):
+        value = {}
+    running = False
+    if path.exists():
+        try:
+            fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                running = True
+            finally:
+                os.close(fd)
+        except OSError:
+            pass
+    value["running"] = running
+    try:
+        start = datetime.fromisoformat(value["started_at"])
+        end = datetime.fromisoformat(value["finished_at"]) if not running and value.get("finished_at") else datetime.now(timezone.utc)
+        value["elapsed_seconds"] = max(0, int((end - start).total_seconds()))
+    except (KeyError, TypeError, ValueError):
+        value["elapsed_seconds"] = 0
+    value["log"] = str(Path(directory).resolve() / "run.log")
+    return value
+
+
+def write_lock(fd, value):
+    os.lseek(fd, 0, os.SEEK_SET)
+    os.ftruncate(fd, 0)
+    os.write(fd, json.dumps(value).encode())
+    os.fsync(fd)
+
+
+def launch(args):
+    from .build_command import execute
+    from . import managed
+    # Local checks are completed synchronously; no modeling POST occurs here.
+    if args.command == "build":
+        local = argparse.Namespace(**vars(args))
+        local.dry_run = True
+        result, code = execute(local)
+        if code:
+            return result, code
+        directory = Path(result["directory"])
+    else:
+        directory = managed.resolve_run(args.directory)
+        result = {"directory": str(directory), "state": managed._read_json(directory / "full-run.json")["state"]}
+    fd = claim(directory)
+    try:
+        token, source = load_token(args.token_file)
+        from .api import Client
+        Client(token).validate_auth()
+        manifest = managed._read_json(directory / "full-run.json")
+        if not (directory / "bilayer" / "run.json").exists() and "reused_preparation" not in manifest:
+            from .web import WebClient, soup_for
+            web = WebClient(resolve_cookie_path(args.cookies, source), post_timeout=args.post_timeout)
+            web.validate_auth()
+            response = web.request("GET", "?doc=input/membrane.bilayer")
+            page = soup_for(response.text)
+            if page.select_one('input[type="password"]') or not page.select_one('form[name="pdb"]'):
+                raise ToolError(key="background.auth", category="authentication", next_step="charmm-gui-cli login")
+        options = dict(vars(args), command="build-resume", directory=str(directory), foreground=True, dry_run=False)
+        # Save paths/options, never loaded passwords, cookies or tokens.
+        for key, value in list(options.items()):
+            if isinstance(value, Path):
+                options[key] = str(value.resolve())
+        atomic_json(directory / "worker-options.json", options)
+        initial = {"pid": os.getpid(), "started_at": datetime.now(timezone.utc).isoformat()}
+        write_lock(fd, initial)
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent) + os.pathsep + env.get("PYTHONPATH", "")
+        with open(directory / "run.log", "a", encoding="utf-8") as log:
+            os.chmod(directory / "run.log", 0o600)
+            process = subprocess.Popen([sys.executable, "-m", "charmm_gui_cli.background", str(directory), str(fd)],
+                stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True, pass_fds=(fd,), env=env)
+        initial["pid"] = process.pid
+        if sys.platform == "darwin":
+            try:
+                subprocess.Popen(["caffeinate", "-i", "-w", str(process.pid)], stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            except OSError:
+                pass
+        result.update(managed._job_metadata(directory))
+        result["background"] = dict(initial, running=True, log=str(directory / "run.log"))
+        return result, 0
+    finally:
+        os.close(fd)  # The worker retains the inherited flock until it exits.
+
+
+def watch(directory, *, interval=1):
+    directory = Path(directory)
+    offset = 0
+    try:
+        while True:
+            path = directory / "run.log"
+            if path.is_file():
+                with path.open(encoding="utf-8", errors="replace") as handle:
+                    handle.seek(offset)
+                    for line in handle:
+                        print(line, end="", flush=True)
+                    offset = handle.tell()
+            state = metadata(directory)
+            if not state["running"]:
+                return state.get("exit_code", 0)
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        print(t("background.watch_stopped"), file=sys.stderr)
+        return 130  # Never send a signal to the worker.
+
+
+def worker(directory, fd):
+    from .build_command import execute
+    from .cli import emit
+    directory = Path(directory)
+    values = json.loads((directory / "worker-options.json").read_text())
+    for key in ("directory", "token_file", "cookies", "out", "config"):
+        if values.get(key):
+            values[key] = Path(values[key])
+    set_language(values.get("lang"))
+    record = {"pid": os.getpid(), "started_at": metadata(directory).get("started_at", datetime.now(timezone.utc).isoformat())}
+    write_lock(fd, record)
+    code = 2
+    try:
+        result, code = execute(argparse.Namespace(**values))
+        emit(result, command="build")
+    except ToolError as exc:
+        print(t("cli.error", message=exc.localized()), file=sys.stderr)
+        print(t("cli.next", action=exc.next_step or "charmm-gui-cli jobs list"), file=sys.stderr)
+    except (OSError, ValueError):
+        print(t("cli.filesystem"), file=sys.stderr)
+    finally:
+        record.update(finished_at=datetime.now(timezone.utc).isoformat(), exit_code=code)
+        write_lock(fd, record)
+        os.close(fd)
+        if sys.platform == "darwin":
+            with contextlib.suppress(OSError, subprocess.SubprocessError):
+                subprocess.run(["osascript", "-e", 'display notification "CHARMM-GUI task finished" with title "charmm-gui-cli"'],
+                               timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(worker(sys.argv[1], int(sys.argv[2])))

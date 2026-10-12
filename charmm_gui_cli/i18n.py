@@ -4,6 +4,13 @@ import os
 
 
 MESSAGES = {
+    "background.running": {"zh": "任务已在运行，请勿重复启动。", "en": "The task is already running; do not start it twice."},
+    "background.auth": {"zh": "网页登录已过期，请先登录。", "en": "The website session has expired; log in first."},
+    "background.watch_stopped": {"zh": "已退出查看，后台任务继续运行。", "en": "Stopped watching; the background task continues."},
+    "help.foreground": {"zh": "在前台运行建模，退出码反映最终结果（默认后台运行）", "en": "Run modeling in the foreground with its final exit code (default: background)"},
+    "help.watch": {"zh": "跟踪任务日志；Ctrl-C 仅退出查看", "en": "Follow task logs; Ctrl-C only stops watching"},
+    "output.background": {"zh": "任务 {name} 已在后台启动（PID {pid}）", "en": "Task {name} started in the background (PID {pid})"},
+    "output.log": {"zh": "日志：{path}", "en": "Log: {path}"},
     "help.post_timeout": {"zh": "网页 POST 响应读取超时（秒，默认 900）；不自动重发 POST", "en": "Website POST read timeout in seconds (default: 900); POST is never automatically retried"},
     "web.timeout_invalid": {"zh": "POST 超时必须是有限的正数。", "en": "POST timeout must be a finite positive number."},
     "web.post_wait": {"zh": "已等待 {elapsed}，服务器正在处理建模或配体参数，请勿中断。", "en": "Waiting {elapsed}; the server is processing modeling or ligand parameters. Please do not interrupt."},

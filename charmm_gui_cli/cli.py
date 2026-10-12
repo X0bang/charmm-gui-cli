@@ -139,6 +139,7 @@ def parser():
     root.add_argument("--version", action="version", version=__version__, help=t("help.version"))
     root.add_argument("--lang", choices=("zh", "en"), help=t("help.lang"))
     root.add_argument("--json", action="store_true", help=t("help.json"))
+    root.add_argument("--foreground", action="store_true", help=t("help.foreground"))
     root.add_argument("--token-file", type=Path, help=t('help.text.07'))
     commands = root.add_subparsers(dest="command", required=True)
     updater = commands.add_parser("update", help=t("update.help"))
@@ -191,6 +192,8 @@ def parser():
     jobs = commands.add_parser("jobs", help=t('help.text.24'))
     job_commands = jobs.add_subparsers(dest="jobs_command")
     job_commands.add_parser("list", help=t('help.text.25'))
+    job_watch = job_commands.add_parser("watch", help=t("help.watch"))
+    job_watch.add_argument("target")
     job_status = job_commands.add_parser("status", aliases=("show",), help=t('help.text.26'))
     job_status.add_argument("target", help=t('help.text.27'))
     job_status.add_argument("--remote-check", action="store_true", help=t('help.text.28'))
@@ -385,7 +388,14 @@ def dispatch(args):
     if args.command == "jobs":
         from . import managed
         if args.jobs_command in (None, "list"):
-            emit({"jobs": managed.list_runs(), "next_step": "charmm-gui-cli jobs resume NAME"})
+            emit({"jobs": managed.list_runs(), "next_step": "charmm-gui-cli jobs resume NAME"}, command="jobs.list")
+        elif args.jobs_command == "watch":
+            from .background import watch
+            directory = managed.resolve_run(args.target)
+            code = watch(directory)
+            if code != 130:
+                emit(managed.inspect_run(directory), command="jobs.status")
+            return code
         elif args.jobs_command in ("status", "show"):
             emit(managed.inspect_run(args.target, remote_check=args.remote_check, token_file=args.token_file), command="jobs.status")
         elif args.jobs_command == "report":
@@ -428,7 +438,8 @@ def dispatch(args):
             from .build_command import execute
             args.directory = managed.resolve_run(args.target)
             args.command = "build-resume"
-            result, code = execute(args)
+            from .background import launch
+            result, code = execute(args) if args.foreground else launch(args)
             emit(result, command="jobs.resume")
             return code
         elif args.jobs_command == "attach":
@@ -472,7 +483,8 @@ def dispatch(args):
         return 0
     if args.command in ("build", "build-resume"):
         from .build_command import execute
-        result, code = execute(args)
+        from .background import launch
+        result, code = execute(args) if args.foreground or getattr(args, "dry_run", False) else launch(args)
         emit(result, command=args.command)
         return code
     if args.command == "validate":

@@ -183,6 +183,8 @@ def inspect_run(target, *, remote_check=False, token_file=None):
     from .progress import result_presentation
     result["presentation"] = result_presentation(result)
     result["official_links"] = result["presentation"]["official_links"]
+    from .background import metadata
+    result["background"] = metadata(directory)
     preview = directory / "results" / "preview.json"
     if preview.is_file():
         result["preview_file"] = str(preview)

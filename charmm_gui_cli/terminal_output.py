@@ -33,6 +33,12 @@ def format_login(value, *, email=None):
 
 
 def format_build(value, **context):
+    if value.get("background", {}).get("running"):
+        background = value["background"]
+        name = value.get("name") or _path(value.get("directory", ""))
+        return "\n".join([t("output.background", name=_text(name), pid=background.get("pid", "—")),
+                         t("output.log", path=_path(background["log"])),
+                         t("cli.next", action="charmm-gui-cli jobs watch " + str(name))])
     from .progress import describe_progress
     from .auth import recovery_guidance
     state = value.get("state", value.get("status", "unknown"))
