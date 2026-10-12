@@ -140,6 +140,10 @@ def parser():
     root.add_argument("--json", action="store_true", help=t("help.json"))
     root.add_argument("--token-file", type=Path, help=t('help.text.07'))
     commands = root.add_subparsers(dest="command", required=True)
+    updater = commands.add_parser("update", help=t("update.help"))
+    updater.add_argument("--check", action="store_true", help=t("update.check_help"))
+    updater.add_argument("--prefix", type=Path, help=t("update.prefix_help"))
+    updater.add_argument("--bin-dir", type=Path, help=t("update.bin_help"))
     login = commands.add_parser("login", help=t('help.text.08'))
     login.add_argument("--email")
     login.add_argument("--save-to", type=Path, help=t('help.text.09'))
@@ -311,6 +315,11 @@ def parser():
 
 
 def dispatch(args):
+    if args.command == "update":
+        from .updater import update
+        result = update(check=args.check, prefix=args.prefix, bin_dir=args.bin_dir)
+        emit(result, command="update")
+        return 0
     if args.command == "check":
         from .precheck import check_inputs
         from .preview import render_model, new_preview_path
@@ -649,5 +658,5 @@ def main(argv=None):
         return 2
     except (KeyboardInterrupt, EOFError):
         from .auth import recovery_guidance
-        print(t("cli.interrupted") + recovery_guidance("interrupted"), file=sys.stderr)
+        print(t("update.interrupted") if args.command == "update" else t("cli.interrupted") + recovery_guidance("interrupted"), file=sys.stderr)
         return 130

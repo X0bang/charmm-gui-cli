@@ -45,7 +45,27 @@ bash install.sh --offline --wheelhouse /path/to/wheels
 
 ## 升级与旧版本
 
-新版本源码/源包同样执行 `bash install.sh`。已存在的未知同名命令会被拒绝；可用新的 `--bin-dir` 避免冲突。旧版本仍在 releases 下，可通过其 `venv/bin/charmm-gui-cli` 直接运行。没有卸载或自动清理命令；如何处理旧目录由用户决定。
+0.5.2 起支持：
+
+```bash
+charmm-gui-cli update --check
+charmm-gui-cli update
+charmm-gui-cli --lang zh update
+charmm-gui-cli --json update --check
+```
+
+从本仓库公开 `main` 读取版本信息，将源码包与 SHA256SUMS 固定到同一 Git 提交，校验后调用用户级安装器。只更新版本更高且已发布校验和的源包，不安装开发分支或自动降级。校验和通过相同仓库的 HTTPS 获取，不是独立数字签名；需信任仓库及其发布流程。
+
+自动识别本安装器管理的安装根和命令目录；自定义目录仍可自动识别。其他安装方式不自动修改，可按原 pip/venv 方式升级，或明确创建隔离安装：
+
+```bash
+charmm-gui-cli update --prefix /path/to/user-software/charmm-gui-cli \
+  --bin-dir /path/to/user-software/bin
+```
+
+两个路径选项必须同时提供；不会覆盖无法识别的现有命令。更新下载 GitHub 源包，并根据原 pip 配置安装依赖，需要网络、venv/ensurepip 和足够磁盘。更新锁防止同一安装根的并发更新。校验、依赖安装或健康检查失败不切换入口；中断时可再次运行更新。临时下载保留在安装根 `updates/`，旧版本/失败安装保留在 `releases/`。不读取或改写登录会话、任务和模型，也不会自动重提任何建模任务。
+
+尚无 `update` 的旧版本先获取新版源码/源包，执行一次 `bash install.sh`。新版本源码/源包也仍可直接执行该安装命令。旧版本可通过其 `venv/bin/charmm-gui-cli` 直接运行。没有卸载或自动清理命令；如何处理旧目录由用户决定。
 
 ## 构建发布包
 

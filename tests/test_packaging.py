@@ -1,6 +1,7 @@
 """Release integrity and installer publication tests; no network or deletion."""
 
 import base64
+import contextlib
 import csv
 import hashlib
 import importlib.util
@@ -117,9 +118,33 @@ class PackagingTests(unittest.TestCase):
         link = self.directory / "command"
         link.symlink_to(target)
         self.assertFalse(install_user.owned_link(link, prefix))
+        (release / "install.json").write_text("[]")
+        self.assertFalse(install_user.owned_link(link, prefix))
         (release / "install.json").write_text(json.dumps({"installer": install_user.MARKER, "status": "ready"}))
         self.assertTrue(install_user.owned_link(link, prefix))
         self.assertEqual(target.read_text(), "old command")
+
+    def test_failed_health_check_never_publishes_new_command(self):
+        prefix = self.directory / "prefix"
+        old_release = prefix / "releases/old"
+        target = old_release / "venv/bin/charmm-gui-cli"
+        target.parent.mkdir(parents=True)
+        target.write_text("old command")
+        (old_release / "install.json").write_text(json.dumps({"installer": install_user.MARKER, "status": "ready"}))
+        bin_dir = self.directory / "bin"
+        bin_dir.mkdir()
+        link = bin_dir / "charmm-gui-cli"
+        link.symlink_to(target)
+        with patch("install_user.venv.EnvBuilder"), patch("install_user.subprocess.run") as run:
+            run.side_effect = [subprocess.CompletedProcess([], 0), subprocess.CalledProcessError(1, ["health-check"])]
+            with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(subprocess.CalledProcessError):
+                install_user.install(ROOT, prefix, bin_dir)
+        self.assertEqual(link.resolve(), target)
+        self.assertEqual(target.read_text(), "old command")
+        self.assertIn("assert __version__", run.call_args.args[0][-1])
+        new_releases = [path for path in (prefix / "releases").iterdir() if path != old_release]
+        self.assertEqual(len(new_releases), 1)
+        self.assertFalse((new_releases[0] / "install.json").exists())
 
 
 if __name__ == "__main__":

@@ -14,6 +14,15 @@ bash install.sh
 
 也可从 [download](https://github.com/X0bang/charmm-gui-cli/tree/main/download) 下载源码安装包，解压后运行 `bash install.sh`。若找不到命令，执行 `export PATH="$HOME/.local/bin:$PATH"`。
 
+## 更新
+
+```bash
+charmm-gui-cli update --check  # 只检查已发布版本
+charmm-gui-cli update          # 校验下载包并更新，不删除旧安装
+```
+
+更新仅使用本仓库 `main` 中已发布的安装包，失败不切换命令入口，不修改登录会话或建模数据。尚无 `update` 的旧版本，先下载新版源码并运行一次 `bash install.sh`。自动更新适用于本项目安装器创建的隔离安装；pip 安装请使用原安装方式升级。
+
 ## 使用
 
 ```bash
@@ -83,7 +92,7 @@ charmm-gui-cli --lang en build -h
 charmm-gui-cli --json jobs status receptor-a
 ```
 
-全局参数放在子命令前。login、build/build-resume、status 和 jobs status/resume 在交互终端显示易读摘要；重定向、管道、未注册摘要的命令及 `--json` 保持 JSON 输出。JSON 字段名、结构及错误 category 不翻译。`jobs report --format text/html` 可显式选择报告格式。
+全局参数放在子命令前。login、build/build-resume、status、update 和 jobs status/resume 在交互终端显示易读摘要；重定向、管道、未注册摘要的命令及 `--json` 保持 JSON 输出。JSON 字段名、结构及错误 category 不翻译。`jobs report --format text/html` 可显式选择报告格式。
 
 服务器语言为 C 或英文时，可在 `~/.bashrc` 中设置 `export CHARMM_GUI_CLI_LANG=zh`，再打开新终端。高频登录/API/CLI 错误、恢复提示、帮助、终端进度及报告标签已有双语支持；其余旧错误和科学审阅详情仍可能为英文，待迁移位置见 [清单](docs/I18N-TODO.md)。
 

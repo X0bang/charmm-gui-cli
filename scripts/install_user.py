@@ -36,7 +36,7 @@ def owned_link(link, prefix):
         marker = json.loads((releases / relative.parts[0] / "install.json").read_text())
     except (OSError, ValueError):
         return False
-    return marker.get("installer") == MARKER and marker.get("status") == "ready"
+    return isinstance(marker, dict) and marker.get("installer") == MARKER and marker.get("status") == "ready"
 
 
 def install(source, prefix, bin_dir, *, offline=False, wheelhouse=None):
@@ -73,10 +73,14 @@ def install(source, prefix, bin_dir, *, offline=False, wheelhouse=None):
         command.extend(["--find-links", str(Path(wheelhouse).resolve())])
     command.append(artifacts["wheel"] + "[chem]")
     subprocess.run(command, check=True)
-    subprocess.run([str(python), "-c", "import requests, yaml, bs4; from rdkit import Chem; from charmm_gui_cli.cli import parser; parser()"], check=True, cwd=release)
+    health_check = ("import requests, yaml, bs4, numpy; from PIL import Image; from rdkit import Chem; "
+                    "from charmm_gui_cli.cli import parser; from charmm_gui_cli import __version__; "
+                    "assert __version__ == " + repr(project["version"]) + "; parser()")
+    subprocess.run([str(python), "-c", health_check], check=True, cwd=release)
     for name in project["scripts"]:
         subprocess.run([str(environment / "bin" / name), "--help"], stdout=subprocess.DEVNULL, check=True, cwd=release)
     marker = {"installer": MARKER, "status": "ready", "version": project["version"],
+              "prefix": str(prefix), "bin_dir": str(bin_dir),
               "release": str(release), "python": sys.version, "source": str(source),
               "entry_points": list(project["scripts"])}
     with (release / "install.json").open("x", encoding="utf-8") as handle:

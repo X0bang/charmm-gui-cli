@@ -12,7 +12,7 @@
 | [batch.py](../charmm_gui_cli/batch.py) | 18 | 49, 53, 64, 66, 76, 79, 81, 84, 90, 92, 96, 139, 155, 166, 210, 369, 371, 374 |
 | [build_command.py](../charmm_gui_cli/build_command.py) | 7 | 44, 61, 63, 71, 74, 76, 104 |
 | [build_config.py](../charmm_gui_cli/build_config.py) | 9 | 17, 19, 23, 28, 31, 35, 38, 45, 48 |
-| [cli.py](../charmm_gui_cli/cli.py) | 1 | 338 |
+| [cli.py](../charmm_gui_cli/cli.py) | 1 | 347 |
 | [config.py](../charmm_gui_cli/config.py) | 14 | 23, 33, 40, 46, 49, 51, 56, 64, 72, 75, 77, 85, 89, 103 |
 | [full_build.py](../charmm_gui_cli/full_build.py) | 28 | 28, 44, 46, 48, 56, 64, 73, 89, 93, 96, 99, 102, 104, 108, 112, 117, 126, 136, 139, 144, 152, 160, 182, 275, 279, 283, 299, 305 |
 | [input_sources.py](../charmm_gui_cli/input_sources.py) | 32 | 22, 30, 37, 44, 53, 60, 63, 65, 67, 70, 73, 79, 81, 92, 95, 101, 115, 118, 120, 122, 126, 131, 152, 156, 158, 160, 162, 164, 190, 195, 199, 229 |

@@ -94,5 +94,14 @@ def format_build(value, **context):
     return "\n".join(lines)
 
 
-FORMATTERS = {"login": format_login, "build": format_build, "build-resume": format_build,
+def format_update(value, **context):
+    lines = [t("update.versions", current=value["current_version"], latest=value["latest_version"])]
+    key = {"update_available": "available", "up_to_date": "up_to_date", "local_newer": "local_newer", "updated": "updated"}[value["state"]]
+    lines.append(t("update." + key))
+    if value.get("command_path"):
+        lines.append(t("update.command", path=_path(value["command_path"])))
+    return "\n".join(lines)
+
+
+FORMATTERS = {"update": format_update, "login": format_login, "build": format_build, "build-resume": format_build,
               "status": format_build, "jobs.status": format_build, "jobs.resume": format_build}
