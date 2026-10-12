@@ -90,6 +90,10 @@ charmm-gui-cli build --complex bound.pdb --components components.yaml
 charmm-gui-cli --lang zh login
 charmm-gui-cli --lang en build -h
 charmm-gui-cli --json jobs status receptor-a
+
+# 手动固定当前终端语言，不改系统 locale
+export CHARMM_GUI_CLI_LANG=zh  # 中文；改为 en 切换英文
+# unset CHARMM_GUI_CLI_LANG   # 恢复按系统语言自动检测
 ```
 
 全局参数放在子命令前。login、build/build-resume、status、update 和 jobs status/resume 在交互终端显示易读摘要；重定向、管道、未注册摘要的命令及 `--json` 保持 JSON 输出。JSON 字段名、结构及错误 category 不翻译。`jobs report --format text/html` 可显式选择报告格式。

@@ -325,4 +325,3 @@ class UpdateTests(unittest.TestCase):
             self.assertEqual(cli.main(["--lang", "en", "update"]), 130)
         self.assertNotIn("jobs resume", output.getvalue())
         self.assertNotIn("submission_unknown", output.getvalue())
-
