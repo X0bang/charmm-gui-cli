@@ -161,7 +161,8 @@ class JobsTests(unittest.TestCase):
         code, result, error = self.call(["jobs", "report", "example"])
         self.assertEqual(code, 2)
         self.assertIsNone(result)
-        self.assertIn("stale", error)
+        from charmm_gui_cli.i18n import t
+        self.assertIn(t("cli.stale_report"), error)
 
     def test_report_exposes_warnings_and_full_report_without_network(self):
         managed.assign_name(self.directory, "example")

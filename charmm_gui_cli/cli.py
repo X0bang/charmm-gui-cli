@@ -16,8 +16,17 @@ from . import workflow
 from .i18n import set_language, t
 
 
-def emit(value):
-    print(json.dumps(value, indent=2, ensure_ascii=False))
+_JSON_OUTPUT = False
+
+
+def emit(value, command=None, **context):
+    from .terminal_output import FORMATTERS
+    formatter = FORMATTERS.get(command)
+    if not _JSON_OUTPUT and sys.stdout.isatty() and formatter is not None:
+        print(formatter(value, **context))
+    else:
+        # Preserve the exact original serialization for pipes and scripts.
+        print(json.dumps(value, indent=2, ensure_ascii=False))
 
 
 def brief(manifest):
@@ -101,6 +110,7 @@ def parser():
                                    formatter_class=argparse.RawDescriptionHelpFormatter)
     root.add_argument("--version", action="version", version=__version__)
     root.add_argument("--lang", choices=("zh", "en"))
+    root.add_argument("--json", action="store_true")
     root.add_argument("--token-file", type=Path, help="Official raw JWT file or login JSON; never the token itself")
     commands = root.add_subparsers(dest="command", required=True)
     login = commands.add_parser("login", help="Sign in once for API and website access; save the session for future commands")
@@ -339,7 +349,7 @@ def dispatch(args):
         if args.jobs_command in (None, "list"):
             emit({"jobs": managed.list_runs(), "next_step": "charmm-gui-cli jobs resume NAME"})
         elif args.jobs_command in ("status", "show"):
-            emit(managed.inspect_run(args.target, remote_check=args.remote_check, token_file=args.token_file))
+            emit(managed.inspect_run(args.target, remote_check=args.remote_check, token_file=args.token_file), command="jobs.status")
         elif args.jobs_command == "report":
             if args.full and args.format != "json":
                 raise ToolError(key="cli.full_json")
@@ -381,7 +391,7 @@ def dispatch(args):
             args.directory = managed.resolve_run(args.target)
             args.command = "build-resume"
             result, code = execute(args)
-            emit(result)
+            emit(result, command="jobs.resume")
             return code
         elif args.jobs_command == "attach":
             directory = managed.resolve_run(args.target)
@@ -425,7 +435,7 @@ def dispatch(args):
     if args.command in ("build", "build-resume"):
         from .build_command import execute
         result, code = execute(args)
-        emit(result)
+        emit(result, command=args.command)
         return code
     if args.command == "validate":
         from .validation import extract_for_validation, inspect_environment, validate_system
@@ -532,7 +542,7 @@ def dispatch(args):
                   "next_step": "charmm-gui-cli build --protein protein.pdb --ligand bound-ligand.sdf --name receptor-a"}
         if os.environ.get("CHARMMGUI_TOKEN"):
             result["notice"] = "CHARMMGUI_TOKEN is set and overrides the saved login. Unset it to use this session by default."
-        emit(result)
+        emit(result, command="login", email=email)
         return 0
     if args.command == "plan":
         proposal = plan(load_config(args.config))
@@ -569,7 +579,7 @@ def dispatch(args):
                   "archive_available": data.get("hasTarFile"),
                   "response_shape": {key: type(value).__name__ for key, value in data.items()}})
         else:
-            emit({"job_id": args.jobid, **workflow.status_summary(data)})
+            emit({"job_id": args.jobid, **workflow.status_summary(data)}, command="status")
     elif args.command == "download":
         if workflow.status_summary(client.status(args.jobid))["status"] != "done":
             raise ToolError(key="cli.not_done")
@@ -591,11 +601,13 @@ def dispatch(args):
 
 
 def main(argv=None):
+    global _JSON_OUTPUT
     bootstrap = argparse.ArgumentParser(add_help=False)
     bootstrap.add_argument("--lang", choices=("zh", "en"))
     early, _ = bootstrap.parse_known_args(sys.argv[1:] if argv is None else argv)
     set_language(early.lang)
     args = parser().parse_args(argv)
+    _JSON_OUTPUT = args.json
     try:
         return dispatch(args)
     except ToolError as exc:
