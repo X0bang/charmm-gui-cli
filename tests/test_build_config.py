@@ -40,6 +40,18 @@ class BuildConfigTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ToolError):
                 self.load({**self.raw, "ligand_resname": value})
 
+    def test_default_template_matches_direct_build_defaults_and_accepts_mixtures(self):
+        template = Path(__file__).resolve().parents[1] / "examples/default-build.yaml"
+        raw = yaml.safe_load(template.read_text(encoding="utf-8"))
+        raw["protein"] = "protein.pdb"
+        raw["ligand"] = "ligand.sdf"
+        config = self.load(raw)
+        self.assertEqual(config["ligand_hydrogens"], "add_missing")
+        self.assertEqual(config["membrane"], {"upper": "POPC=1", "lower": "POPC=1", "margin_A": 20, "water_padding_A": 22.5})
+        self.assertEqual(config["ions"], {"type": "KCl", "concentration_M": 0.15})
+        raw["membrane"]["upper"] = "POPC:POPE=7:3"
+        self.assertEqual(self.load(raw)["membrane"]["upper"], "POPC:POPE=7:3")
+
     def test_terminal_hydrogen_and_orientation_enums_are_strict(self):
         for value in (None, True, 3, [], {}, "nter", "INVALID"):
             for field in ("n_terminal", "c_terminal", "orientation"):

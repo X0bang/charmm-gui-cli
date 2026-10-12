@@ -1,0 +1,41 @@
+# 默认建模模板：复制为 system.yaml，修改输入路径和所需参数。
+# 运行：charmm-gui-cli build system.yaml --name receptor-a
+# 仅本地准备/检查：在上述命令末尾添加 --dry-run。
+# 程序不会自动读取本文件；需要在 build 后明确指定配置路径。
+version: 2
+
+# 相对路径以本 YAML 所在目录为基准；也可以使用绝对路径。
+# 蛋白和配体必须已处于同一个结合姿势坐标系；本工具不做对接。
+protein: ./protein.pdb
+ligand: ./bound-ligand.sdf
+ligand_resname: LIG
+
+# 配体 SDF 需为 V2000 单分子，具有可信键级与形式电荷。
+# add_missing：按已有化学定义补氢，不预测 pH 或质子化状态。
+# preserve：保留输入氢，不补氢。
+ligand_hydrogens: add_missing
+
+preparation:
+  # 末端处理需根据自己的蛋白构建体审核。
+  n_terminal: NTER
+  c_terminal: CTER
+  # ppm：请求膜取向处理；prepared：输入已有正确膜取向。
+  orientation: ppm
+
+membrane:
+  # 默认上下膜叶为纯 POPC。按模型上/下区分，不自动等同于外/内层。
+  # 混合膜示例：upper: "POPC:POPE=7:3"
+  upper: "POPC=1"
+  lower: "POPC=1"
+  # 长度单位 Å：侧向边界、Z 方向水层边界。
+  margin_A: 20
+  water_padding_A: 22.5
+
+ions:
+  # KCl 或 NaCl；浓度单位 mol/L。
+  type: KCl
+  concentration_M: 0.15
+
+# 本模板与直接 build 的默认模型设置一致，不是科学推荐。
+# 不放账户、密码或 token；先单独运行 charmm-gui-cli login。
+# --name / --out / --grompp 等运行选项在命令中指定，不作为 YAML 字段。

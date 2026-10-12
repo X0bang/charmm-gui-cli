@@ -36,6 +36,7 @@
 !/examples/batch.yaml
 !/examples/sweep.yaml
 !/examples/components.yaml
+!/examples/default-build.yaml
 !/download/
 /download/*
 !/download/README.md

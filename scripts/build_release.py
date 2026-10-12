@@ -21,7 +21,8 @@ ROOT_FILES = (".gitignore", "LICENSE", "pyproject.toml", "README.md", "RESEARCH.
 DOC_FILES = ("docs/INSTALL.md", "docs/ADVANCED.md", "docs/TESTING.md", "docs/USAGE.md", "docs/RECOVERY.md", "docs/BATCH.md", "docs/SWEEP.md", "docs/PREVIEW.md", "docs/COMPONENTS.md", "docs/I18N-TODO.md")
 SCRIPT_FILES = ("scripts/build_release.py", "scripts/install_user.py")
 EXAMPLE_FILES = ("examples/batch.yaml", "examples/crtw-build.yaml", "examples/membrane-ligand.yaml",
-                 "examples/crtw-beta-carotene.yaml", "examples/sweep.yaml", "examples/components.yaml")
+                 "examples/crtw-beta-carotene.yaml", "examples/sweep.yaml", "examples/components.yaml",
+                 "examples/default-build.yaml")
 
 
 def metadata(root):

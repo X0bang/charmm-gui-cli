@@ -46,6 +46,16 @@ charmm-gui-cli build --complex complex.pdb \
 
 自动完成输入准备、上传、参数化、建膜、下载和验证；登录会话及中间文件由程序管理。
 
+也可复制 [默认配置模板](examples/default-build.yaml)，修改输入路径、脂质比例和其他参数：
+
+```bash
+cp examples/default-build.yaml system.yaml
+# 编辑 system.yaml 后运行
+charmm-gui-cli build system.yaml --name receptor-a
+```
+
+配置文件必须显式传入；不与 `--protein`、`--upper` 等结构/模型选项混用。
+
 ```bash
 charmm-gui-cli -h            # 快速引导
 charmm-gui-cli build -h      # 输入组合和建模参数

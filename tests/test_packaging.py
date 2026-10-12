@@ -36,6 +36,7 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("LICENSE", names)
         self.assertIn("scripts/install_user.py", names)
         self.assertIn("docs/INSTALL.md", names)
+        self.assertIn("examples/default-build.yaml", names)
         self.assertTrue(all(not name.endswith((".pyc", ".token")) for name in names))
 
     def test_release_wheel_records_metadata_and_source_are_valid(self):
