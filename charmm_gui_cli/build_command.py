@@ -86,6 +86,8 @@ def _execute(args, holder):
         holder.append(Path(directory).resolve())
     if args.command == "build" and getattr(args, "name", None):
         managed.check_name_available(args.name)
+        if args.out is None:
+            args.out = managed.new_run_path(args.name)
     local_complete = False
     if directory is not None and (directory / "full-run.json").is_file() and (directory / "bilayer" / "charmm-gui.tgz").is_file():
         local_manifest = managed._read_json(directory / "full-run.json")

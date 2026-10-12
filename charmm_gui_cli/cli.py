@@ -281,6 +281,7 @@ def parser():
     precheck.add_argument("--hydrogens", choices=("preserve", "add_missing"), default="add_missing")
     precheck.add_argument("--out", type=Path, help=t('help.text.71'))
     precheck.add_argument("--no-preview", action="store_true")
+    precheck.add_argument("--open", action="store_true", help=t("help.open_preview"))
     precheck.add_argument("--full", action="store_true", help=t('help.text.72'))
     preview = commands.add_parser("preview", help=t('help.text.73'))
     preview.add_argument("target", help=t('help.text.74'))
@@ -343,6 +344,16 @@ def dispatch(args):
                 report["preview"] = {"status": "failed", "message": str(exc)}
             atomic_json(Path(report["check_file"]), report)
         emit(report if args.full else precheck_summary(report), command="check")
+        if args.open:
+            import shutil
+            import subprocess
+            opener = shutil.which("open" if sys.platform == "darwin" else "xdg-open")
+            images = report.get("preview", {}).get("images", [])
+            if opener and images and images[0].get("file"):
+                try:
+                    subprocess.Popen([opener, images[0]["file"]], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except OSError:
+                    pass
         return 0 if report.get("passed") else 2
     if args.command == "preview":
         from .preview import render_model, preview_run, new_preview_path
@@ -672,6 +683,7 @@ def main(argv=None):
         return 2
     except OSError:
         print(t("cli.error", message=t("cli.filesystem")), file=sys.stderr)
+        print(t("cli.next", action="charmm-gui-cli -h"), file=sys.stderr)
         return 2
     except (KeyboardInterrupt, EOFError):
         from .auth import recovery_guidance

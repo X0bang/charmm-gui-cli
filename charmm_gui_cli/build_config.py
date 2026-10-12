@@ -11,13 +11,20 @@ from .pdb_normalization import N_TERMINALS, C_TERMINALS
 
 
 def load_build_config(path):
-    path = Path(path)
+    path = Path(path).expanduser()
+    context = {"path": str(path), "cwd": str(Path.cwd())}
     try:
         raw = yaml.load(path.read_text(encoding="utf-8"), Loader=UniqueLoader)
     except (yaml.YAMLError, UnicodeError):
         raise ToolError("Invalid build YAML.") from None
+    except FileNotFoundError:
+        raise ToolError(key="config.missing", params=context, next_step="curl -fL https://raw.githubusercontent.com/X0bang/charmm-gui-cli/main/examples/default-build.yaml -o default-build.yaml") from None
+    except PermissionError:
+        raise ToolError(key="config.permission", params=context, next_step="charmm-gui-cli build -h") from None
+    except IsADirectoryError:
+        raise ToolError(key="config.directory", params=context, next_step="charmm-gui-cli build -h") from None
     except OSError:
-        raise ToolError("Cannot read build configuration file.") from None
+        raise ToolError(key="config.unreadable", params=context, next_step="charmm-gui-cli build -h") from None
     raw = mapping(raw, ["version", "protein", "ligand", "ligand_resname", "ligand_hydrogens",
                         "preparation", "membrane", "ions"], "build configuration")
     if type(raw.get("version")) is not int or raw["version"] != 2:

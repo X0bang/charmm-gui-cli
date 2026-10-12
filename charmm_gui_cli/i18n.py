@@ -4,6 +4,12 @@ import os
 
 
 MESSAGES = {
+    "input.task_name": {"zh": "--name 是任务名，例如 crtw-bcar；不能是文件名或包含路径分隔符。", "en": "--name is a task name, for example crtw-bcar; do not use a filename or path separator."},
+    "config.missing": {"zh": "配置文件不存在：{path}；当前目录：{cwd}", "en": "Configuration file does not exist: {path}; current directory: {cwd}"},
+    "config.permission": {"zh": "没有权限读取配置文件：{path}；当前目录：{cwd}", "en": "Permission denied reading configuration: {path}; current directory: {cwd}"},
+    "config.directory": {"zh": "配置路径是目录，不是文件：{path}；当前目录：{cwd}", "en": "Configuration path is a directory, not a file: {path}; current directory: {cwd}"},
+    "config.unreadable": {"zh": "无法读取配置文件：{path}；当前目录：{cwd}", "en": "Cannot read configuration: {path}; current directory: {cwd}"},
+    "help.open_preview": {"zh": "检查后打开预览图（需要 open 或 xdg-open）", "en": "Open the preview after checking (requires open or xdg-open)"},
     "stage.done": {"zh": "远端完成", "en": "Remote build complete"},
     "stage.downloading": {"zh": "正在下载", "en": "Downloading"},
     "stage.downloaded_unverified": {"zh": "已下载", "en": "Downloaded"},

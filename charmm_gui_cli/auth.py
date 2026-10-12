@@ -40,7 +40,8 @@ class ToolError(Exception):
             message = MESSAGES.get(key, {}).get("en", key or "operation_error").format(**self.params)
         super().__init__(message)
         self.category = category
-        self.next_step = next_step if next_step is not None else recovery_guidance(category, cause_category=cause_category)
+        self.next_step = next_step or ("charmm-gui-cli login" if key == "login.bad_creds" else
+                                      recovery_guidance(category, cause_category=cause_category)) or "charmm-gui-cli -h"
         self.retryable = retryable
         self.retry_after_seconds = retry_after_seconds
         self.cause_category = cause_category

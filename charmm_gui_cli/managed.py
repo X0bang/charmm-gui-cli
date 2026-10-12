@@ -51,8 +51,9 @@ def _registry():
 
 
 def validate_name(name):
-    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", name):
-        raise ToolError("Job name must contain 1-128 ASCII letters/digits, dots, underscores or hyphens, beginning with a letter/digit.")
+    if (not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", name)
+            or name.lower().endswith((".pdb", ".sdf", ".yaml", ".yml", ".mol2", ".cif"))):
+        raise ToolError(key="input.task_name", next_step="charmm-gui-cli build -h")
     return name
 
 
@@ -194,10 +195,12 @@ def inspect_run(target, *, remote_check=False, token_file=None):
     return result
 
 
-def new_run_path():
+def new_run_path(name=None):
     """Return an unused default run path; create only its parent directory."""
-    parent = Path.home() / ".local" / "share" / "charmm-gui-cli" / "runs"
+    parent = Path.cwd() / "charmm-gui-runs"
     parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if name:
+        return (parent / validate_name(name)).resolve()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     for _ in range(10):
         directory = parent / f"{stamp}-{uuid.uuid4().hex[:12]}"

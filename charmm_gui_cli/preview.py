@@ -319,6 +319,8 @@ def new_preview_path(kind="previews"):
     from datetime import datetime, timezone
     import os
     import uuid
+    if kind == "checks":
+        return Path.cwd() / "charmm-gui-checks" / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:10])
     base = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))).expanduser()
     return base / "charmm-gui-cli" / kind / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:10])
 
