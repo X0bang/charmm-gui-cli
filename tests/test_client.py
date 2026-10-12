@@ -160,7 +160,7 @@ class ApiTests(TemporaryTest):
         atomic_write(path, self.value)
         output = io.StringIO()
         with patch("requests.Session.request", return_value=response({"jobid": "456", "status": "running"})), contextlib.redirect_stderr(output):
-            self.assertEqual(main(["--token-file", str(path), "auth", "--check", "--jobid", "123"]), 2)
+            self.assertEqual(main(["--lang", "en", "--token-file", str(path), "auth", "--check", "--jobid", "123"]), 2)
         self.assertIn("different job ID", output.getvalue())
 
     def test_login_does_not_send_old_token(self):

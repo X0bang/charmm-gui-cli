@@ -13,6 +13,7 @@ from .artifacts import inspect_archive
 from .auth import ToolError, atomic_json, atomic_write, default_token_path, load_token, resolve_cookie_path, token_info
 from .config import load_config, plan, validate_config
 from . import workflow
+from .i18n import set_language, t
 
 
 def emit(value):
@@ -99,6 +100,7 @@ def parser():
     root = argparse.ArgumentParser(prog="charmm-gui-cli", description=OVERVIEW,
                                    formatter_class=argparse.RawDescriptionHelpFormatter)
     root.add_argument("--version", action="version", version=__version__)
+    root.add_argument("--lang", choices=("zh", "en"))
     root.add_argument("--token-file", type=Path, help="Official raw JWT file or login JSON; never the token itself")
     commands = root.add_subparsers(dest="command", required=True)
     login = commands.add_parser("login", help="Sign in once for API and website access; save the session for future commands")
@@ -340,16 +342,16 @@ def dispatch(args):
             emit(managed.inspect_run(args.target, remote_check=args.remote_check, token_file=args.token_file))
         elif args.jobs_command == "report":
             if args.full and args.format != "json":
-                raise ToolError("--full is only supported with --format json.")
+                raise ToolError(key="cli.full_json")
             if args.format == "html" and args.out is None:
-                raise ToolError("HTML export requires --out with a new filename.")
+                raise ToolError(key="cli.html_out")
             directory = managed.resolve_run(args.target)
             result = managed.inspect_run(directory)
             if result.get("validation_status") == "stale_or_unreadable":
-                raise ToolError("Final validation evidence is stale. Resume the same job to refresh the report.")
+                raise ToolError(key="cli.stale_report")
             path = directory / "results" / "validation.json"
             if not path.is_file():
-                raise ToolError("No final report exists yet. Use jobs status or jobs resume for this task.")
+                raise ToolError(key="cli.no_report")
             report = managed._read_json(path)
             summary = report_summary(report, result.get("name"), path)
             if args.format == "json":
@@ -432,7 +434,7 @@ def dispatch(args):
             from .build_config import load_build_config
             build_config = load_build_config(args.build_config)
         if args.out.exists():
-            raise ToolError("Validation output directory already exists; choose a new directory.")
+            raise ToolError(key="cli.validation_exists")
         args.out.mkdir(parents=True)
         system = args.system
         if system.is_file():
@@ -472,7 +474,7 @@ def dispatch(args):
         cookies = resolve_cookie_path(args.cookies)
         web_client = WebClient(None if args.command == "web-login" else cookies)
         if args.command == "web-login":
-            result = web_client.login(args.email or input("CHARMM-GUI email: "), getpass("CHARMM-GUI password: "))
+            result = web_client.login(args.email or input(t("prompt.email")), getpass(t("prompt.password")))
             web_client.cookie_path = cookies
             web_client.save_cookies()
         elif args.command == "web-upload":
@@ -482,7 +484,7 @@ def dispatch(args):
                 fields = dict(value.split("=", 1) for value in args.fields)
                 files = dict(value.split("=", 1) for value in args.files)
             except ValueError:
-                raise ToolError("--set and --file require NAME=VALUE.") from None
+                raise ToolError(key="cli.fields") from None
             result = web_client.submit_snapshot(args.snapshot, args.out, fields, files)
         else:
             result = web_client.inspect(args.doc, args.out)
@@ -498,11 +500,11 @@ def dispatch(args):
         })
         proposal = plan(config)
         if proposal["local_pdb"]["missing_ligands"]:
-            raise ToolError("Requested ligand residue names are absent from the input PDB.")
+            raise ToolError(key="cli.ligand_absent")
         try:
             args.out.mkdir(parents=True, exist_ok=False)
         except FileExistsError:
-            raise ToolError("Preparation output directory already exists; choose a new directory.") from None
+            raise ToolError(key="cli.preparation_exists") from None
         atomic_write(args.out / "system.yaml", yaml.safe_dump(config, sort_keys=False))
         atomic_json(args.out / "preparation.json", proposal)
         emit({"config": str(args.out / "system.yaml"), "report": str(args.out / "preparation.json"),
@@ -514,9 +516,9 @@ def dispatch(args):
         destination = (args.save_to or args.token_file or default_token_path()).expanduser()
         cookies = resolve_cookie_path(args.cookies, str(destination))
         if destination.resolve() == cookies.resolve():
-            raise ToolError("Token and Cookie files must use different paths.")
-        email = args.email or input("CHARMM-GUI email: ")
-        password = getpass("CHARMM-GUI password: ")
+            raise ToolError(key="cli.session_paths")
+        email = args.email or input(t("prompt.email"))
+        password = getpass(t("prompt.password"))
         token = Client().login(email, password)
         # Authenticate both transports before touching the saved credentials.
         # A failed website login must not leave a new JWT paired with old cookies.
@@ -551,7 +553,7 @@ def dispatch(args):
             # A newly uploaded web job has status=null before computation,
             # yet a matching job record already proves API access to it.
             if "jobid" in data and data["jobid"] != args.jobid:
-                raise ToolError("API returned a different job ID; access was not confirmed.")
+                raise ToolError(key="cli.jobid_mismatch")
             if "jobid" not in data:
                 workflow.status_summary(data)
             info["job_access_confirmed"] = args.jobid
@@ -570,13 +572,13 @@ def dispatch(args):
             emit({"job_id": args.jobid, **workflow.status_summary(data)})
     elif args.command == "download":
         if workflow.status_summary(client.status(args.jobid))["status"] != "done":
-            raise ToolError("Job is not done; download was not attempted.")
+            raise ToolError(key="cli.not_done")
         emit({"archive": str(client.download(args.jobid, args.out))})
     elif args.command == "attach":
         emit(brief(workflow.attach(client, args.directory, args.jobid)))
     elif args.command in ("run", "resume"):
         if args.interval < 10 or args.max_wait <= 0:
-            raise ToolError("Polling interval must be >= 10 and max-wait must be positive.")
+            raise ToolError(key="cli.polling")
         directory = args.out if args.command == "run" else args.directory
         if args.command == "run":
             result = workflow.start(client, load_config(args.config), directory)
@@ -589,18 +591,22 @@ def dispatch(args):
 
 
 def main(argv=None):
+    bootstrap = argparse.ArgumentParser(add_help=False)
+    bootstrap.add_argument("--lang", choices=("zh", "en"))
+    early, _ = bootstrap.parse_known_args(sys.argv[1:] if argv is None else argv)
+    set_language(early.lang)
     args = parser().parse_args(argv)
     try:
         return dispatch(args)
     except ToolError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        print(t("cli.error", message=exc.localized()), file=sys.stderr)
         if getattr(exc, "next_step", None):
-            print(f"Next: {exc.next_step}", file=sys.stderr)
+            print(t("cli.next", action=exc.next_step), file=sys.stderr)
         return 2
     except OSError:
-        print("Error: filesystem operation failed; check file paths, permissions and free space.", file=sys.stderr)
+        print(t("cli.error", message=t("cli.filesystem")), file=sys.stderr)
         return 2
     except (KeyboardInterrupt, EOFError):
         from .auth import recovery_guidance
-        print("操作中断。" + recovery_guidance("interrupted"), file=sys.stderr)
+        print(t("cli.interrupted") + recovery_guidance("interrupted"), file=sys.stderr)
         return 130

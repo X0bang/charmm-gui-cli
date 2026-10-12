@@ -8,41 +8,45 @@ from pathlib import Path
 import tempfile
 import time
 
+from .i18n import MESSAGES, t
+
 
 def recovery_guidance(category, *, cause_category=None):
-    """Credential-free Chinese actions; unknown submissions always take priority."""
-    resume = "修复后使用 charmm-gui-cli jobs resume NAME 或 build-resume 原任务目录；不要重新 build。"
+    """Credential-free actions; unknown submissions always take priority."""
     if category == "submission_unknown":
-        login = "先运行 charmm-gui-cli login 恢复登录；" if cause_category in ("authentication", "auth_required", "access_denied") else ""
-        return login + "POST 提交结果未知，禁止自动重发。先核对官网已有任务；确认独立建膜任务后用 charmm-gui-cli jobs attach NAME --jobid BUILD_ID，再恢复原任务。若是网页上传/准备步骤，请核对保存的 intent 和响应，不要删除记录或重传。"
-    if category in ("authentication", "auth_required"):
-        return "运行 charmm-gui-cli login 更新登录，然后恢复原任务；已存在的远端任务不会重新提交。"
-    if category == "access_denied":
-        return "HTTP 403 不一定是登录过期；确认当前账户拥有该任务，必要时用 charmm-gui-cli login 登录正确账户，再恢复原任务。"
-    if category == "transport_error":
-        return "检查网络、代理及 TLS 证书配置；不要关闭证书验证。此错误不自动循环重试。" + resume
-    if category == "archive_preparing":
-        return "远端构建完成但官网归档仍在压缩；等待至少 120 秒或记录的重试时间，再 jobs resume NAME / build-resume 原任务目录。仅重试原任务的下载 GET，不创建新任务；尚未完成本地验收。"
-    if category in ("transient_network", "transient_http", "rate_limited"):
-        return "只读 GET 的有限重试已结束；等待网络或服务器恢复，并遵守 Retry-After 等待时间。" + resume
-    if category == "interrupted":
-        return "本地已中断，已有任务和提交记录保留；使用 jobs resume NAME 或 build-resume 原任务目录。若提示 submission_unknown，先核对/attach，不能重发 POST。"
-    if category == "wait_timeout":
-        return "本地等待时间已到，远端任务可能仍在运行；稍后使用 jobs resume NAME 或 build-resume 原任务目录继续，不要重新 build。"
-    return None
+        login = t("recovery.login_first") if cause_category in ("authentication", "auth_required", "access_denied") else ""
+        return login + t("recovery.submission_unknown")
+    keys = {"authentication": "authentication", "auth_required": "authentication",
+            "access_denied": "access_denied", "transport_error": "transport_error",
+            "archive_preparing": "archive_preparing", "transient_network": "transient",
+            "transient_http": "transient", "rate_limited": "transient",
+            "interrupted": "interrupted", "wait_timeout": "wait_timeout"}
+    key = keys.get(category)
+    if key is None:
+        return None
+    message = t("recovery." + key)
+    return message + t("recovery.resume") if key in ("transport_error", "transient") else message
 
 
 class ToolError(Exception):
     """A user-facing error that never includes credentials or response bodies."""
 
-    def __init__(self, message, *, category="operation_error", next_step=None, retryable=False,
+    def __init__(self, message=None, *, key=None, params=None, category="operation_error", next_step=None, retryable=False,
                  retry_after_seconds=None, cause_category=None):
+        self.key = key
+        self.params = dict(params or {})
+        # Keep str(error) and stored error messages stable for old consumers.
+        if message is None:
+            message = MESSAGES.get(key, {}).get("en", key or "operation_error").format(**self.params)
         super().__init__(message)
         self.category = category
         self.next_step = next_step if next_step is not None else recovery_guidance(category, cause_category=cause_category)
         self.retryable = retryable
         self.retry_after_seconds = retry_after_seconds
         self.cause_category = cause_category
+
+    def localized(self):
+        return t(self.key, **self.params) if self.key else str(self)
 
     def as_dict(self):
         result = {"message": str(self), "category": self.category,
@@ -78,20 +82,20 @@ def normalize_token(raw):
             value = json.loads(raw)
             raw = value.get("token") if isinstance(value, dict) else value
         except (ValueError, TypeError):
-            raise ToolError("Token file contains invalid JSON.") from None
+            raise ToolError(key="auth.invalid_json") from None
     if not isinstance(raw, str):
-        raise ToolError("Expected a token string or a JSON object with a token field.")
+        raise ToolError(key="auth.expected_string")
     if raw.lower().startswith("bearer "):
         raw = raw[7:].strip()
     parts = raw.split(".")
     if len(parts) != 3 or not all(parts) or any(c.isspace() for c in raw):
-        raise ToolError("Expected an API JWT, not a Cookie or filename. Use --token-file PATH.")
+        raise ToolError(key="auth.expected_jwt")
     try:
         claims = json.loads(base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4)))
         if not isinstance(claims, dict):
             raise ValueError
     except (ValueError, UnicodeError):
-        raise ToolError("Cannot decode API JWT payload; check the token file.") from None
+        raise ToolError(key="auth.decode_failed") from None
     return raw, claims
 
 
@@ -101,7 +105,7 @@ def token_info(token):
     if expiry is not None and (
         isinstance(expiry, bool) or not isinstance(expiry, (int, float)) or not math.isfinite(expiry)
     ):
-        raise ToolError("JWT exp claim is not a finite timestamp.")
+        raise ToolError(key="auth.expiry_invalid")
     return {
         "format": "JWT",
         "signature_verified_locally": False,
@@ -116,7 +120,7 @@ def load_token(path=None):
         try:
             raw = selected.read_text(encoding="utf-8")
         except OSError:
-            raise ToolError("Cannot read the explicitly selected token file.", category="authentication") from None
+            raise ToolError(key="auth.read_explicit", category="authentication") from None
         source = str(selected)
     elif os.environ.get("CHARMMGUI_TOKEN"):
         raw, source = os.environ["CHARMMGUI_TOKEN"], "CHARMMGUI_TOKEN"
@@ -126,16 +130,16 @@ def load_token(path=None):
         candidates = [default_token_path(), Path("session.token"), Path.home() / ".charmmgui_token"]
         selected = next((p for p in candidates if p.is_file()), None)
         if selected is None:
-            raise ToolError("No API token found. Run login or use --token-file PATH.", category="authentication")
+            raise ToolError(key="auth.missing", category="authentication")
         try:
             raw = selected.read_text(encoding="utf-8")
         except OSError:
-            raise ToolError("Cannot read the discovered token file; select --token-file explicitly.", category="authentication") from None
+            raise ToolError(key="auth.read_discovered", category="authentication") from None
         source = str(selected)
     try:
         token, _ = normalize_token(raw)
     except ToolError as error:
-        raise ToolError(str(error), category="authentication") from None
+        raise ToolError(str(error), key=error.key, params=error.params, category="authentication") from None
     return token, source
 
 
