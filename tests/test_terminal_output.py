@@ -23,7 +23,7 @@ class TerminalOutputTests(unittest.TestCase):
         expected = json.dumps(value, indent=2, ensure_ascii=False) + "\n"
         for language in ("zh", "en"):
             i18n.set_language(language)
-            for command in (None, "login", "build", "status", "unregistered"):
+            for command in (None, "login", "build", "status", "check", "unregistered"):
                 self.assertEqual(self.capture(value, command, tty=False), expected)
                 self.assertEqual(self.capture(value, command, tty=True, force=True), expected)
 

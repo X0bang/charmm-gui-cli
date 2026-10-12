@@ -159,7 +159,7 @@ charmm-gui-cli build-resume /path/to/run
 charmm-gui-cli build --protein protein.pdb --ligand bound.sdf --no-wait
 ```
 
-默认任务目录为 `~/.local/share/charmm-gui-cli/runs/`；同级隐藏输入准备目录、配置、日志及会话记录均由程序管理。用户主要关心两项结果：
+0.6.0 默认在后台运行，任务目录为当前目录的 `charmm-gui-runs/<任务名>/`，日志为 `run.log`；用 `jobs watch NAME` 跟踪，Ctrl-C 只退出查看。脚本和 Slurm 使用 `charmm-gui-cli --foreground build ...` 获取最终退出码。旧任务位置不迁移，`jobs` 仍通过全局索引查找。用户主要关心两项结果：
 
 - `bilayer/charmm-gui.tgz`：完整 CHARMM-GUI 模型归档。
 - `results/validation.json`：自动验收结论及证据；解压结构、拓扑和可选 TPR 路径也记录在报告中。
@@ -168,7 +168,7 @@ charmm-gui-cli build --protein protein.pdb --ligand bound.sdf --no-wait
 
 每阶段默认最多等待 6 小时，每 30 秒查询；`--max-wait` 和 `--interval` 可调整。达到等待上限或终端中断不等于取消远端任务，使用 `build-resume` 继续；不要为同一个未完成任务再次 `build`。
 
-返回码 0 也可能是 `--no-wait` 下的运行中状态。完整完成需看到 `state: validated`；2 表示错误或验证失败，130 表示中断。
+后台启动返回码 0 只表示已启动；`jobs status NAME` 查看当前状态。前台模式返回码 0 也可能是 `--no-wait` 下的运行中状态。完整完成需看到 `state: validated`；2 表示错误或验证失败，130 表示中断或退出查看。
 
 ## 6. 本地预检与恢复
 
@@ -182,6 +182,21 @@ charmm-gui-cli build-resume
 `--dry-run` 不上传，保存准备好的本地任务。之后恢复会提交该任务，不需要重新处理输入。
 
 遇到登录过期：`login` 后 `build-resume`。遇到写请求响应不确定，程序保留提交意图，不盲目重发以免产生重复任务；此类异常可能仍需人工核对远端任务，不能保证所有网站异常都自动恢复。
+
+## 使用配置文件建模
+
+不想每次输入膜组成、盐浓度等参数时，可使用 [默认 YAML 模板](../examples/default-build.yaml)。先复制或下载到自己的项目目录，命名为 `system.yaml`，修改 `protein`、`ligand` 路径及模型参数，再运行：
+
+```bash
+# 只做本地准备，成功后再继续同一任务
+charmm-gui-cli --lang zh build system.yaml --name receptor-a --dry-run
+charmm-gui-cli login
+charmm-gui-cli jobs resume receptor-a
+```
+
+若不需要分步检查，登录后直接使用 `charmm-gui-cli build system.yaml --name receptor-a`；两种方式二选一。相对结构路径以 YAML 所在目录为准。上层 POPC:POPE = 7:3 写为 `upper: "POPC:POPE=7:3"`，下层单独配置。
+
+任务创建后恢复使用保存的配置，修改原 YAML 不会改变该任务；需要另一组参数时使用新任务名。配置不能与直接结构/模型选项混用，`--name`、`--out` 等运行选项仍放在命令中。原 0.5.2 源包尚无该模板，可以单独下载；下载位置、完整配置、参数说明及恢复步骤见 [配置文件建模教程](ADVANCED.md#用-yaml-配置文件建模)。
 
 ## 7. 科学验证边界与已完成测试
 

@@ -2,7 +2,35 @@
 
 常规使用只需 `login` 和 `build --protein ... --ligand ...`，见 [README](../README.md)。本页面向需要保留 YAML、官方 token 或已有 job ID 的用户。
 
-## YAML 兼容输入
+## 用 YAML 配置文件建模
+
+把结构路径、膜组成、盐浓度等参数写在 `system.yaml` 中，每次修改配置后传给 `build`。不需要手写 token、job ID 或中间文件；从本地蛋白和配体开始请用 `version: 2`。
+
+### 1. 获取模板并准备输入
+
+在自己的新项目目录中放好蛋白 PDB 和结合姿势配体 SDF。如果从最新仓库源码开始，可复制 [默认模板](../examples/default-build.yaml) 到项目目录，命名为 `system.yaml`。
+
+原 0.5.2 发布源码包不含后来新增的模板；只安装了程序或使用该源码包的用户，可单独下载。以下命令在自己的项目目录执行，先确认没有同名配置，避免覆盖：
+
+```bash
+curl -fL https://raw.githubusercontent.com/X0bang/charmm-gui-cli/main/examples/default-build.yaml \
+  -o system.yaml
+```
+
+推荐目录布局：
+
+```text
+my-model/
+├── system.yaml
+├── protein.pdb
+└── bound-ligand.sdf
+```
+
+两个结构必须已处于同一个结合姿势坐标系；SDF 需为 V2000 单分子，带可信键级及形式电荷。配置文件不能替代分子对接或化学定义。程序不会自动寻找默认配置，必须显式传入文件。
+
+### 2. 编辑 system.yaml
+
+默认模板上下膜叶为纯 POPC、KCl 0.15 M。下面是改为**上层 POPC:POPE = 7:3、下层纯 POPC、KCl 0.10 M**的完整示例：
 
 ```yaml
 version: 2
@@ -15,8 +43,8 @@ preparation:
   c_terminal: CTER
   orientation: ppm
 membrane:
-  upper: POPC=1
-  lower: POPC=1
+  upper: "POPC:POPE=7:3"
+  lower: "POPC=1"
   margin_A: 20
   water_padding_A: 22.5
 ions:
@@ -24,11 +52,60 @@ ions:
   concentration_M: 0.10
 ```
 
+| 字段 | 如何设置 |
+| --- | --- |
+| `protein` / `ligand` | 改为自己的文件路径；相对路径以 YAML 所在目录为基准，也可用绝对路径 |
+| `ligand_resname` | 配体准备后的残基名，1–3 位大写字母/数字且以字母开头，如 `LIG` |
+| `ligand_hydrogens` | `add_missing` 按已有化学定义补氢；`preserve` 不补氢，都不预测 pH |
+| `preparation.n_terminal` / `c_terminal` | N/C 端补丁，需根据实际蛋白构建体审核 |
+| `preparation.orientation` | `ppm` 处理膜取向；`prepared` 要求输入已有正确膜取向 |
+| `membrane.upper` / `lower` | 模型上/下膜叶；混合膜写成 `"POPC:POPE=7:3"`，使用英文冒号，比例均为正数 |
+| `membrane.margin_A` / `water_padding_A` | 侧向边界和 Z 方向水层边界，单位 Å |
+| `ions.type` / `concentration_M` | 例如 `KCl`、`NaCl`；浓度单位 mol/L |
+
+使用空格缩进，不用 Tab。脂质比例是相对分子数比例，不是分子总数；最终整数数量可能取整。上/下膜叶不自动等同于生物学外/内层，需要核对蛋白取向。模型默认值不是科学推荐；不应在 YAML 中放邮箱、密码、token 或 Cookie。
+
+### 3. 本地准备并检查，再继续建模
+
 ```bash
-charmm-gui-cli build system.yaml
+# 只做本地准备和检查，不登录、不上传
+charmm-gui-cli --lang zh build system.yaml --name receptor-a --dry-run
+
+# 上一步成功后登录，然后继续同一任务
+charmm-gui-cli login
+charmm-gui-cli --lang zh jobs resume receptor-a
 ```
 
-路径相对于 YAML 所在目录。输出目录可省略，程序自动分配；默认等待、下载并验收。不要把 YAML 与直接结构/建模参数混用，否则会报错，避免某个参数被悄悄忽略。`--out`、`--no-wait` 和验证选项不属于这类冲突。
+`--dry-run` 会创建并保存任务，不只是查看参数。恢复时使用任务保存的配置，不会重新读取后来修改的原 YAML。若要测试另一组参数，先编辑配置，再以新任务名（例如 `receptor-b`）创建任务；不要删除或手改中间文件，也不要在已提交任务上强行换参数。
+
+不需要分步检查时，登录后直接执行：
+
+```bash
+charmm-gui-cli login
+charmm-gui-cli --lang zh build system.yaml --name receptor-a
+```
+
+这两种启动方式二选一。已创建 `receptor-a` 时使用 resume，不要再用相同任务名重复 build。0.6.0 默认由后台进程等待、下载并验收，终端立即返回启动信息；`jobs watch receptor-a` 跟踪日志。脚本或 Slurm 使用 `charmm-gui-cli --foreground build ...` 等待最终退出码。`--no-wait` 只推进一轮，之后需恢复。
+
+### 4. 查看进度、结果和中断恢复
+
+```bash
+charmm-gui-cli jobs status receptor-a
+charmm-gui-cli jobs watch receptor-a
+charmm-gui-cli jobs resume receptor-a
+charmm-gui-cli jobs report receptor-a --format text
+charmm-gui-cli jobs report receptor-a --format html --out receptor-a.html
+```
+
+HTML 输出文件需尚未存在。网络中断或 Ctrl-C 后恢复原任务，不重新 build；提示提交结果不明时先核对远端任务，不盲目重发。`validated` 才表示自动验收完成；官网 Done 不代表已经下载、验收、平衡或适合生产模拟。
+
+### 5. 支持范围与常见问题
+
+输出目录可省略，程序自动分配；也可用 `--out` 指定尚不存在的任务目录。`--name`、`--out`、`--no-wait`、`--grompp`、`--no-grompp` 等运行选项放在命令中，不写成 YAML 字段。语言选项 `--lang` 放在子命令前。
+
+不要把 YAML 与 `--protein`、`--ligand`、`--upper`、`--lower`、`--salt` 等直接结构/建模参数混用，否则报错。要调整参数，请改 YAML；未支持的字段、重复字段、缺失文件或不合法数值也会报错。
+
+当前 `version: 2` YAML 支持独立蛋白 PDB 加配体入口，不支持把所有 CLI 选项任意搬进配置；复合物选择、SMILES、`--components` 多组分等需使用对应直接入口/组分清单。批量或参数扫描分别使用 [批量清单](BATCH.md) 和 [扫描清单](SWEEP.md)。
 
 版本 1 的 `plan/run/resume` 只用于已完成 PDB Reader/CGenFF 的源任务，不能上传本地结构，不要与版本 2 的 `build/build-resume` 混淆。版本 1 的 `ligand_parameters_ready` 是用户声明，不是远端准备成功的证据。
 

@@ -95,13 +95,13 @@ class PackagingTests(unittest.TestCase):
         bin_dir.mkdir()
         entry = bin_dir / "charmm-gui-cli"
         entry.write_text("user-owned command")
-        with self.assertRaisesRegex(RuntimeError, "unknown entry point"):
+        with patch("install_user.importlib.util.find_spec", return_value=object()), self.assertRaisesRegex(RuntimeError, "unknown entry point"):
             install_user.install(ROOT, self.directory / "prefix", bin_dir)
         self.assertEqual(entry.read_text(), "user-owned command")
         self.assertFalse((self.directory / "prefix").exists())
 
     def test_offline_mode_requires_wheelhouse(self):
-        with self.assertRaisesRegex(RuntimeError, "requires --wheelhouse"):
+        with patch("install_user.importlib.util.find_spec", return_value=object()), self.assertRaisesRegex(RuntimeError, "requires --wheelhouse"):
             install_user.install(ROOT, self.directory / "prefix", self.directory / "bin", offline=True)
 
     def test_missing_ensurepip_has_ubuntu_guidance_before_any_install(self):
@@ -136,7 +136,8 @@ class PackagingTests(unittest.TestCase):
         bin_dir.mkdir()
         link = bin_dir / "charmm-gui-cli"
         link.symlink_to(target)
-        with patch("install_user.venv.EnvBuilder"), patch("install_user.subprocess.run") as run:
+        with patch("install_user.importlib.util.find_spec", return_value=object()), \
+                patch("install_user.venv.EnvBuilder"), patch("install_user.subprocess.run") as run:
             run.side_effect = [subprocess.CompletedProcess([], 0), subprocess.CalledProcessError(1, ["health-check"])]
             with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(subprocess.CalledProcessError):
                 install_user.install(ROOT, prefix, bin_dir)

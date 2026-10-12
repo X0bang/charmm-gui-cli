@@ -2,6 +2,7 @@
 /*
 !/.gitignore
 !/README.md
+!/CHANGELOG.md
 !/LICENSE
 !/RESEARCH.md
 !/pyproject.toml
@@ -51,3 +52,5 @@
 !/download/charmm-gui-cli-0.5.2.tar.gz
 !/download/charmm_gui_cli-0.5.2-py3-none-any.whl
 !/download/SHA256SUMS
+!/download/charmm-gui-cli-0.6.0.tar.gz
+!/download/charmm_gui_cli-0.6.0-py3-none-any.whl

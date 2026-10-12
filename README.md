@@ -46,6 +46,32 @@ charmm-gui-cli build --complex complex.pdb \
 
 自动完成输入准备、上传、参数化、建膜、下载和验证；登录会话及中间文件由程序管理。
 
+### 后台运行与恢复（0.6.0）
+
+`build`、`build-resume` 和 `jobs resume` 默认在后台运行。启动前在前台完成本地准备和登录检查；启动后显示任务名、PID、日志和查看命令。关闭终端不影响任务，退出 `watch` 也不会停止建模。
+
+```bash
+charmm-gui-cli jobs list
+charmm-gui-cli jobs watch receptor-a   # Ctrl-C 仅退出查看
+charmm-gui-cli jobs status receptor-a
+charmm-gui-cli --foreground build system.yaml --name receptor-b
+charmm-gui-cli --foreground jobs resume receptor-b  # 脚本/Slurm：等待并返回最终退出码
+```
+
+网页建模 POST 默认读取超时 900 秒，等待期间每 30 秒记录心跳；可用 `--post-timeout 1800` 调整。只读 GET 保持原超时，结果不明的 POST 不自动重发。
+
+```bash
+charmm-gui-cli jobs reconcile receptor-a  # 仅 GET 核对提交结果
+# 仅在人工确认官网未接收提交后使用：
+charmm-gui-cli jobs reconcile receptor-a --confirm-not-submitted
+```
+
+核对成功后再 `jobs resume`。上传响应完全丢失源任务 ID 时，先在官网确认，再加 `--source-jobid ID`。无法判断时保留意图并显示官网链接；旧意图归档保留，不删除。
+
+新任务默认位于当前目录的 `charmm-gui-runs/<任务名>/`，完整日志为 `run.log`；预检位于 `charmm-gui-checks/<时间戳>/`。`--out DIR` 可覆盖，全局索引让 `jobs` 在任意目录找到任务。旧任务保留原位置，不迁移。`check --open` 可打开 PNG 预览。
+
+输入准备自动修复可安全重编号的蛋白原子序号、可推断的元素列、空链 ID；记录写入 `check.json` 和准备报告，不修改原始输入。涉及歧义 CONECT 的重复序号仍报错。Gly/Pro 末端支持 `GLYP`/`PROP`，默认 `NTER` 不可用时依据官网选项调整并记录。
+
 也可复制 [默认配置模板](examples/default-build.yaml)，修改输入路径、脂质比例和其他参数：
 
 ```bash
@@ -54,7 +80,7 @@ cp examples/default-build.yaml system.yaml
 charmm-gui-cli build system.yaml --name receptor-a
 ```
 
-配置文件必须显式传入；不与 `--protein`、`--upper` 等结构/模型选项混用。
+配置文件必须显式传入；不与 `--protein`、`--upper` 等结构/模型选项混用。模板下载、完整参数示例、本地检查与恢复步骤见 [配置文件建模教程](docs/ADVANCED.md#用-yaml-配置文件建模)。
 
 ```bash
 charmm-gui-cli -h            # 快速引导
@@ -106,7 +132,11 @@ export CHARMM_GUI_CLI_LANG=zh  # 中文；改为 en 切换英文
 # unset CHARMM_GUI_CLI_LANG   # 恢复按系统语言自动检测
 ```
 
-全局参数放在子命令前。login、build/build-resume、status、update 和 jobs status/resume 在交互终端显示易读摘要；重定向、管道、未注册摘要的命令及 `--json` 保持 JSON 输出。JSON 字段名、结构及错误 category 不翻译。`jobs report --format text/html` 可显式选择报告格式。
+全局参数放在子命令前。login、check、build/build-resume、status、update 和 jobs list/status/resume 在交互终端显示易读摘要；重定向、管道、未注册摘要的命令及 `--json` 保持 JSON 输出。JSON 字段名、结构及错误 category 不翻译。`jobs report --format text/html` 可显式选择报告格式。
+
+## 科学边界
+
+本工具不做分子对接、不自动选择质子化状态或修补缺失片段；配体需要可靠的化学定义。格式修复不等于修复化学结构。验收和 GROMACS 输入编译通过，不代表体系已充分最小化、平衡或完成生产模拟。使用者须审核结构、力场参数和模拟设置；官网接口变化可能需要适配。
 
 服务器语言为 C 或英文时，可在 `~/.bashrc` 中设置 `export CHARMM_GUI_CLI_LANG=zh`，再打开新终端。高频登录/API/CLI 错误、恢复提示、帮助、终端进度及报告标签已有双语支持；其余旧错误和科学审阅详情仍可能为英文，待迁移位置见 [清单](docs/I18N-TODO.md)。
 

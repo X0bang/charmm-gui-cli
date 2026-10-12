@@ -3,6 +3,7 @@
 ```bash
 charmm-gui-cli build --name receptor-a --protein protein.pdb --ligand bound.sdf
 charmm-gui-cli jobs
+charmm-gui-cli jobs watch receptor-a
 charmm-gui-cli jobs status receptor-a
 charmm-gui-cli jobs status receptor-a --remote-check
 charmm-gui-cli jobs resume receptor-a
@@ -42,6 +43,10 @@ charmm-gui-cli jobs resume receptor-a
 ```
 
 关联前会只读验证该 ID 可访问，并拒绝把前处理源 ID 当作建膜 ID。这只恢复 Quick Bilayer 提交；初始上传、选择或参数化表单的未知结果仍需要检查保留的响应和意图，不能用此命令任意跳过前处理。
+
+网页准备意图使用 `charmm-gui-cli jobs reconcile receptor-a` 仅 GET 核对。确认已进入后续步骤时保存快照，之后 `jobs resume`。原步骤仍在时，人工确认确实未提交后才加 `--confirm-not-submitted`；记录归档保留，不自动 POST。上传响应丢失 ID 时加 `--source-jobid ID` 显式关联人工核对过的任务。无法判断时按显示的官网链接核对，意图保持不变。
+
+0.6.0 的恢复默认在后台运行；需要同步退出码时执行 `charmm-gui-cli --foreground jobs resume receptor-a`。陈旧锁在重新启动时复用，活跃操作系统锁阻止重复启动；锁文件和日志保留。
 
 ## 离线验收与证据
 
