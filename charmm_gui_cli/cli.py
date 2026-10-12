@@ -197,6 +197,11 @@ def parser():
     job_commands.add_parser("list", help=t('help.text.25'))
     job_watch = job_commands.add_parser("watch", help=t("help.watch"))
     job_watch.add_argument("target")
+    job_reconcile = job_commands.add_parser("reconcile", help=t("help.reconcile"))
+    job_reconcile.add_argument("target")
+    job_reconcile.add_argument("--confirm-not-submitted", action="store_true", help=t("help.confirm_not_submitted"))
+    job_reconcile.add_argument("--source-jobid", help=t("help.source_jobid"))
+    job_reconcile.add_argument("--cookies", type=Path)
     job_status = job_commands.add_parser("status", aliases=("show",), help=t('help.text.26'))
     job_status.add_argument("target", help=t('help.text.27'))
     job_status.add_argument("--remote-check", action="store_true", help=t('help.text.28'))
@@ -410,6 +415,18 @@ def dispatch(args):
             if code != 130:
                 emit(managed.inspect_run(directory), command="jobs.status")
             return code
+        elif args.jobs_command == "reconcile":
+            from .background import metadata
+            from .reconcile import reconcile
+            from .web import WebClient
+            directory = managed.resolve_run(args.target)
+            if metadata(directory)["running"]:
+                raise ToolError(key="background.running", next_step="charmm-gui-cli jobs list")
+            _, source = load_token(args.token_file)
+            result = reconcile(directory, WebClient(resolve_cookie_path(args.cookies, source)),
+                               confirm_not_submitted=args.confirm_not_submitted, source_job_id=args.source_jobid)
+            emit(result)
+            return 0
         elif args.jobs_command in ("status", "show"):
             emit(managed.inspect_run(args.target, remote_check=args.remote_check, token_file=args.token_file), command="jobs.status")
         elif args.jobs_command == "report":

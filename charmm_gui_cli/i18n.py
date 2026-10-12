@@ -4,6 +4,12 @@ import os
 
 
 MESSAGES = {
+    "help.reconcile": {"zh": "仅 GET 核对结果不明的网页提交，不重发 POST", "en": "Reconcile an uncertain website submission using GET only; never resend POST"},
+    "help.confirm_not_submitted": {"zh": "人工确认官网未接收该提交后，归档旧意图以允许显式恢复", "en": "After manually confirming no submission was accepted, archive the intent to allow explicit resume"},
+    "help.source_jobid": {"zh": "上传响应丢失时，显式指定人工核对过的源任务 ID", "en": "Explicitly associate a manually verified source ID when the upload response was lost"},
+    "reconcile.no_id": {"zh": "请在官网核对源任务 ID，再运行 charmm-gui-cli jobs reconcile NAME --source-jobid ID", "en": "Verify the source ID on the official website, then run charmm-gui-cli jobs reconcile NAME --source-jobid ID"},
+    "reconcile.confirm": {"zh": "页面仍在原步骤；请人工确认未提交后运行 charmm-gui-cli jobs reconcile NAME --confirm-not-submitted", "en": "The page remains at the original step; manually confirm no submission, then run charmm-gui-cli jobs reconcile NAME --confirm-not-submitted"},
+    "reconcile.inspect": {"zh": "请人工核对所示官网链接，再运行 charmm-gui-cli jobs status NAME", "en": "Manually inspect the official link shown, then run charmm-gui-cli jobs status NAME"},
     "input.task_name": {"zh": "--name 是任务名，例如 crtw-bcar；不能是文件名或包含路径分隔符。", "en": "--name is a task name, for example crtw-bcar; do not use a filename or path separator."},
     "config.missing": {"zh": "配置文件不存在：{path}；当前目录：{cwd}", "en": "Configuration file does not exist: {path}; current directory: {cwd}"},
     "config.permission": {"zh": "没有权限读取配置文件：{path}；当前目录：{cwd}", "en": "Permission denied reading configuration: {path}; current directory: {cwd}"},
