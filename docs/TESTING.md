@@ -26,7 +26,7 @@
 | 4.1 摘要 | check 双语终端摘要、修复记录、配体化学信息与预览；非 TTY/--json 保留序列化。 |
 | 4.2 日志 | 非 TTY 重复轮询只记录一次阶段；TTY 刷新不写入日志，无 CR/ANSI；五分钟轮询心跳。 |
 | 4.3 文案 | 终端不再反复显示科学免责声明；科学字段与历史 JSON 展示值保留。 |
-| 4.4 输出目录 | 新输出在当前目录，可 --out 覆盖；旧目录和索引继续可读；--open 平台打开器最佳努力执行。 |
+| 4.4 输出目录 | 新任务、批次、扫描、预检与独立预览在当前目录，可 --out 覆盖；旧目录和索引继续可读；--open 平台打开器最佳努力执行。 |
 
 专项测试：`test_robust_inputs`、`test_post_heartbeat`、`test_background`、`test_run_logging`、`test_output_locations`、`test_reconcile`，以及扩展的 `test_precheck`。原同步建模测试显式使用 `--foreground`；旧 JSON next_step 为 null/空的断言按本次要求更新为非空操作。原科学正确性字段与 JSON 字段名称不变，新状态信息只添加字段。
 

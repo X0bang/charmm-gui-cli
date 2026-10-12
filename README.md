@@ -70,6 +70,8 @@ charmm-gui-cli jobs reconcile receptor-a --confirm-not-submitted
 
 新任务默认位于当前目录的 `charmm-gui-runs/<任务名>/`，完整日志为 `run.log`；预检位于 `charmm-gui-checks/<时间戳>/`。`--out DIR` 可覆盖，全局索引让 `jobs` 在任意目录找到任务。旧任务保留原位置，不迁移。`check --open` 可打开 PNG 预览。
 
+默认批次和扫描也放入当前目录 `charmm-gui-runs/`，独立 `preview` 输出在 `charmm-gui-previews/`；批次调度仍保持原有前台运行方式。
+
 输入准备自动修复可安全重编号的蛋白原子序号、可推断的元素列、空链 ID；记录写入 `check.json` 和准备报告，不修改原始输入。涉及歧义 CONECT 的重复序号仍报错。Gly/Pro 末端支持 `GLYP`/`PROP`，默认 `NTER` 不可用时依据官网选项调整并记录。
 
 也可复制 [默认配置模板](examples/default-build.yaml)，修改输入路径、脂质比例和其他参数：

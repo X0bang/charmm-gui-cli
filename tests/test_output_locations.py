@@ -7,7 +7,7 @@ import contextlib
 
 from charmm_gui_cli.auth import ToolError
 from charmm_gui_cli.build_config import load_build_config
-from charmm_gui_cli.managed import new_run_path, validate_name
+from charmm_gui_cli.managed import new_run_path, new_batch_path, validate_name
 from charmm_gui_cli.preview import new_preview_path
 
 
@@ -17,6 +17,8 @@ class OutputLocationTests(unittest.TestCase):
         with patch("pathlib.Path.cwd", return_value=root):
             self.assertEqual(new_run_path("crtw-bcar"), root / "charmm-gui-runs" / "crtw-bcar")
             self.assertEqual(new_preview_path("checks").parent, root / "charmm-gui-checks")
+            self.assertEqual(new_preview_path().parent, root / "charmm-gui-previews")
+            self.assertEqual(new_batch_path().parent, root / "charmm-gui-runs")
 
     def test_task_names_cannot_be_structure_filenames(self):
         for name in ("a/b", "ligand.sdf", "x.PDB", "x.yaml", "x.yml", "x.mol2", "x.cif"):

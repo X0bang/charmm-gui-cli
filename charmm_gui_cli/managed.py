@@ -210,10 +210,10 @@ def new_run_path(name=None):
 
 
 def new_batch_path():
-    parent = Path.home() / ".local" / "share" / "charmm-gui-cli" / "batches"
+    parent = Path.cwd() / "charmm-gui-runs"
     parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return (parent / f"{stamp}-{uuid.uuid4().hex[:12]}").resolve()
+    return (parent / f"batch-{stamp}-{uuid.uuid4().hex[:12]}").resolve()
 
 
 def remember_run(directory):

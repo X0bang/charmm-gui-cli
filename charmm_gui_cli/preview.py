@@ -321,8 +321,7 @@ def new_preview_path(kind="previews"):
     import uuid
     if kind == "checks":
         return Path.cwd() / "charmm-gui-checks" / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:10])
-    base = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))).expanduser()
-    return base / "charmm-gui-cli" / kind / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:10])
+    return Path.cwd() / "charmm-gui-previews" / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:10])
 
 
 def preview_run(directory, *, report=None, out=None, width=1400, views=("side", "top", "ligand")):
