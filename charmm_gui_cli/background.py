@@ -134,9 +134,11 @@ def launch(args):
 
 
 def watch(directory, *, interval=1):
+    from .progress import clear_line, terminal_frame
     directory = Path(directory)
     offset = 0
     phase = "charmm-gui-cli"
+    job = None
     counter = 0
     try:
         while True:
@@ -146,23 +148,27 @@ def watch(directory, *, interval=1):
                     handle.seek(offset)
                     for line in handle:
                         if sys.stdout.isatty():
-                            print("\r" + " " * 120 + "\r", end="")
+                            print(clear_line(), end="")
                         print(line, end="", flush=True)
                         if len(line) > 10 and line[3:4] == ":":
-                            phase = " | ".join(line.strip().split(" | ")[:-1])
+                            fields = line.strip().split(" | ")
+                            phase = fields[0][11:].removeprefix("[charmm-gui-cli] ")
+                            identifiers = [field for field in fields[1:] if "=" in field and field.rsplit("=", 1)[1].isdigit()]
+                            job = identifiers[-1] if identifiers else None
                     offset = handle.tell()
             state = metadata(directory)
             if not state["running"]:
                 if sys.stdout.isatty():
-                    print("\r" + " " * 120 + "\r", end="")
+                    print(clear_line(), end="")
                 return state.get("exit_code", 0)
             if sys.stdout.isatty():
                 elapsed = state["elapsed_seconds"]
-                print("\r" + "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[counter % 10] + " " + phase + " | "
-                      + t("progress.elapsed", elapsed=f"{elapsed // 60}:{elapsed % 60:02d}") + "   ", end="", flush=True)
+                print(terminal_frame(phase, job, elapsed, counter), end="", flush=True)
                 counter += 1
             time.sleep(interval)
     except KeyboardInterrupt:
+        if sys.stdout.isatty():
+            print(clear_line(), end="", flush=True)
         print(t("background.watch_stopped"), file=sys.stderr)
         return 130  # Never send a signal to the worker.
 

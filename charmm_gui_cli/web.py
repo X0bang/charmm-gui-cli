@@ -22,7 +22,7 @@ from .auth import ToolError, atomic_json, atomic_write, recovery_guidance
 from .api import AuthError, SubmissionUnknown
 from .http_retry import request as request_with_retry, retry_delay, transient_exception, RETRY_STATUSES
 from .i18n import t, MESSAGES
-from .progress import official_links
+from .progress import official_links, CONSOLE_LOCK, clear_line
 
 WEB_BASE = "https://www.charmm-gui.org/"
 
@@ -252,8 +252,10 @@ class WebClient:
         def heartbeat():
             while not stopped.wait(self.heartbeat_interval):
                 elapsed = int(time.monotonic() - started)
-                print(t("web.post_wait", elapsed=f"{elapsed // 60}:{elapsed % 60:02d}"),
-                      file=sys.stderr, flush=True)
+                with CONSOLE_LOCK:
+                    if sys.stderr.isatty():
+                        print(clear_line(), end="", file=sys.stderr)
+                    print(t("web.post_wait", elapsed=f"{elapsed // 60}:{elapsed % 60:02d}"), file=sys.stderr, flush=True)
         worker = threading.Thread(target=heartbeat, daemon=True)
         worker.start()
         try:

@@ -8,12 +8,43 @@ import re
 import sys
 import time
 import threading
+import shutil
+import unicodedata
 from datetime import datetime
 from urllib.parse import urlencode
 from .i18n import t, translate_literal
 
 
 WEB_BASE = "https://www.charmm-gui.org/"
+CONSOLE_LOCK = threading.RLock()
+
+
+def clear_line():
+    return "\r" + " " * max(0, shutil.get_terminal_size((80, 24)).columns - 1) + "\r"
+
+
+def _width(text):
+    return sum(0 if unicodedata.combining(char) else 2 if unicodedata.east_asian_width(char) in ("W", "F") else 1 for char in text)
+
+
+def _clip(text, width):
+    if width <= 0:
+        return ""
+    if _width(text) <= width:
+        return text
+    result = ""
+    for char in text:
+        if _width(result + char) > width - 1:
+            break
+        result += char
+    return result + "…"
+
+
+def terminal_frame(label, job, elapsed, counter):
+    suffix = (" | " + job if job else "") + " | " + t("progress.elapsed", elapsed=f"{elapsed // 60}:{elapsed % 60:02d}")
+    width = max(0, shutil.get_terminal_size((80, 24)).columns - 1)
+    body = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[counter % 10] + " " + _clip(label, width - _width(suffix) - 2) + suffix
+    return clear_line() + _clip(body, width)
 UI_NOTE = ("Quick Bilayer 网页只有 Step 1 / Step 2；Step 2 是建膜任务/结果页。"
            "内部 step5、step6、step7 文件编号不是网页进度，也不表示已运行平衡或生产 MD。")
 
@@ -178,25 +209,36 @@ class ProgressReporter:
         self._stop = threading.Event()
         self._thread = None
         self._current_text = None
+        self._current_job = None
 
     def close(self):
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=1)
             stream = sys.stderr if self.stream is None else self.stream
-            print("\r" + " " * 120 + "\r", end="", file=stream, flush=True)
+            with CONSOLE_LOCK:
+                print(clear_line(), end="", file=stream, flush=True)
+
+    def _paint(self, stream):
+        with CONSOLE_LOCK:
+            elapsed = int(time.monotonic() - self.started)
+            print(terminal_frame(self._current_text or "", self._current_job, elapsed, self.counter),
+                  end="", file=stream, flush=True)
+            self.counter += 1
 
     def _animate(self, stream):
         while not self._stop.wait(0.25):
-            elapsed = int(time.monotonic() - self.started)
             if self._current_text:
-                spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[self.counter % 10]
-                self.counter += 1
-                print("\r" + spinner + " " + self._current_text + " | "
-                      + t("progress.elapsed", elapsed=f"{elapsed // 60}:{elapsed % 60:02d}") + "   ",
-                      end="", file=stream, flush=True)
+                try:
+                    self._paint(stream)
+                except (OSError, ValueError):
+                    return
 
     def __call__(self, event):
+        with CONSOLE_LOCK:
+            self._report(event)
+
+    def _report(self, event):
         detail = describe_progress(event, source_job_id=self.source_job_id, build_job_id=self.build_job_id)
         self.source_job_id, self.build_job_id = detail["source_job_id"], detail["build_job_id"]
         stream = sys.stderr if self.stream is None else self.stream
@@ -204,23 +246,26 @@ class ProgressReporter:
                  detail.get("last_output_file"), self.source_job_id, self.build_job_id)
         elapsed = int(time.monotonic() - self.started)
         text = format_progress(event, source_job_id=self.source_job_id, build_job_id=self.build_job_id)
-        self._current_text = text
+        self._current_text = text.split(" | ", 1)[0].removeprefix("[charmm-gui-cli] ")
+        self._current_job = (t("progress.build", jobid=self.build_job_id) if self.build_job_id else
+                             t("progress.source", jobid=self.source_job_id) if self.source_job_id else None)
         text += " | " + t("progress.elapsed", elapsed=f"{elapsed // 60}:{elapsed % 60:02d}")
         if phase != self.last_phase or time.monotonic() - self.last_record >= 300:
             if stream.isatty() and self.last_phase is not None:
-                print("\r" + " " * 120 + "\r", end="", file=stream)
+                print(clear_line(), end="", file=stream)
             print(datetime.now().strftime("[%H:%M:%S] ") + text, file=stream, flush=True)
             self.last_phase = phase
             self.last_record = time.monotonic()
-        elif stream.isatty():
-            if self._thread is None:
-                self._thread = threading.Thread(target=self._animate, args=(stream,), daemon=True)
-                self._thread.start()
         for role, url in detail["official_links"].items():
             if url not in self._seen_links:
                 self._seen_links.add(url)
                 title = t("progress.source_link") if role == "source_preparation" else t("progress.build_link")
                 print(f"[charmm-gui-cli] {title}: {url}", file=stream, flush=True)
+        if stream.isatty():
+            self._paint(stream)
+            if self._thread is None:
+                self._thread = threading.Thread(target=self._animate, args=(stream,), daemon=True)
+                self._thread.start()
 
 
 def result_presentation(summary, report=None):
