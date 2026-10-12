@@ -29,7 +29,7 @@ class TerminalOutputTests(unittest.TestCase):
 
     def test_unregistered_command_still_emits_json_on_tty(self):
         value = {"passed": True}
-        self.assertEqual(self.capture(value, "check", tty=True), json.dumps(value, indent=2, ensure_ascii=False) + "\n")
+        self.assertEqual(self.capture(value, "unregistered", tty=True), json.dumps(value, indent=2, ensure_ascii=False) + "\n")
 
     def test_login_summary_uses_only_allowlisted_fields(self):
         value = {"logged_in": True, "api_authenticated": True, "web_authenticated": True,
@@ -53,12 +53,13 @@ class TerminalOutputTests(unittest.TestCase):
     def test_build_and_status_never_conflate_remote_done_and_validation(self):
         i18n.set_language("en")
         done = format_build({"status": "done", "job_id": "123"})
-        self.assertIn("Local validation is not complete", done)
+        self.assertIn("Remote build complete", done)
+        self.assertNotIn("Local validation is not complete", done)
         passed = format_build({"state": "validated", "validation": {"passed": True, "review_required": True},
                                "name": "receptor-a", "gromacs_compiled": True})
         self.assertIn("State: passed", passed)
         self.assertIn("Review items", passed)
-        self.assertIn("production MD", passed)
+        self.assertNotIn("production MD", passed)
         self.assertIn("jobs report receptor-a", passed)
         self.assertIn("GROMACS input compilation: passed", passed)
 

@@ -4,6 +4,21 @@ import os
 
 
 MESSAGES = {
+    "stage.done": {"zh": "远端完成", "en": "Remote build complete"},
+    "stage.downloading": {"zh": "正在下载", "en": "Downloading"},
+    "stage.downloaded_unverified": {"zh": "已下载", "en": "Downloaded"},
+    "stage.ligands_present": {"zh": "归档初检通过", "en": "Archive precheck passed"},
+    "stage.inputs_ready": {"zh": "输入已准备", "en": "Inputs ready"},
+    "stage.validated": {"zh": "已完成验收", "en": "Validation complete"},
+    "progress.elapsed": {"zh": "已用 {elapsed}", "en": "Elapsed {elapsed}"},
+    "check.result": {"zh": "本地检查：{state}", "en": "Local check: {state}"},
+    "check.protein": {"zh": "蛋白残基数：{residues}", "en": "Protein residues: {residues}"},
+    "check.ligand": {"zh": "配体 {name}：{formula}，形式电荷 {charge}", "en": "Ligand {name}: {formula}, formal charge {charge}"},
+    "check.terminal": {"zh": "{chain} 链首残基 {residue}，建议 N 端补丁 {patch}", "en": "Chain {chain} starts with {residue}; suggested N-terminal patch: {patch}"},
+    "check.preview": {"zh": "预览图：{path}", "en": "Preview: {path}"},
+    "jobs.columns": {"zh": "任务 | 状态 | 进程 | 已用时间", "en": "Task | State | Process | Elapsed"},
+    "jobs.running": {"zh": "运行中", "en": "Running"},
+    "jobs.stopped": {"zh": "未运行", "en": "Not running"},
     "background.running": {"zh": "任务已在运行，请勿重复启动。", "en": "The task is already running; do not start it twice."},
     "background.auth": {"zh": "网页登录已过期，请先登录。", "en": "The website session has expired; log in first."},
     "background.watch_stopped": {"zh": "已退出查看，后台任务继续运行。", "en": "Stopped watching; the background task continues."},

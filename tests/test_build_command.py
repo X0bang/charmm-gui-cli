@@ -29,7 +29,7 @@ class BuildCommandTests(unittest.TestCase):
     def call(self, arguments):
         output, error = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
-            code = main(arguments)
+            code = main(["--foreground", *arguments])
         return code, json.loads(output.getvalue()) if output.getvalue() else None, error.getvalue()
 
     def test_top_help_guides_user_before_advanced_commands(self):

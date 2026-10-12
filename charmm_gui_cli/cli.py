@@ -44,6 +44,9 @@ def precheck_summary(report):
     result["chemistry"] = [{key: component[key] for key in ("resname", "atoms", "heavy_atoms", "bonds",
         "molecular_formula", "net_formal_charge", "rdkit_sanitized", "graph_sha256") if key in component}
         for component in report.get("chemistry", [])]
+    for key in ("automatic_repairs", "terminal_predictions", "input_normalization"):
+        if key in report:
+            result[key] = report[key]
     if "spatial_review" in report:
         result["spatial_review"] = report["spatial_review"].get("summary", {})
     result["next_step"] = ("本地预检通过；确认审查项后，用同一组原始输入执行 charmm-gui-cli build。尚未创建远端任务。"
@@ -339,7 +342,7 @@ def dispatch(args):
             except (ToolError, OSError) as exc:
                 report["preview"] = {"status": "failed", "message": str(exc)}
             atomic_json(Path(report["check_file"]), report)
-        emit(report if args.full else precheck_summary(report))
+        emit(report if args.full else precheck_summary(report), command="check")
         return 0 if report.get("passed") else 2
     if args.command == "preview":
         from .preview import render_model, preview_run, new_preview_path

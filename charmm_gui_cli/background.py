@@ -93,7 +93,7 @@ def launch(args):
             page = soup_for(response.text)
             if page.select_one('input[type="password"]') or not page.select_one('form[name="pdb"]'):
                 raise ToolError(key="background.auth", category="authentication", next_step="charmm-gui-cli login")
-        options = dict(vars(args), command="build-resume", directory=str(directory), foreground=True, dry_run=False)
+        options = dict(vars(args), command="build-resume", directory=str(directory), foreground=True, dry_run=False, _worker=True)
         # Save paths/options, never loaded passwords, cookies or tokens.
         for key, value in list(options.items()):
             if isinstance(value, Path):

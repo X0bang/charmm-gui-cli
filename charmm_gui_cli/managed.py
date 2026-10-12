@@ -185,6 +185,9 @@ def inspect_run(target, *, remote_check=False, token_file=None):
     result["official_links"] = result["presentation"]["official_links"]
     from .background import metadata
     result["background"] = metadata(directory)
+    log = directory / "run.log"
+    result["recent_stages"] = [line for line in log.read_text(encoding="utf-8", errors="replace").splitlines()
+                               if re.match(r"\[\d{2}:\d{2}:\d{2}\]", line)][-5:] if log.is_file() else []
     preview = directory / "results" / "preview.json"
     if preview.is_file():
         result["preview_file"] = str(preview)
@@ -251,6 +254,8 @@ def list_runs():
             record.update(_final_summary(Path(record["directory"])))
             record.update(_job_metadata(Path(record["directory"])))
             record.update(_recovery_summary(Path(record["directory"])))
+            from .background import metadata
+            record["background"] = metadata(record["directory"])
             unique.append(record)
             seen.add(record["directory"])
     return unique

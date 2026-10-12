@@ -150,7 +150,7 @@ class ProgressTests(unittest.TestCase):
         for url in links.values():
             self.assertEqual(output.getvalue().count(url), 1)
         from charmm_gui_cli.progress import UI_NOTE
-        self.assertIn(translate_literal(UI_NOTE, prefix="progress."), output.getvalue())
+        self.assertNotIn(translate_literal(UI_NOTE, prefix="progress."), output.getvalue())
 
     def test_offline_build_summary_keeps_json_and_adds_presentation(self):
         args = Namespace(command="build-resume", directory=Path("/virtual/progress-check"), interval=30,

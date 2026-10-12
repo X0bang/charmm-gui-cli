@@ -11,7 +11,12 @@ def _text(value):
 
 
 def _path(value):
-    path = _text(value)
+    resolved = Path(str(value)).expanduser().resolve()
+    try:
+        return str(resolved.relative_to(Path.cwd())) or "."
+    except ValueError:
+        pass
+    path = _text(resolved)
     home = str(Path.home())
     return "~" + path[len(home):] if path == home or path.startswith(home + "/") else path
 
@@ -43,6 +48,8 @@ def format_build(value, **context):
     from .auth import recovery_guidance
     state = value.get("state", value.get("status", "unknown"))
     label = describe_progress({"state": state}, localized=True)["label"]
+    if state in ("done", "downloading", "downloaded_unverified", "ligands_present", "inputs_ready", "validated"):
+        label = t("stage." + state)
     lines = [t("output.task", name=_text(value.get("name") or value.get("job_id") or "—")),
              t("output.state", state=label)]
     if value.get("remote_status") is not None:
@@ -68,8 +75,6 @@ def format_build(value, **context):
         lines[1] = t("output.state", state=t("output.passed"))
     elif passed is False or state == "validation_failed":
         lines[1] = t("output.state", state=t("output.failed"))
-    else:
-        lines.append(t("output.pending"))
     if value.get("validation_status") == "stale_or_unreadable":
         lines.append(t("output.stale"))
     compilation = value.get("compilation_status", "unknown")
@@ -78,7 +83,6 @@ def format_build(value, **context):
     lines.append(t("output.compilation", state=t("output." + compilation) if compilation in ("passed", "failed", "not_run") else t("output.unconfirmed")))
     if value.get("review_required") or isinstance(validation, dict) and validation.get("review_required"):
         lines.append(t("output.review"))
-    lines.append(t("output.simulation"))
     recovery = value.get("recovery")
     recovery = recovery if isinstance(recovery, dict) else {}
     error = recovery.get("error", value.get("last_error"))
@@ -100,6 +104,46 @@ def format_build(value, **context):
     return "\n".join(lines)
 
 
+def format_check(value, **context):
+    lines = [t("check.result", state=t("output.passed") if value.get("passed") else t("output.failed")),
+             t("check.protein", residues=value.get("protein", {}).get("residues", value.get("protein_inventory", {}).get("protein_residues_all_models", "—")))]
+    for component in value.get("chemistry", []):
+        lines.append(t("check.ligand", name=component.get("resname", "—"), formula=component.get("molecular_formula", "—"), charge=component.get("net_formal_charge", "—")))
+    for entry in value.get("automatic_repairs", []):
+        lines.append("• " + t(entry["key"], **entry["params"]))
+    for prediction in value.get("terminal_predictions", []):
+        lines.append(t("check.terminal", chain=prediction["chain"], residue=prediction["first_resname"], patch=prediction["suggested_n_terminal"]))
+    for image in value.get("preview", {}).get("images", []):
+        if image.get("file"):
+            lines.append(t("check.preview", path=_path(image["file"])))
+    if value.get("check_file"):
+        lines.append(t("output.report", path=_path(value["check_file"])))
+    lines.append(t("cli.next", action="charmm-gui-cli build -h" if value.get("passed") else "charmm-gui-cli check -h"))
+    return "\n".join(lines)
+
+
+def format_jobs(value, **context):
+    lines = [t("jobs.columns")]
+    for job in value.get("jobs", []):
+        background = job.get("background", {})
+        lines.append(f"{_text(job.get('name') or _path(job['directory']))} | {_text(job.get('state', '—'))} | "
+                     + t("jobs.running" if background.get("running") else "jobs.stopped") + f" | {background.get('elapsed_seconds', 0)}s")
+    lines.append(t("cli.next", action="charmm-gui-cli jobs status NAME"))
+    return "\n".join(lines)
+
+
+def format_job_status(value, **context):
+    display = dict(value)
+    display.pop("background", None)
+    result = format_build(display)
+    background = value.get("background", {})
+    result += "\n" + t("jobs.running" if background.get("running") else "jobs.stopped")
+    result += " | " + t("progress.elapsed", elapsed=f"{background.get('elapsed_seconds', 0) // 60}:{background.get('elapsed_seconds', 0) % 60:02d}")
+    for record in value.get("recent_stages", []):
+        result += "\n" + _text(record)
+    return result
+
+
 def format_update(value, **context):
     lines = [t("update.versions", current=value["current_version"], latest=value["latest_version"])]
     key = {"update_available": "available", "up_to_date": "up_to_date", "local_newer": "local_newer", "updated": "updated"}[value["state"]]
@@ -110,4 +154,5 @@ def format_update(value, **context):
 
 
 FORMATTERS = {"update": format_update, "login": format_login, "build": format_build, "build-resume": format_build,
-              "status": format_build, "jobs.status": format_build, "jobs.resume": format_build}
+              "status": format_build, "jobs.status": format_job_status, "jobs.resume": format_build,
+              "check": format_check, "jobs.list": format_jobs}

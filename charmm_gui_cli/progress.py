@@ -6,6 +6,8 @@ Neither page numbers nor output filenames establish validation or MD execution.
 
 import re
 import sys
+import time
+from datetime import datetime
 from urllib.parse import urlencode
 from .i18n import t, translate_literal
 
@@ -143,13 +145,15 @@ def describe_progress(event, *, source_job_id=None, build_job_id=None, localized
 
 def format_progress(event, **context):
     detail = describe_progress(event, localized=True, **context)
+    if event.get("state") in ("done", "downloading", "downloaded_unverified", "ligands_present", "inputs_ready", "validated"):
+        detail["label"] = t("stage." + event["state"])
     fields = ["[charmm-gui-cli] " + detail["label"]]
     if detail["source_job_id"]:
         fields.append(t("progress.source", jobid=detail["source_job_id"]))
     if detail["build_job_id"]:
         fields.append(t("progress.build", jobid=detail["build_job_id"]))
     if detail.get("last_output_label"):
-        fields.append(t("progress.last", label=detail["last_output_label"]))
+        fields.append(detail["last_output_label"])
     return " | ".join(fields)
 
 
@@ -166,19 +170,35 @@ class ProgressReporter:
         self.build_job_id = _identifier(build_job_id)
         self.stream = stream
         self._seen_links = set()
+        self.started = time.monotonic()
+        self.last_record = self.started
+        self.last_phase = None
+        self.counter = 0
 
     def __call__(self, event):
         detail = describe_progress(event, source_job_id=self.source_job_id, build_job_id=self.build_job_id)
         self.source_job_id, self.build_job_id = detail["source_job_id"], detail["build_job_id"]
-        emit_progress(event, stream=self.stream, source_job_id=self.source_job_id, build_job_id=self.build_job_id)
         stream = sys.stderr if self.stream is None else self.stream
+        phase = (detail["stage"], event.get("state"), detail.get("internal_stage"),
+                 detail.get("last_output_file"), self.source_job_id, self.build_job_id)
+        elapsed = int(time.monotonic() - self.started)
+        text = format_progress(event, source_job_id=self.source_job_id, build_job_id=self.build_job_id)
+        text += " | " + t("progress.elapsed", elapsed=f"{elapsed // 60}:{elapsed % 60:02d}")
+        if phase != self.last_phase or time.monotonic() - self.last_record >= 300:
+            if stream.isatty() and self.last_phase is not None:
+                print("\r" + " " * 120 + "\r", end="", file=stream)
+            print(datetime.now().strftime("[%H:%M:%S] ") + text, file=stream, flush=True)
+            self.last_phase = phase
+            self.last_record = time.monotonic()
+        elif stream.isatty():
+            spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[self.counter % 10]
+            self.counter += 1
+            print("\r" + spinner + " " + text + "   ", end="", file=stream, flush=True)
         for role, url in detail["official_links"].items():
             if url not in self._seen_links:
                 self._seen_links.add(url)
                 title = t("progress.source_link") if role == "source_preparation" else t("progress.build_link")
                 print(f"[charmm-gui-cli] {title}: {url}", file=stream, flush=True)
-                if role == "build_results":
-                    print("[charmm-gui-cli] " + translate_literal(UI_NOTE, prefix="progress."), file=stream, flush=True)
 
 
 def result_presentation(summary, report=None):

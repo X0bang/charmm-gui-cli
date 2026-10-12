@@ -29,6 +29,7 @@ def failed_checks(report):
 def execute(args):
     from . import managed
     holder = []
+    original_stderr = sys.stderr
     try:
         return _execute(args, holder)
     except ToolError as exc:
@@ -48,6 +49,10 @@ def execute(args):
             except (ToolError, OSError):
                 pass
         raise
+    finally:
+        if sys.stderr is not original_stderr:
+            sys.stderr.close()
+            sys.stderr = original_stderr
 
 
 def _execute(args, holder):
@@ -134,6 +139,9 @@ def _execute(args, holder):
         return {"directory": str(directory), "state": "inputs_ready", "server_submitted": False,
                 **({"name": args.name} if getattr(args, "name", None) else {}),
                 "next_step": "charmm-gui-cli login; charmm-gui-cli build-resume"}, 0
+    if directory.is_dir() and not getattr(args, "_worker", False):
+        from .run_logging import LogStream
+        sys.stderr = LogStream(sys.stderr, directory / "run.log")
     print(f"[charmm-gui-cli] run={directory}", file=sys.stderr, flush=True)
     if (directory / "full-run.json").is_file():
         saved = managed._read_json(directory / "full-run.json")
