@@ -1,6 +1,7 @@
 """Allowlisted terminal summaries; never render credentials or server bodies."""
 
 from pathlib import Path
+import os
 import re
 
 from .i18n import t
@@ -63,8 +64,9 @@ def format_build(value, **context):
         if isinstance(identifier, str) and re.fullmatch(r"[0-9]{1,32}", identifier):
             lines.append(t(key, jobid=identifier))
     delivery = value.get("delivery", {})
-    if isinstance(delivery, dict) and delivery.get("directory"):
-        lines.append(t("output.delivery", path=_path(delivery["directory"])))
+    delivery = delivery if isinstance(delivery, dict) else {}
+    if delivery.get("directory"):
+        lines.append(t("output.delivery", path=_text(os.path.relpath(Path(delivery["directory"]).expanduser().resolve(), Path.cwd()))))
     for field, key in (() if delivery.get("directory") else (("directory", "output.directory"), ("archive", "output.archive"), ("report", "output.report"))):
         if isinstance(value.get(field), str):
             lines.append(t(key, path=_path(value[field])))

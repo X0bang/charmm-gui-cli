@@ -140,6 +140,10 @@ class DeliveryTests(unittest.TestCase):
         self.assertIn("crtw-bcar", text)
         self.assertNotIn(str(self.run), text)
         self.assertNotIn("validation.json", text)
+        with patch("pathlib.Path.cwd", return_value=self.root / "elsewhere"):
+            text = format_build(value)
+        self.assertIn("../project/crtw-bcar", text)
+        self.assertNotIn(str(self.project), text)
 
     def test_incomplete_stale_and_active_tasks_are_rejected(self):
         with patch("charmm_gui_cli.background.metadata", return_value={"running": True}):
@@ -199,6 +203,14 @@ class DeliveryTests(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertEqual(result["status"], "validation_failed")
         self.assertFalse(json.loads(Path(result["report"]).read_text())["passed"])
+
+    def test_old_client_validation_can_be_exported_without_fresh_validation_claim(self):
+        self.report["evidence"]["tool_version"] = "0.5.2"
+        self.report["fingerprint"] = managed._canonical_hash(self.report["evidence"])
+        atomic_json(self.run / "results/validation.json", self.report)
+        result = delivery.export_run(self.run)
+        self.assertEqual(result["validation_tool_version"], "0.5.2")
+        self.assertEqual(json.loads(Path(result["report"]).read_text())["evidence"]["tool_version"], "0.5.2")
 
     def test_new_initialization_records_creation_directory_before_remote_work(self):
         from charmm_gui_cli.full_build import initialize

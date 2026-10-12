@@ -85,6 +85,23 @@ def auto_export(directory):
     return _export(Path(directory).resolve())
 
 
+def _verify_report(directory, manifest, report):
+    """Preserve historical validation without treating it as a fresh audit.
+
+    A client upgrade alone must not prevent exporting an old completed task.
+    All other archive/input/config/compiler evidence still has to match.
+    """
+    from . import managed
+    try:
+        stored = report["evidence"]
+        current = managed._evidence(manifest, directory / "bilayer/charmm-gui.tgz", stored["grompp"], stored["gmx"])
+        current["tool_version"] = stored["tool_version"]
+        if not managed._cache_reusable(report, current):
+            raise ValueError("stale evidence")
+    except (ToolError, KeyError, TypeError, ValueError, OSError):
+        raise ToolError(key="cli.stale_report") from None
+
+
 def _export(directory, *, to=None):
     from . import managed
     from .i18n import t
@@ -95,8 +112,7 @@ def _export(directory, *, to=None):
         if report.get("validation_complete") is not True or report.get("status") not in ("validated", "validation_failed"):
             raise ToolError(key="delivery.incomplete", next_step="charmm-gui-cli jobs status NAME")
         # Verify the internal archive/input binding, not a mutable export copy.
-        if managed._final_summary(directory).get("state") not in ("validated", "validation_failed"):
-            raise ToolError(key="cli.stale_report")
+        _verify_report(directory, manifest, report)
         context = manifest.get("delivery_context")
         if not isinstance(context, dict) or not context.get("task_id"):
             context = creation_context()  # Old runs: explicit export uses today's directory.
@@ -117,7 +133,9 @@ def _export(directory, *, to=None):
         from .reporting import display_result, render_text
         text_report = directory / "results" / "delivery-report.txt"
         atomic_write(text_report, render_text(display_result(report_summary(report, name, "reports/validation.json"),
-                     {**managed._final_summary(directory), "name": name, "archive": "charmm-gui.tgz",
+                     {"name": name, "archive": "charmm-gui.tgz",
+                      "compilation_status": "passed" if managed._grompp_artifacts(report) else
+                                            "failed" if report["evidence"]["grompp"] else "not_run",
                       "source_job_id": manifest.get("source_job_id"), "build_job_id": manifest.get("build_job_id")}, manifest, report)))
         config_path = directory / "results" / "delivery-config.json"
         atomic_json(config_path, manifest["config"])
@@ -210,8 +228,9 @@ def _export(directory, *, to=None):
             atomic_json(marker_path, marker)
         result = {"directory": str(target), "archive": str(target / "charmm-gui.tgz"),
                   "model": str(target / "model"), "report": str(target / "reports/validation.json"),
-                  "inputs": str(target / "inputs"), "status": report["status"], "passed": report["passed"]}
-        atomic_json(directory / "delivery.json", result)
+                  "inputs": str(target / "inputs"), "status": report["status"], "passed": report["passed"],
+                  "validation_tool_version": report["evidence"]["tool_version"]}
         from .archive_transport import cleanup_download_duplicates
-        cleanup_download_duplicates(directory / "bilayer" / "charmm-gui.tgz")
+        result["download_temporary_files_removed"] = cleanup_download_duplicates(directory / "bilayer" / "charmm-gui.tgz")
+        atomic_json(directory / "delivery.json", result)
         return result
