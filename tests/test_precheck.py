@@ -59,6 +59,24 @@ class PrecheckTests(unittest.TestCase):
         credentials.assert_not_called()
         network.assert_not_called()
 
+    def test_repairs_are_persisted_in_check_json(self):
+        lines = self.protein.read_text().splitlines()
+        repaired_input = []
+        for line in lines:
+            if line.startswith("ATOM"):
+                line = line[:6] + "    1" + line[11:21] + " " + line[22:72].ljust(50) + "PROA" + "  "
+            repaired_input.append(line)
+        self.protein.write_text("\n".join(repaired_input) + "\n")
+        report = self.check()
+        self.assertTrue(report["passed"])
+        keys = {entry["key"] for entry in report["automatic_repairs"]}
+        self.assertTrue({"input.renumbered", "input.elements_added", "input.chains_added"} <= keys)
+        persisted = json.loads(Path(report["check_file"]).read_text())
+        self.assertEqual(persisted["automatic_repairs"], report["automatic_repairs"])
+        atoms = [line for line in Path(report["prepared_files"]["protein.pdb"]).read_text().splitlines() if line.startswith("ATOM")]
+        self.assertEqual(len({line[6:11] for line in atoms}), len(atoms))
+        self.assertTrue(all(line[21] == "A" and line[76:78].strip() for line in atoms))
+
     def test_missing_sidechain_and_backbone_are_review_not_repaired(self):
         self.protein.write_text(atom_line(1, "CA", resname="LYS") + "\nEND\n")
         report = self.check()

@@ -7,6 +7,7 @@ Neither page numbers nor output filenames establish validation or MD execution.
 import re
 import sys
 import time
+import threading
 from datetime import datetime
 from urllib.parse import urlencode
 from .i18n import t, translate_literal
@@ -174,6 +175,26 @@ class ProgressReporter:
         self.last_record = self.started
         self.last_phase = None
         self.counter = 0
+        self._stop = threading.Event()
+        self._thread = None
+        self._current_text = None
+
+    def close(self):
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1)
+            stream = sys.stderr if self.stream is None else self.stream
+            print("\r" + " " * 120 + "\r", end="", file=stream, flush=True)
+
+    def _animate(self, stream):
+        while not self._stop.wait(0.25):
+            elapsed = int(time.monotonic() - self.started)
+            if self._current_text:
+                spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[self.counter % 10]
+                self.counter += 1
+                print("\r" + spinner + " " + self._current_text + " | "
+                      + t("progress.elapsed", elapsed=f"{elapsed // 60}:{elapsed % 60:02d}") + "   ",
+                      end="", file=stream, flush=True)
 
     def __call__(self, event):
         detail = describe_progress(event, source_job_id=self.source_job_id, build_job_id=self.build_job_id)
@@ -183,6 +204,7 @@ class ProgressReporter:
                  detail.get("last_output_file"), self.source_job_id, self.build_job_id)
         elapsed = int(time.monotonic() - self.started)
         text = format_progress(event, source_job_id=self.source_job_id, build_job_id=self.build_job_id)
+        self._current_text = text
         text += " | " + t("progress.elapsed", elapsed=f"{elapsed // 60}:{elapsed % 60:02d}")
         if phase != self.last_phase or time.monotonic() - self.last_record >= 300:
             if stream.isatty() and self.last_phase is not None:
@@ -191,9 +213,9 @@ class ProgressReporter:
             self.last_phase = phase
             self.last_record = time.monotonic()
         elif stream.isatty():
-            spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[self.counter % 10]
-            self.counter += 1
-            print("\r" + spinner + " " + text + "   ", end="", file=stream, flush=True)
+            if self._thread is None:
+                self._thread = threading.Thread(target=self._animate, args=(stream,), daemon=True)
+                self._thread.start()
         for role, url in detail["official_links"].items():
             if url not in self._seen_links:
                 self._seen_links.add(url)

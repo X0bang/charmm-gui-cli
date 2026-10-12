@@ -41,7 +41,8 @@ def normalize_lines(path, report=None):
                 except ValueError:
                     raise ToolError(key="input.conect_invalid", next_step=t("input.inspect")) from None
         unsafe = duplicated & conect_ids
-        unsafe.update(serial for i, serial in zip(indexes, serials) if lines[i].startswith("HETATM") and serial in duplicated)
+        hetero_counts = Counter(serial for i, serial in zip(indexes, serials) if lines[i].startswith("HETATM"))
+        unsafe.update(serial for serial, count in hetero_counts.items() if count > 1)
         if unsafe:
             raise ToolError(key="input.duplicate_conect", params={"serials": ", ".join(map(str, sorted(unsafe)))},
                             next_step=t("input.fix_serials"))

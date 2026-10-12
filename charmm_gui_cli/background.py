@@ -81,11 +81,14 @@ def launch(args):
         result = {"directory": str(directory), "state": managed._read_json(directory / "full-run.json")["state"]}
     fd = claim(directory)
     try:
-        token, source = load_token(args.token_file)
-        from .api import Client
-        Client(token).validate_auth()
         manifest = managed._read_json(directory / "full-run.json")
-        if not (directory / "bilayer" / "run.json").exists() and "reused_preparation" not in manifest:
+        local_archive = (directory / "bilayer" / "charmm-gui.tgz").is_file()
+        offline = local_archive and manifest.get("state") in ("ligands_present", "downloaded_unverified", "validation_failed", "validated", "complete", "completed")
+        if not offline:
+            token, source = load_token(args.token_file)
+            from .api import Client
+            Client(token).validate_auth()
+        if not offline and not (directory / "bilayer" / "run.json").exists() and "reused_preparation" not in manifest:
             from .web import WebClient, soup_for
             web = WebClient(resolve_cookie_path(args.cookies, source), post_timeout=args.post_timeout)
             web.validate_auth()
@@ -124,6 +127,8 @@ def launch(args):
 def watch(directory, *, interval=1):
     directory = Path(directory)
     offset = 0
+    phase = "charmm-gui-cli"
+    counter = 0
     try:
         while True:
             path = directory / "run.log"
@@ -131,11 +136,22 @@ def watch(directory, *, interval=1):
                 with path.open(encoding="utf-8", errors="replace") as handle:
                     handle.seek(offset)
                     for line in handle:
+                        if sys.stdout.isatty():
+                            print("\r" + " " * 120 + "\r", end="")
                         print(line, end="", flush=True)
+                        if len(line) > 10 and line[3:4] == ":":
+                            phase = " | ".join(line.strip().split(" | ")[:-1])
                     offset = handle.tell()
             state = metadata(directory)
             if not state["running"]:
+                if sys.stdout.isatty():
+                    print("\r" + " " * 120 + "\r", end="")
                 return state.get("exit_code", 0)
+            if sys.stdout.isatty():
+                elapsed = state["elapsed_seconds"]
+                print("\r" + "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[counter % 10] + " " + phase + " | "
+                      + t("progress.elapsed", elapsed=f"{elapsed // 60}:{elapsed % 60:02d}") + "   ", end="", flush=True)
+                counter += 1
             time.sleep(interval)
     except KeyboardInterrupt:
         print(t("background.watch_stopped"), file=sys.stderr)
@@ -144,7 +160,7 @@ def watch(directory, *, interval=1):
 
 def worker(directory, fd):
     from .build_command import execute
-    from .cli import emit
+    from .terminal_output import format_build
     directory = Path(directory)
     values = json.loads((directory / "worker-options.json").read_text())
     for key in ("directory", "token_file", "cookies", "out", "config"):
@@ -156,19 +172,28 @@ def worker(directory, fd):
     code = 2
     try:
         result, code = execute(argparse.Namespace(**values))
-        emit(result, command="build")
+        atomic_json(directory / "worker-result.json", result)
+        print(format_build(result), flush=True)
     except ToolError as exc:
         print(t("cli.error", message=exc.localized()), file=sys.stderr)
         print(t("cli.next", action=exc.next_step or "charmm-gui-cli jobs list"), file=sys.stderr)
     except (OSError, ValueError):
         print(t("cli.filesystem"), file=sys.stderr)
+    except KeyboardInterrupt:
+        code = 130
+        print(t("cli.interrupted"), file=sys.stderr)
+    except Exception:
+        # No traceback or arbitrary exception text containing HTTP data.
+        print(t("background.worker_failed"), file=sys.stderr)
+        print(t("cli.next", action="charmm-gui-cli jobs status NAME"), file=sys.stderr)
     finally:
         record.update(finished_at=datetime.now(timezone.utc).isoformat(), exit_code=code)
         write_lock(fd, record)
         os.close(fd)
         if sys.platform == "darwin":
             with contextlib.suppress(OSError, subprocess.SubprocessError):
-                subprocess.run(["osascript", "-e", 'display notification "CHARMM-GUI task finished" with title "charmm-gui-cli"'],
+                notification = t("background.notification_ok" if code == 0 else "background.notification_failed")
+                subprocess.run(["osascript", "-e", 'on run argv\ndisplay notification (item 1 of argv) with title "charmm-gui-cli"\nend run', notification],
                                timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return code
 

@@ -54,7 +54,7 @@ def format_build(value, **context):
              t("output.state", state=label)]
     if value.get("remote_status") is not None:
         remote = value["remote_status"]
-        remote_label = t("output.remote_done") if remote == "done" else describe_progress({"state": remote}, localized=True)["label"]
+        remote_label = t("stage.done") if remote == "done" else describe_progress({"state": remote}, localized=True)["label"]
         lines.append(t("output.remote_state", state=remote_label))
     for field, key in (("source_job_id", "output.source"), ("build_job_id", "output.build_id"), ("job_id", "output.build_id")):
         identifier = value.get(field)
@@ -80,7 +80,8 @@ def format_build(value, **context):
     compilation = value.get("compilation_status", "unknown")
     if value.get("gromacs_compiled") is True:
         compilation = "passed"
-    lines.append(t("output.compilation", state=t("output." + compilation) if compilation in ("passed", "failed", "not_run") else t("output.unconfirmed")))
+    if compilation in ("passed", "failed"):
+        lines.append(t("output.compilation", state=t("output." + compilation)))
     if value.get("review_required") or isinstance(validation, dict) and validation.get("review_required"):
         lines.append(t("output.review"))
     recovery = value.get("recovery")
@@ -89,8 +90,6 @@ def format_build(value, **context):
     error = error if isinstance(error, dict) else {}
     category = "submission_unknown" if state == "submission_unknown" else error.get("category", state)
     guidance = recovery_guidance(category, cause_category=error.get("cause_category"))
-    if guidance:
-        lines.append(guidance)
     name = value.get("name")
     if isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", name):
         action = "charmm-gui-cli jobs report " + name if state == "validated" and passed is True else "charmm-gui-cli jobs resume " + name
@@ -99,7 +98,9 @@ def format_build(value, **context):
     if category in ("authentication", "auth_required", "paused_auth"):
         action = "charmm-gui-cli login; " + action
     elif category == "submission_unknown":
-        action = t("output.inspect_next")
+        action = "charmm-gui-cli jobs reconcile " + name if isinstance(name, str) else "charmm-gui-cli jobs list"
+        if error.get("cause_category") in ("authentication", "auth_required", "access_denied"):
+            action = "charmm-gui-cli login"
     lines.append(t("cli.next", action=action))
     return "\n".join(lines)
 
@@ -113,6 +114,8 @@ def format_check(value, **context):
         lines.append("• " + t(entry["key"], **entry["params"]))
     for prediction in value.get("terminal_predictions", []):
         lines.append(t("check.terminal", chain=prediction["chain"], residue=prediction["first_resname"], patch=prediction["suggested_n_terminal"]))
+    if value.get("input_normalization", {}).get("hetatm_present") is False:
+        lines.append(t("input.no_hetero"))
     for image in value.get("preview", {}).get("images", []):
         if image.get("file"):
             lines.append(t("check.preview", path=_path(image["file"])))
@@ -123,10 +126,12 @@ def format_check(value, **context):
 
 
 def format_jobs(value, **context):
+    from .progress import describe_progress
     lines = [t("jobs.columns")]
     for job in value.get("jobs", []):
         background = job.get("background", {})
-        lines.append(f"{_text(job.get('name') or _path(job['directory']))} | {_text(job.get('state', '—'))} | "
+        label = describe_progress(job, localized=True)["label"]
+        lines.append(f"{_text(job.get('name') or _path(job['directory']))} | {label} | "
                      + t("jobs.running" if background.get("running") else "jobs.stopped") + f" | {background.get('elapsed_seconds', 0)}s")
     lines.append(t("cli.next", action="charmm-gui-cli jobs status NAME"))
     return "\n".join(lines)
@@ -139,6 +144,13 @@ def format_job_status(value, **context):
     background = value.get("background", {})
     result += "\n" + t("jobs.running" if background.get("running") else "jobs.stopped")
     result += " | " + t("progress.elapsed", elapsed=f"{background.get('elapsed_seconds', 0) // 60}:{background.get('elapsed_seconds', 0) % 60:02d}")
+    if background.get("running"):
+        lines = result.splitlines()
+        if lines:
+            lines = [line for line in lines if not line.startswith(t("cli.next", action=""))]
+        result = "\n".join(lines) + "\n" + t("cli.next", action="charmm-gui-cli jobs watch " + str(value.get("name") or _path(value["directory"])))
+    elif background.get("exit_code", 0):
+        result += "\n" + t("background.worker_failed")
     for record in value.get("recent_stages", []):
         result += "\n" + _text(record)
     return result

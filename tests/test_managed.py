@@ -334,7 +334,7 @@ class ManagedTests(unittest.TestCase):
         with patch("charmm_gui_cli.input_sources.prepare_sources", side_effect=sources) as prepare, \
                 patch.object(managed, "initialize", side_effect=initialize):
             directory = managed.create_managed_build(complex_pdb="complex.pdb", accept_conect_bond_orders=True)
-        self.assertTrue(directory.is_relative_to(self.home / ".local" / "share" / "charmm-gui-cli" / "runs"))
+        self.assertTrue(directory.is_relative_to(Path.cwd() / "charmm-gui-runs"))
         self.assertEqual(managed.latest_run(), directory)
         self.assertTrue(prepare.call_args.kwargs["accept_conect_bond_orders"])
         self.assertEqual(json.loads((directory / "managed.json").read_text())["source_report"]["mode"], "split")

@@ -56,7 +56,7 @@ def _source_id(path):
     soup = soup_for(Path(path).read_text(encoding="utf-8"))
     field = soup.select_one('input[name="jobid"]')
     if not field:
-        raise snapshot_error(path, t("web.no_job"))
+        raise snapshot_error(path, "web.no_job")
     return job_id(field.get("value"))
 
 
@@ -73,7 +73,7 @@ def _chains(snapshot):
     selected = {field["name"]: "1" for field in soup.select('input[type="checkbox"][name]')
                 if re.fullmatch(r"chains\[[^]]+\]\[checked\]", field["name"])}
     if not selected:
-        raise snapshot_error(snapshot, t("web.no_chains"))
+        raise snapshot_error(snapshot, "web.no_chains")
     return selected
 
 
@@ -126,7 +126,7 @@ def _preparation_fields(snapshot, config, groups=None, adjustments=None):
     if groups is not None:
         forms = [form for form in soup.find_all("form") if form.select_one('input[name="jobid"]')]
         if len(forms) != 1:
-            raise snapshot_error(snapshot, t("web.no_form"))
+            raise snapshot_error(snapshot, "web.no_form")
         soup = forms[0]
     names = [group["resname"] for group in groups] if groups is not None else [config["ligand_resname"]]
     assert_nonpolymer_parameterization(soup, names)
@@ -136,15 +136,15 @@ def _preparation_fields(snapshot, config, groups=None, adjustments=None):
                    for field in soup.find_all("input", {"name": name}))
     overrides = {"rename_checked": "1"}
     if groups is not None and not available("rename_checked"):
-        raise snapshot_error(snapshot, t("web.no_form"))
+        raise snapshot_error(snapshot, "web.no_form")
     for name in names:
         if not available(f"sdf_cgenff[{name}]", kind="file"):
-            raise snapshot_error(snapshot, t("web.no_sdf_field", name=name))
+            raise snapshot_error(snapshot, "web.no_sdf_field", name=name)
         if groups is not None and not (
                 available(f"rename[{name}]", value="cgenff", kind="radio")
                 and available(f"rename_option[cgenff][{name}]", value="sdf", kind="radio")
                 and available(f"newname[{name}]") and available(f"comment[{name}]")):
-            raise snapshot_error(snapshot, t("web.no_sdf_field", name=name))
+            raise snapshot_error(snapshot, "web.no_sdf_field", name=name)
         overrides.update({f"rename[{name}]": "cgenff", f"rename_option[cgenff][{name}]": "sdf",
                           f"newname[{name}]": name, f"comment[{name}]": "cgenff"})
     for field in soup.select("select[name]"):
@@ -298,8 +298,9 @@ def _await_preparation(web, directory, manifest, initial_page, wait, interval, m
         if page["state"] == "error":
             manifest.update(state="preparation_failed", preparation_errors=page["errors"])
             _save(directory, manifest)
-            raise ToolError("CHARMM-GUI preparation failed. See the saved HTML and full-run.json; no repeated POST was sent.",
-                            category="remote_failure", next_step="Inspect the saved preparation HTML/errors; do not repeat this POST.")
+            error = snapshot_error(current, "web.preparation_failed")
+            error.category = "remote_failure"
+            raise error
         next_query = parse_qs(urlparse(page["next_url"] or "").query)
         paths = {urlparse(url).path.lower() for url in page["artifacts"]}
         prefix = f"/uploaded_pdb/{manifest['source_job_id']}/"
@@ -314,7 +315,7 @@ def _await_preparation(web, directory, manifest, initial_page, wait, interval, m
         if page["state"] != "running":
             manifest.update(state="preparation_unrecognized", preparation_missing_artifacts=sorted(required - paths))
             _save(directory, manifest)
-            raise ToolError("Preparation completion was not established: expected orientation step and PDB/PSF/ligand parameter links. Inspect the saved page.")
+            raise snapshot_error(current, "web.preparation_incomplete")
         manifest["state"] = "preparation_running"
         _save(directory, manifest)
         if not wait:

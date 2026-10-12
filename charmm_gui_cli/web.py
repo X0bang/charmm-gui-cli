@@ -21,7 +21,7 @@ import requests
 from .auth import ToolError, atomic_json, atomic_write, recovery_guidance
 from .api import AuthError, SubmissionUnknown
 from .http_retry import request as request_with_retry, retry_delay, transient_exception, RETRY_STATUSES
-from .i18n import t
+from .i18n import t, MESSAGES
 from .progress import official_links
 
 WEB_BASE = "https://www.charmm-gui.org/"
@@ -47,7 +47,7 @@ def soup_for(html):
     return BeautifulSoup(html, "html.parser")
 
 
-def snapshot_error(snapshot, reason):
+def snapshot_error(snapshot, reason, **reason_params):
     """Expose diagnostic text, not whole pages, controls or secret values."""
     path = Path(snapshot)
     soup = soup_for(path.read_text(encoding="utf-8"))
@@ -68,8 +68,12 @@ def snapshot_error(snapshot, reason):
     text = re.sub(r"(?i)\b(?:password|token|cookie|session|csrf|authorization)\s*[:=]\s*\S+", "[redacted]", text)
     text = re.sub(r"(?i)Bearer\s+\S+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", "[redacted]", text)
     text = re.sub(r"\x1b\[[0-9;]*[A-Za-z]|[\x00-\x1f\x7f]", " ", text)
-    return ToolError(key="web.form_missing", params={"reason": reason, "diagnostic": text[:300] or t("web.no_diagnostic"),
-                     "snapshot": str(path.resolve()), "url": url}, next_step=t("web.inspect_snapshot"))
+    params = {"reason": t(reason, **reason_params) if reason in MESSAGES else reason,
+              "diagnostic": text[:300] or t("web.no_diagnostic"), "snapshot": str(path.resolve()), "url": url}
+    canonical = dict(params, reason=MESSAGES[reason]["en"].format(**reason_params) if reason in MESSAGES else reason,
+                     diagnostic=text[:300] or MESSAGES["web.no_diagnostic"]["en"])
+    return ToolError(MESSAGES["web.form_missing"]["en"].format(**canonical), key="web.form_missing", params=params,
+                     next_step=t("web.inspect_snapshot"))
 
 
 def form_data(form):
@@ -314,7 +318,7 @@ class WebClient:
             raise AuthError("Saved page requires website authentication. Run charmm-gui-cli login and recover the existing job page before continuing.")
         forms = [form for form in soup.find_all("form") if form.select_one('input[name="jobid"]')]
         if len(forms) != 1:
-            raise snapshot_error(snapshot, t("web.no_form"))
+            raise snapshot_error(snapshot, "web.no_form")
         form = forms[0]
         target = modeling_target(form.get("action"))
         overrides, uploads = overrides or {}, uploads or {}

@@ -137,7 +137,7 @@ class LocalizedParser(argparse.ArgumentParser):
 
 def parser():
     from .helptext import OVERVIEW, BUILD_GUIDE
-    root = LocalizedParser(prog="charmm-gui-cli", description=OVERVIEW,
+    root = LocalizedParser(prog="charmm-gui-cli", description=OVERVIEW + "\n" + t("help.background_overview"),
                            formatter_class=LocalizedDescriptionFormatter)
     root.add_argument("--version", action="version", version=__version__, help=t("help.version"))
     root.add_argument("--lang", choices=("zh", "en"), help=t("help.lang"))
@@ -396,7 +396,7 @@ def dispatch(args):
         report, code = batching.advance(batch_directory, max_active=args.max_active,
             submit_interval=args.submit_interval, wait=args.wait, interval=args.interval,
             max_wait=args.max_wait, token_file=args.token_file, cookies=args.cookies,
-            grompp=args.grompp, no_grompp=args.no_grompp, gmx=args.gmx, no_preview=args.no_preview)
+            grompp=args.grompp, no_grompp=args.no_grompp, gmx=args.gmx, no_preview=args.no_preview, post_timeout=args.post_timeout)
         emit({"sweep_directory": str(Path(directory).resolve()), **report})
         return code
     if args.command == "doctor":
@@ -500,7 +500,7 @@ def dispatch(args):
         report, code = batching.advance(directory, max_active=args.max_active,
             submit_interval=args.submit_interval, wait=args.wait, interval=args.interval,
             max_wait=args.max_wait, token_file=args.token_file, cookies=args.cookies,
-            grompp=args.grompp, no_grompp=args.no_grompp, gmx=args.gmx, no_preview=args.no_preview)
+            grompp=args.grompp, no_grompp=args.no_grompp, gmx=args.gmx, no_preview=args.no_preview, post_timeout=args.post_timeout)
         emit(report)
         return code
     if args.command == "inputs":
@@ -513,6 +513,7 @@ def dispatch(args):
         emit(split_complex(args.pdb, args.out, ligand_resname=args.ligand, accept_conect_bond_orders=True))
         return 0
     if args.command in ("build", "build-resume"):
+        args._managed_cli = True
         from .build_command import execute
         from .background import launch
         result, code = execute(args) if args.foreground or getattr(args, "dry_run", False) else launch(args)

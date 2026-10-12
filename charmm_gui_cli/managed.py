@@ -604,6 +604,8 @@ def finalize_managed_build(directory, *, grompp=False, gmx="gmx"):
                       compilation={"status": ("checked" if _grompp_artifacts(report) else "failed") if grompp else "not_run",
                                    "requested": bool(grompp)})
         report["status"] = "validated" if report["passed"] else "validation_failed"
+        report["terminal_adjustments"] = manifest.get("terminal_adjustments", [])
+        report["input_normalization"] = manifest.get("inputs", {}).get("manifest", {}).get("input_normalization", {})
         _new_json(work / "validation.json", report)
         _new_json(work / "artifacts.json", {"archive": str(archive), "archive_sha256": evidence["archive_sha256"],
                                             "input_manifest": str(input_manifest), "reference_pdb": str(reference),

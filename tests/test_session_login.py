@@ -121,10 +121,10 @@ class SessionLoginTests(unittest.TestCase):
                     patch("charmm_gui_cli.full_build.initialize") as initialize, \
                     patch("charmm_gui_cli.full_build.advance", return_value={"state": "preparation_running"}) as advance, \
                     patch("charmm_gui_cli.web.WebClient") as web, contextlib.redirect_stdout(io.StringIO()):
-                code = main(["build", "system.yaml", "--out", "run"])
+                code = main(["--foreground", "build", "system.yaml", "--out", "run"])
             self.assertEqual(code, 0)
             initialize.assert_called_once()
-            web.assert_called_once_with(auth.default_cookie_path())
+            web.assert_called_once_with(auth.default_cookie_path(), post_timeout=900)
             self.assertEqual(advance.call_args.args[2].token, self.value)
 
     def test_explicit_build_session_paths_override_global_profile(self):
@@ -137,10 +137,10 @@ class SessionLoginTests(unittest.TestCase):
         with patch("charmm_gui_cli.full_build.initialize"), \
                 patch("charmm_gui_cli.full_build.advance", return_value={"state": "preparation_running"}) as advance, \
                 patch("charmm_gui_cli.web.WebClient") as web, contextlib.redirect_stdout(io.StringIO()):
-            code = main(["--token-file", str(custom_token), "build", "system.yaml", "--out", str(self.root / "run"),
+            code = main(["--foreground", "--token-file", str(custom_token), "build", "system.yaml", "--out", str(self.root / "run"),
                          "--cookies", str(custom_cookie)])
         self.assertEqual(code, 0)
-        web.assert_called_once_with(custom_cookie)
+        web.assert_called_once_with(custom_cookie, post_timeout=900)
         self.assertEqual(advance.call_args.args[2].token, other_value)
 
     def test_missing_paired_global_cookie_never_falls_back_to_cwd_cookie(self):
@@ -150,7 +150,7 @@ class SessionLoginTests(unittest.TestCase):
         atomic_write(project / "session.cookies.json", '{"cookies": []}\n')
         with chdir(project), patch("charmm_gui_cli.full_build.initialize") as initialize, \
                 contextlib.redirect_stderr(io.StringIO()):
-            code = main(["build", "system.yaml", "--out", "run"])
+            code = main(["--foreground", "build", "system.yaml", "--out", "run"])
         self.assertEqual(code, 2)
         initialize.assert_not_called()
 

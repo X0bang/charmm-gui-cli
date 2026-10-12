@@ -3,9 +3,12 @@
 from pathlib import Path
 import shutil
 import sys
+import math
+import os
 
 from .api import Client
 from .auth import ToolError, load_token, resolve_cookie_path
+from .i18n import t
 from .progress import emit_progress, ProgressReporter, result_presentation
 
 
@@ -30,16 +33,25 @@ def execute(args):
     from . import managed
     holder = []
     original_stderr = sys.stderr
+    execution_code = 2
     try:
-        return _execute(args, holder)
+        result, execution_code = _execute(args, holder)
+        if sys.stderr is not original_stderr:
+            from .terminal_output import format_build
+            sys.stderr.log.write(format_build(result) + "\n")
+        return result, execution_code
     except ToolError as exc:
-        if holder and (holder[0] / "full-run.json").is_file():
+        if sys.stderr is not original_stderr:
+            sys.stderr.log.write(t("cli.error", message=exc.localized()) + "\n")
+            sys.stderr.log.write(t("cli.next", action=exc.next_step) + "\n")
+        if exc.key != "background.running" and holder and (holder[0] / "full-run.json").is_file():
             try:
                 managed.record_recovery(holder[0], exc)
             except (ToolError, OSError):
                 pass
         raise
     except KeyboardInterrupt:
+        execution_code = 130
         if holder and (holder[0] / "full-run.json").is_file():
             try:
                 managed.record_recovery(holder[0], ToolError(
@@ -50,6 +62,17 @@ def execute(args):
                 pass
         raise
     finally:
+        if getattr(args, "_reporter", None) is not None:
+            args._reporter.close()
+            args._reporter = None
+        if getattr(args, "_run_lock_fd", None) is not None:
+            from .background import metadata, write_lock
+            from .workflow import now
+            record = metadata(holder[-1])
+            record.update(finished_at=now(), exit_code=execution_code)
+            write_lock(args._run_lock_fd, record)
+            os.close(args._run_lock_fd)
+            args._run_lock_fd = None
         if sys.stderr is not original_stderr:
             sys.stderr.close()
             sys.stderr = original_stderr
@@ -61,7 +84,11 @@ def _execute(args, holder):
     from .web import WebClient
 
     reporter = ProgressReporter()
+    args._reporter = reporter
     dry_run = getattr(args, "dry_run", False)
+    timeout = getattr(args, "post_timeout", 900)
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ToolError(key="web.timeout_invalid", next_step="charmm-gui-cli build -h")
     if args.interval < 10 or args.max_wait <= 0:
         raise ToolError("--interval must be >=10 seconds and --max-wait must be positive.")
     if args.grompp and not shutil.which(args.gmx):
@@ -84,6 +111,10 @@ def _execute(args, holder):
     if args.command == "build-resume":
         directory = managed.resolve_run(args.directory) if args.directory is not None else managed.latest_run()
         holder.append(Path(directory).resolve())
+        if not getattr(args, "_worker", False):
+            from .background import metadata
+            if metadata(directory)["running"]:
+                raise ToolError(key="background.running", next_step="charmm-gui-cli jobs list")
     if args.command == "build" and getattr(args, "name", None):
         managed.check_name_available(args.name)
         if args.out is None:
@@ -133,6 +164,18 @@ def _execute(args, holder):
                     accept_conect_bond_orders=args.accept_conect_bond_orders, **common)
     directory = Path(directory).resolve()
     holder.append(directory)
+    if args.command == "build" and getattr(args, "_managed_cli", False) and not getattr(args, "name", None) and (directory / "full-run.json").is_file():
+        try:
+            managed.validate_name(directory.name)
+        except ToolError:
+            pass
+        else:
+            args.name = directory.name
+            try:
+                managed.check_name_available(args.name, directory)
+            except ToolError:
+                import uuid
+                args.name = directory.name[:110] + "-" + uuid.uuid4().hex[:10]
     if getattr(args, "name", None) and (directory / "full-run.json").is_file():
         managed.assign_name(directory, args.name)
     if (directory / "full-run.json").is_file():
@@ -142,12 +185,18 @@ def _execute(args, holder):
                 **({"name": args.name} if getattr(args, "name", None) else {}),
                 "next_step": "charmm-gui-cli login; charmm-gui-cli build-resume"}, 0
     if directory.is_dir() and not getattr(args, "_worker", False):
+        from .background import claim, write_lock
+        from .workflow import now
+        args._run_lock_fd = claim(directory)
+        write_lock(args._run_lock_fd, {"pid": os.getpid(), "started_at": now()})
         from .run_logging import LogStream
         sys.stderr = LogStream(sys.stderr, directory / "run.log")
     print(f"[charmm-gui-cli] run={directory}", file=sys.stderr, flush=True)
     if (directory / "full-run.json").is_file():
         saved = managed._read_json(directory / "full-run.json")
+        reporter.close()
         reporter = ProgressReporter(source_job_id=saved.get("source_job_id"), build_job_id=saved.get("build_job_id"))
+        args._reporter = reporter
     if local_complete:
         result = local_manifest
     else:

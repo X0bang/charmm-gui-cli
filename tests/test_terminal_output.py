@@ -81,9 +81,9 @@ class TerminalOutputTests(unittest.TestCase):
         i18n.set_language("en")
         value = {"state": "submission_unknown", "name": "example", "last_error": {"cause_category": "authentication"}}
         output = format_build(value)
-        self.assertIn("automatic resubmission is prohibited", output)
         self.assertIn("login", output)
-        self.assertIn("attach", output)
+        value["last_error"] = {}
+        self.assertIn("jobs reconcile example", format_build(value))
         value = {"state": "paused_auth", "recovery": {"error": {"category": "authentication"}}}
         self.assertIn("login", format_build(value))
 

@@ -110,6 +110,7 @@ def _arguments(directory, options=None, **kwargs):
     return Namespace(**fields, command="build" if options is not None else "build-resume",
                      config=None, out=directory, directory=directory, name=None, dry_run=options is not None,
                      wait=False, interval=kwargs.get("interval", 30), max_wait=kwargs.get("max_wait", 21600),
+                     post_timeout=kwargs.get("post_timeout", 900),
                      token_file=kwargs.get("token_file"), cookies=kwargs.get("cookies"),
                      grompp=kwargs.get("grompp", False), no_grompp=kwargs.get("no_grompp", False),
                      gmx=kwargs.get("gmx", "gmx"), no_preview=kwargs.get("no_preview", False))
@@ -363,7 +364,7 @@ def _record_interruption(directory, manifest):
 
 
 def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=30, max_wait=21600,
-            token_file=None, cookies=None, grompp=False, no_grompp=False, gmx="gmx", no_preview=False):
+            token_file=None, cookies=None, grompp=False, no_grompp=False, gmx="gmx", no_preview=False, post_timeout=900):
     """Advance no-wait rounds; active covers preparation through final validation."""
     from . import build_command
     if grompp and not shutil.which(gmx):
@@ -418,7 +419,7 @@ def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=
                 _save(directory, manifest)
                 try:
                     result, code = build_command.execute(_arguments(Path(job["directory"]), interval=interval,
-                        max_wait=max_wait, token_file=token_file, cookies=cookies, grompp=grompp, no_grompp=no_grompp, gmx=gmx, no_preview=no_preview))
+                        max_wait=max_wait, token_file=token_file, cookies=cookies, grompp=grompp, no_grompp=no_grompp, gmx=gmx, no_preview=no_preview, post_timeout=post_timeout))
                     job.update({k: result[k] for k in ("state", "source_job_id", "build_job_id", "gromacs_compiled",
                                                        "gromacs_note", "report", "archive", "validation") if k in result})
                     if isinstance(result.get("validation"), dict):

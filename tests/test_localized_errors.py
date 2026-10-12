@@ -17,7 +17,7 @@ class LocalizedErrorTests(unittest.TestCase):
     def test_legacy_message_and_dictionary_remain_compatible(self):
         error = ToolError("Legacy message", category="example")
         self.assertEqual(error.localized(), "Legacy message")
-        self.assertEqual(error.as_dict(), {"message": "Legacy message", "category": "example", "next_step": None, "retryable": False})
+        self.assertEqual(error.as_dict(), {"message": "Legacy message", "category": "example", "next_step": "charmm-gui-cli -h", "retryable": False})
 
     def test_key_error_localizes_without_changing_machine_category(self):
         error = AuthError(key="api.auth_http", params={"code": 401})
@@ -38,7 +38,7 @@ class LocalizedErrorTests(unittest.TestCase):
                 Client(session=session).login("user@example.invalid", "PASSWORD_SECRET")
             error = caught.exception
             self.assertEqual(error.key, "login.bad_creds")
-            self.assertFalse(error.next_step)
+            self.assertEqual(error.next_step, "charmm-gui-cli login")
             self.assertEqual(session.request.call_count, 1)
             for language in ("zh", "en"):
                 i18n.set_language(language)
@@ -65,8 +65,8 @@ class LocalizedErrorTests(unittest.TestCase):
                 self.assertEqual(cli.main(["--lang", language, "login"]), 2)
             self.assertIn(expected, output.getvalue())
             self.assertNotIn("No user or", output.getvalue())
-            self.assertNotIn("Next:", output.getvalue())
-            self.assertNotIn("下一步", output.getvalue())
+            self.assertIn("charmm-gui-cli login", output.getvalue())
+            self.assertNotIn("resume", output.getvalue())
 
     def test_recovery_semantics_in_both_languages(self):
         categories = ("authentication", "auth_required", "access_denied", "transport_error", "archive_preparing",

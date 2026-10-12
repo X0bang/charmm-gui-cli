@@ -55,6 +55,18 @@ class RobustInputTests(unittest.TestCase):
             _pdb(self.pdb([atom(1, "LIG", 1, (0, 0, 0), record="HETATM", element="", name="XX")]))
         self.assertEqual(caught.exception.params, {"line": 1, "atom": "XX"})
 
+    def test_unique_hetero_serial_collision_can_be_avoided_without_conect(self):
+        atoms, _ = _pdb(self.pdb([atom(1, "ALA", 1, (0, 0, 0)),
+                                 atom(1, "FE", 2, (4, 0, 0), record="HETATM", element="Fe")]))
+        self.assertEqual([a.serial for a in atoms], [2, 1])
+
+    def test_all_requested_single_atom_ion_aliases(self):
+        from charmm_gui_cli.pdb_normalization import _IONS
+        for residue, element in _IONS.items():
+            with self.subTest(residue=residue):
+                atoms, _ = _pdb(self.pdb([atom(1, residue, 1, (0, 0, 0), record="HETATM", name=residue, element="")]))
+                self.assertEqual(atoms[0].element, element)
+
     def test_blank_chain_segid_mapping_and_conflicts(self):
         self.pdb([atom(1, "GLY", 1, (0, 0, 0), chain=" ", segment="PROA"),
                   atom(2, "PRO", 1, (2, 0, 0), chain=" ", segment="SEGA")])

@@ -34,7 +34,7 @@ class JobsTests(unittest.TestCase):
     def call(self, args):
         output, error = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
-            code = main(args)
+            code = main(["--foreground", *args])
         return code, json.loads(output.getvalue()) if output.getvalue() else None, error.getvalue()
 
     def test_name_is_unique_idempotent_and_resolves_outside_working_directory(self):

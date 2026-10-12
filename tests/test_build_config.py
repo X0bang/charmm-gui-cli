@@ -79,7 +79,7 @@ class BuildConfigTests(unittest.TestCase):
             load_build_config(self.path)
 
     def test_missing_config_is_controlled_error(self):
-        with self.assertRaisesRegex(ToolError, "Cannot read"):
+        with self.assertRaisesRegex(ToolError, "does not exist"):
             load_build_config(self.root / "missing.yaml")
 
     def test_cli_resume_existing_bilayer_without_cookie(self):
@@ -90,7 +90,7 @@ class BuildConfigTests(unittest.TestCase):
         with patch("charmm_gui_cli.build_command.load_token", return_value=("secret", "mock")), \
                 patch("charmm_gui_cli.full_build.advance", return_value={"state": "complete", "build_job_id": "456"}) as advance, \
                 patch("charmm_gui_cli.web.WebClient") as web, contextlib.redirect_stdout(output):
-            code = main(["build-resume", str(directory), "--cookies", str(self.root / "missing-cookie.json")])
+            code = main(["--foreground", "build-resume", str(directory), "--cookies", str(self.root / "missing-cookie.json")])
         self.assertEqual(code, 0)
         web.assert_not_called()
         self.assertIsNone(advance.call_args.args[1])
@@ -103,7 +103,7 @@ class BuildConfigTests(unittest.TestCase):
         errors = io.StringIO()
         with patch("charmm_gui_cli.build_command.load_token", return_value=("secret", "mock")), \
                 patch("charmm_gui_cli.full_build.initialize") as initialize, contextlib.redirect_stderr(errors):
-            code = main(["build", str(self.path), "--out", str(directory), "--cookies", str(self.root / "missing-cookie.json")])
+            code = main(["--foreground", "build", str(self.path), "--out", str(directory), "--cookies", str(self.root / "missing-cookie.json")])
         self.assertEqual(code, 2)
         initialize.assert_not_called()
         self.assertFalse(directory.exists())

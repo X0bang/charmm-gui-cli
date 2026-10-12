@@ -3,13 +3,82 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from unittest.mock import Mock
+from argparse import Namespace
 import os
+import subprocess
+import sys
+import contextlib
 
 from charmm_gui_cli.auth import ToolError
 from charmm_gui_cli.background import claim, metadata, watch, write_lock
+from charmm_gui_cli.auth import atomic_json
 
 
 class BackgroundTests(unittest.TestCase):
+    def test_inherited_lock_survives_parent_close(self):
+        directory = Path(tempfile.mkdtemp())
+        fd = claim(directory)
+        process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(0.2)"], pass_fds=(fd,), start_new_session=True)
+        os.close(fd)
+        self.assertTrue(metadata(directory)["running"])
+        process.wait(timeout=5)
+        self.assertFalse(metadata(directory)["running"])
+
+    def test_foreground_returns_final_exit_code(self):
+        from charmm_gui_cli.cli import main
+        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "validation_failed"}, 2)), \
+                patch("charmm_gui_cli.background.launch") as launch, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["--foreground", "build", "--protein", "p.pdb", "--ligand", "l.sdf"]), 2)
+        launch.assert_not_called()
+
+    def test_macos_notification_is_best_effort_and_reports_failure(self):
+        from charmm_gui_cli.background import worker
+        directory = Path(tempfile.mkdtemp())
+        atomic_json(directory / "worker-options.json", {"lang": "en"})
+        fd = claim(directory)
+        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "validation_failed"}, 2)), \
+                patch("charmm_gui_cli.background.sys.platform", "darwin"), \
+                patch("charmm_gui_cli.background.subprocess.run") as run, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(worker(directory, fd), 2)
+        self.assertEqual(run.call_args.args[0][0], "osascript")
+        self.assertIn("failed", run.call_args.args[0][-1])
+        self.assertEqual(metadata(directory)["exit_code"], 2)
+
+    def test_launch_detaches_after_local_checks_and_authentication(self):
+        from charmm_gui_cli.background import launch
+        directory = Path(tempfile.mkdtemp())
+        atomic_json(directory / "full-run.json", {"schema_version": 2, "state": "inputs_ready"})
+        args = Namespace(command="build", token_file=None, cookies=None, post_timeout=900, lang="en")
+        web = Mock()
+        web.request.return_value.text = '<form name="pdb"></form>'
+        with patch("charmm_gui_cli.build_command.execute", return_value=({"directory": str(directory), "state": "inputs_ready"}, 0)) as execute, \
+                patch("charmm_gui_cli.background.load_token", return_value=("TOKEN_SECRET", "mock")), \
+                patch("charmm_gui_cli.api.Client") as api, \
+                patch("charmm_gui_cli.web.WebClient", return_value=web), \
+                patch("charmm_gui_cli.background.subprocess.Popen", return_value=Mock(pid=12345)) as popen, \
+                patch("charmm_gui_cli.background.sys.platform", "darwin"):
+            result, code = launch(args)
+        self.assertEqual(code, 0)
+        self.assertTrue(execute.call_args.args[0].dry_run)
+        api.return_value.validate_auth.assert_called_once()
+        self.assertEqual(web.request.call_args.args[0], "GET")
+        self.assertTrue(popen.call_args_list[0].kwargs["start_new_session"])
+        self.assertEqual(popen.call_args_list[1].args[0], ["caffeinate", "-i", "-w", "12345"])
+        self.assertEqual(result["background"]["pid"], 12345)
+        self.assertNotIn("TOKEN_SECRET", (directory / "worker-options.json").read_text())
+        self.assertEqual((directory / "worker-options.json").stat().st_mode & 0o777, 0o600)
+
+    def test_expired_login_fails_before_worker_spawn(self):
+        from charmm_gui_cli.background import launch
+        directory = Path(tempfile.mkdtemp())
+        atomic_json(directory / "full-run.json", {"schema_version": 2, "state": "inputs_ready"})
+        args = Namespace(command="build-resume", directory=directory, token_file=None, cookies=None, post_timeout=900)
+        with patch("charmm_gui_cli.background.load_token", side_effect=ToolError("expired", category="authentication")), \
+                patch("charmm_gui_cli.background.subprocess.Popen") as popen, self.assertRaises(ToolError):
+            launch(args)
+        popen.assert_not_called()
+
     def test_active_lock_rejects_duplicate(self):
         directory = Path(tempfile.mkdtemp())
         fd = claim(directory)
