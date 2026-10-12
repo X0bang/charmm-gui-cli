@@ -1,12 +1,12 @@
 # 下载
 
-## 0.6.0 候选安装包
+## 0.6.0 安装包
 
 - [源码安装包](charmm-gui-cli-0.6.0.tar.gz)
 - [Python wheel](charmm_gui_cli-0.6.0-py3-none-any.whl)
 - [校验和](SHA256SUMS)
 
-本版改为默认后台运行和当前目录输出；脚本/Slurm 请加全局 `--foreground`。支持输入格式自动修复、任务日志跟踪与 GET-only 核对恢复。详见 [CHANGELOG](../CHANGELOG.md) 和 [README](../README.md)。开发分支中的候选包不等于已创建 GitHub Release。
+本版改为默认后台运行和当前目录输出；脚本/Slurm 请加全局 `--foreground`。支持输入格式自动修复、任务日志跟踪与 GET-only 核对恢复。详见 [CHANGELOG](../CHANGELOG.md) 和 [README](../README.md)。GitHub Release 发布状态见 [Releases](https://github.com/X0bang/charmm-gui-cli/releases)。
 
 ```bash
 tar -xzf charmm-gui-cli-0.6.0.tar.gz

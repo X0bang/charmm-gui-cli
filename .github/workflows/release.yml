@@ -1,0 +1,43 @@
+name: Publish release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify packages and publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          version="${GITHUB_REF_NAME#v}"
+          source="charmm-gui-cli-${version}.tar.gz"
+          wheel="charmm_gui_cli-${version}-py3-none-any.whl"
+          base="https://raw.githubusercontent.com/${GH_REPO}/${GITHUB_SHA}"
+          for name in "$source" "$wheel" SHA256SUMS; do
+            curl --fail --silent --show-error --location --retry 3 \
+              "${base}/download/${name}" --output "$name"
+          done
+          sha256sum --ignore-missing --check SHA256SUMS
+          curl --fail --silent --show-error --location --retry 3 \
+            "${base}/CHANGELOG.md" --output release-notes.md
+          # Keep a failed or incomplete upload private; never publish an empty release.
+          gh release create "$GITHUB_REF_NAME" --verify-tag --draft \
+            --title "charmm-gui-cli ${version}" --notes-file release-notes.md \
+            "$source" "$wheel" SHA256SUMS
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest

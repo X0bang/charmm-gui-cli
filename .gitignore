@@ -1,6 +1,11 @@
 # Public repository allowlist. All other local files stay private.
 /*
 !/.gitignore
+!/.github/
+/.github/*
+!/.github/workflows/
+/.github/workflows/*
+!/.github/workflows/release.yml
 !/README.md
 !/CHANGELOG.md
 !/LICENSE
