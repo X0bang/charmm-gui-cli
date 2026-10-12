@@ -13,9 +13,9 @@ from charmm_gui_cli.preview import new_preview_path
 
 class OutputLocationTests(unittest.TestCase):
     def test_paths_are_local(self):
-        root = Path(tempfile.mkdtemp())
+        root = Path(tempfile.mkdtemp()).resolve()
         with patch("pathlib.Path.cwd", return_value=root):
-            self.assertEqual(new_run_path("crtw-bcar"), root / "charmm-gui-runs" / "crtw-bcar")
+            self.assertEqual(new_run_path("crtw-bcar"), root / "crtw-bcar" / ".charmm-gui")
             self.assertEqual(new_preview_path("checks").parent, root / "charmm-gui-checks")
             self.assertEqual(new_preview_path().parent, root / "charmm-gui-previews")
             self.assertEqual(new_batch_path().parent, root / "charmm-gui-runs")
@@ -28,7 +28,7 @@ class OutputLocationTests(unittest.TestCase):
         self.assertEqual(validate_name("crtw-bcar"), "crtw-bcar")
 
     def test_missing_directory_and_permission_configuration_errors(self):
-        root = Path(tempfile.mkdtemp())
+        root = Path(tempfile.mkdtemp()).resolve()
         with self.assertRaises(ToolError) as exc:
             load_build_config(root / "missing.yaml")
         self.assertEqual(exc.exception.key, "config.missing")

@@ -1,3 +1,4 @@
+from charmm_gui_cli.layout import inputs_path, task_root
 """Batch tests use synthetic inputs and mocked transport; scratch data retained."""
 import csv
 import io
@@ -16,7 +17,7 @@ from charmm_gui_cli.auth import ToolError, atomic_json
 
 class BatchTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-batch-test-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-batch-test-")).resolve()
         self.config = self.root / "batch.yaml"
         self.directory = self.root / "queue"
         self.raw = {"version": 1, "defaults": {"protein": "protein.pdb", "ligand": "ligand.sdf"},
@@ -29,7 +30,7 @@ class BatchTests(unittest.TestCase):
     def prepare(self, failure=None):
         def execute(args):
             self.assertTrue(args.dry_run)
-            if args.out.name == failure:
+            if task_root(args.out).name == failure:
                 raise ToolError("Synthetic structure failed chemistry validation.")
             args.out.mkdir(parents=True)
             atomic_json(args.out / "full-run.json", {"state": "inputs_ready"})
@@ -123,7 +124,7 @@ class BatchTests(unittest.TestCase):
 
     def test_transport_error_pauses_without_retries_and_keeps_slot_for_explicit_resume(self):
         self.prepare()
-        first = self.directory / "jobs" / "first"
+        first = self.directory / "jobs" / "first" / ".charmm-gui"
         atomic_json(first / "full-run.json", {"state": "bilayer_submitted", "build_job_id": "234"})
         with patch("charmm_gui_cli.build_command.execute", side_effect=ToolError("GET TLS failure", category="transport_error")) as execute:
             result, code = batch.advance(self.directory, wait=True, max_active=4, submit_interval=0)
@@ -172,7 +173,7 @@ class BatchTests(unittest.TestCase):
 
     def test_ctrl_c_during_polling_keeps_existing_id_and_can_resume(self):
         self.prepare()
-        first = self.directory / "jobs" / "first"
+        first = self.directory / "jobs" / "first" / ".charmm-gui"
         atomic_json(first / "full-run.json", {"state": "bilayer_submitted", "build_job_id": "234"})
         with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "running", "build_job_id": "234"}, 0)), \
                 patch("charmm_gui_cli.batch.time.sleep", side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
@@ -260,7 +261,7 @@ class BatchTests(unittest.TestCase):
 
     def test_remote_status_only_get_and_does_not_save(self):
         self.prepare()
-        full = self.directory / "jobs" / "first" / "full-run.json"
+        full = self.directory / "jobs" / "first" / ".charmm-gui" / "full-run.json"
         atomic_json(full, {"state": "preparation_running", "source_job_id": "123"})
         before = (self.directory / "batch.json").read_bytes()
         with patch("charmm_gui_cli.auth.load_token", return_value=("fake", "fake")), \
@@ -315,11 +316,11 @@ class BatchTests(unittest.TestCase):
         value = json.loads(path.read_text())
         value["jobs"][0]["state"] = "preparing_local"
         atomic_json(path, value)
-        output = self.directory / "jobs" / "first"
-        (output / "inputs").mkdir()
+        output = self.directory / "jobs" / "first" / ".charmm-gui"
+        (inputs_path(output)).mkdir()
         files = {}
         for name in ("protein.pdb", "ligand.pdb", "ligand.sdf", "complex.pdb", "input-manifest.json"):
-            file = output / "inputs" / name
+            file = inputs_path(output) / name
             file.write_text("synthetic")
             files[name] = str(file)
         atomic_json(output / "full-run.json", {"schema_version": 2, "state": "inputs_ready", "inputs": {"files": files}})
@@ -349,7 +350,7 @@ class BatchTests(unittest.TestCase):
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
             execute.assert_not_called()
             self.assertEqual(result["state"], "paused_inspection")
-        bilayer = self.directory / "jobs" / "first" / "bilayer"
+        bilayer = self.directory / "jobs" / "first" / ".charmm-gui" / "bilayer"
         bilayer.mkdir()
         atomic_json(bilayer / "run.json", {"state": "submitted", "job_id": "12345"})
         with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "running"}, 0)) as execute:
@@ -407,7 +408,7 @@ class BatchTests(unittest.TestCase):
                 patch("charmm_gui_cli.batch.time.time", return_value=1121):
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
         self.assertEqual(execute.call_count, 1)
-        self.assertEqual(execute.call_args.args[0].directory, self.directory / "jobs" / "first")
+        self.assertEqual(execute.call_args.args[0].directory, self.directory / "jobs" / "first" / ".charmm-gui")
         self.assertNotIn("next_retry_unix", result["jobs"][0])
 
     def test_archive_wait_respects_batch_budget_without_early_retry(self):
@@ -427,7 +428,7 @@ class BatchTests(unittest.TestCase):
 
     def test_independently_started_later_pending_job_occupies_slot(self):
         self.prepare()
-        later = self.directory / "jobs" / "third"
+        later = self.directory / "jobs" / "third" / ".charmm-gui"
         atomic_json(later / "full-run.json", {"state": "bilayer_submitted", "source_job_id": "123"})
         (later / "bilayer").mkdir()
         atomic_json(later / "bilayer" / "run.json", {"state": "pending", "job_id": "456"})
@@ -439,7 +440,7 @@ class BatchTests(unittest.TestCase):
 
     def test_upload_intent_occupies_slot_even_with_pending_display(self):
         self.prepare()
-        later = self.directory / "jobs" / "third"
+        later = self.directory / "jobs" / "third" / ".charmm-gui"
         atomic_json(later / "full-run.json", {"state": "pending"})
         (later / "preparation").mkdir()
         atomic_json(later / "preparation" / "web-run.json", {"state": "upload_submitting"})

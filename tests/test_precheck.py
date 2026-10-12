@@ -25,7 +25,7 @@ def atom_line(serial, name, resname="ALA", resid=1, chain="A", insertion=" ", al
 
 class PrecheckTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="charmm-precheck-"))
+        self.root = Path(tempfile.mkdtemp(prefix="charmm-precheck-")).resolve()
         self.protein, self.ligand = self.root / "protein.pdb", self.root / "ligand.sdf"
         self.protein.write_text("\n".join(atom_line(i, name) for i, name in enumerate(("N", "CA", "C", "O", "CB"), 1)) + "\nEND\n")
         self.ligand.write_text(_sdf([Atom(1, "C1", "C", (2., 3., 0.)), Atom(2, "O1", "O", (3.2, 3., 0.))], {(0, 1): 2}, "LIG"))

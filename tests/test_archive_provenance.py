@@ -15,7 +15,7 @@ from charmm_gui_cli.auth import ToolError
 
 class ArchiveProvenanceTests(unittest.TestCase):
     def setUp(self):
-        self.run = Path(tempfile.mkdtemp(prefix="cgui-archive-provenance-"))
+        self.run = Path(tempfile.mkdtemp(prefix="cgui-archive-provenance-")).resolve()
         self.archive = self.run / "charmm-gui.tgz"
         self.receipt = self.run / "download-receipt.json"
         self.manifest = {

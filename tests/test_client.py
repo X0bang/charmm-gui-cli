@@ -62,7 +62,7 @@ def archive_bytes(entries):
 class TemporaryTest(unittest.TestCase):
     def setUp(self):
         # Preserve test artifacts under the user's no-deletion constraint.
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-test-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-test-")).resolve()
 
 
 class AuthTests(TemporaryTest):

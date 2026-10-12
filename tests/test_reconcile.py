@@ -13,7 +13,7 @@ OLD = '''<script>var nstep=1; var formstop=0;</script><form action="?doc=input/p
 
 class ReconcileTests(unittest.TestCase):
     def setUp(self):
-        self.directory = Path(tempfile.mkdtemp())
+        self.directory = Path(tempfile.mkdtemp()).resolve()
         self.preparation = self.directory / "preparation"
         atomic_json(self.directory / "full-run.json", {"schema_version": 2, "source_job_id": "123", "state": "parameterizing"})
         atomic_write(self.preparation / "upload-response.html", OLD)

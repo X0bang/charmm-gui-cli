@@ -31,7 +31,7 @@ SELECTION = '''<form method="post" action="?doc=input/pdbreader&step=3"><input n
 class FullBuildTests(unittest.TestCase):
     def setUp(self):
         # User explicitly prohibited deletion: preserve artifacts after tests.
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-full-build-test-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-full-build-test-")).resolve()
         (self.root / "preparation").mkdir()
         (self.root / "inputs").mkdir()
         self.initial = self.root / "preparation" / "parameterization.html"

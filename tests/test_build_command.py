@@ -14,7 +14,7 @@ from charmm_gui_cli.cli import main
 
 class BuildCommandTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-build-command-test-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-build-command-test-")).resolve()
         self.run = self.root / "run"
         self.cookies = self.root / "session.cookies.json"
         atomic_json(self.cookies, {"cookies": []})

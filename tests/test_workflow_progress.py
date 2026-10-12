@@ -10,7 +10,7 @@ from charmm_gui_cli import workflow
 
 class WorkflowProgressTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-workflow-progress-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-workflow-progress-")).resolve()
         self.run = self.root / "run"
         self.client = Mock()
         self.client.submit.return_value = "234"

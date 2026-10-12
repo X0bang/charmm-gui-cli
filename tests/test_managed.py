@@ -11,7 +11,7 @@ from charmm_gui_cli.auth import ToolError, atomic_json, atomic_write
 
 class ManagedTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-managed-test-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-managed-test-")).resolve()
         self.home = self.root / "private-home"
         self.home.mkdir()
         self.home_patch = patch("pathlib.Path.home", return_value=self.home)
@@ -298,7 +298,7 @@ class ManagedTests(unittest.TestCase):
         self.make_run()
         managed.remember_run(self.directory)
         self.assertEqual(managed.latest_run(), self.directory)
-        registry = self.home / ".config" / "charmm-gui-cli"
+        registry = managed._registry()
         self.assertEqual(stat.S_IMODE((registry / "latest-run.json").stat().st_mode), 0o600)
         newer = self.root / "newer"
         self.make_run(directory=newer)
@@ -317,7 +317,8 @@ class ManagedTests(unittest.TestCase):
     def test_new_run_path_creates_parent_but_not_run(self):
         first, second = managed.new_run_path(), managed.new_run_path()
         self.assertNotEqual(first, second)
-        self.assertTrue(first.parent.is_dir())
+        self.assertTrue(first.parent.parent.is_dir())
+        self.assertFalse(first.parent.exists())
         self.assertFalse(first.exists())
         self.assertFalse(second.exists())
 
@@ -328,13 +329,16 @@ class ManagedTests(unittest.TestCase):
             atomic_write(out / "protein.pdb", "protein")
             atomic_write(out / "ligand.sdf", "ligand")
             return {"protein": str(out / "protein.pdb"), "ligand": str(out / "ligand.sdf"), "report": {"mode": "split"}}
-        def initialize(config, destination):
-            self.assertFalse(destination.exists())
+        def initialize(config, destination, *, _reserved=False):
+            self.assertTrue(_reserved)
+            self.assertTrue(destination.exists())
+            # The reservation is exclusively owned by this preparation.
+            destination.rename(destination.with_name("reserved-sources"))
             self.make_run(state="inputs_ready", directory=destination)
         with patch("charmm_gui_cli.input_sources.prepare_sources", side_effect=sources) as prepare, \
                 patch.object(managed, "initialize", side_effect=initialize):
             directory = managed.create_managed_build(complex_pdb="complex.pdb", accept_conect_bond_orders=True)
-        self.assertTrue(directory.is_relative_to(Path.cwd() / "charmm-gui-runs"))
+        self.assertEqual(directory.parent.parent, Path.cwd())
         self.assertEqual(managed.latest_run(), directory)
         self.assertTrue(prepare.call_args.kwargs["accept_conect_bond_orders"])
         self.assertEqual(json.loads((directory / "managed.json").read_text())["source_report"]["mode"], "split")

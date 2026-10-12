@@ -15,7 +15,7 @@ from charmm_gui_cli.cli import main
 class ValidationCliTests(unittest.TestCase):
     def setUp(self):
         # Preserve all test directories under the user's no-deletion policy.
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-validation-cli-test-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-validation-cli-test-")).resolve()
         self.system = self.root / "system"
         self.system.mkdir()
         self.out = self.root / "report"

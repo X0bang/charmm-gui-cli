@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.0
+
+### Breaking changes
+
+- New CLI builds use `<invocation directory>/<task name>/` (or the exact `--out` directory), with private state in `.charmm-gui/` and a visible `run.log`. No second task directory is created under `charmm-gui-runs/`.
+- The archive and extracted model are authoritative single copies at `charmm-gui.tgz` and `model/`; retain them and `.charmm-gui/` to keep reports verifiable. Completion writes `report.txt`, `README.txt`, and requested/applied input parameters without copying large artifacts.
+- Task indexes move to the XDG data directory, separate from sessions; old indexes and task layouts remain readable without migration.
+- Updates read published GitHub Releases and their checksums, not the main-branch download directory. Older updaters need a one-time source reinstall. Release archives are built on tag publication and are no longer tracked in the repository.
+
+### Refactoring
+
+- Separate command handlers, pipeline orchestration, remote access, chemistry checks, task storage, and bilingual catalogs into subpackages; preserve old Python imports as compatibility aliases.
+- Resolve bare task names through the index before inspecting a same-named local delivery directory. Explicit task-root paths resolve their private working directory.
+- Reuse extracted model bytes across validation/compiler upgrades only after comparing them with the original archive. Preserve submission intents, receipts, session formats and no-replay semantics.
+- New batch/sweep child tasks use the same single-directory layout; batch containers and legacy advanced API runs remain compatible.
+
 ## 0.6.1
 
 - Completed builds independently deliver the official archive, extracted model, validation reports, available compilation artifacts and actual prepared inputs under `<creation directory>/<task name>/`.

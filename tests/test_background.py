@@ -17,7 +17,7 @@ from charmm_gui_cli.auth import atomic_json
 
 class BackgroundTests(unittest.TestCase):
     def test_inherited_lock_survives_parent_close(self):
-        directory = Path(tempfile.mkdtemp())
+        directory = Path(tempfile.mkdtemp()).resolve()
         fd = claim(directory)
         process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(0.2)"], pass_fds=(fd,), start_new_session=True)
         os.close(fd)
@@ -34,7 +34,7 @@ class BackgroundTests(unittest.TestCase):
 
     def test_macos_notification_is_best_effort_and_reports_failure(self):
         from charmm_gui_cli.background import worker
-        directory = Path(tempfile.mkdtemp())
+        directory = Path(tempfile.mkdtemp()).resolve()
         atomic_json(directory / "worker-options.json", {"lang": "en"})
         fd = claim(directory)
         with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "validation_failed"}, 2)), \
@@ -47,7 +47,7 @@ class BackgroundTests(unittest.TestCase):
 
     def test_launch_detaches_after_local_checks_and_authentication(self):
         from charmm_gui_cli.background import launch
-        directory = Path(tempfile.mkdtemp())
+        directory = Path(tempfile.mkdtemp()).resolve()
         atomic_json(directory / "full-run.json", {"schema_version": 2, "state": "inputs_ready"})
         args = Namespace(command="build", token_file=None, cookies=None, post_timeout=900, lang="en")
         web = Mock()
@@ -71,7 +71,7 @@ class BackgroundTests(unittest.TestCase):
 
     def test_expired_login_fails_before_worker_spawn(self):
         from charmm_gui_cli.background import launch
-        directory = Path(tempfile.mkdtemp())
+        directory = Path(tempfile.mkdtemp()).resolve()
         atomic_json(directory / "full-run.json", {"schema_version": 2, "state": "inputs_ready", "inputs": {"files": {}}})
         args = Namespace(command="build-resume", directory=directory, token_file=None, cookies=None, post_timeout=900)
         with patch("charmm_gui_cli.background.load_token", side_effect=ToolError("expired", category="authentication")), \
@@ -90,7 +90,7 @@ class BackgroundTests(unittest.TestCase):
         popen.assert_not_called()
 
     def test_active_lock_rejects_duplicate(self):
-        directory = Path(tempfile.mkdtemp())
+        directory = Path(tempfile.mkdtemp()).resolve()
         fd = claim(directory)
         try:
             write_lock(fd, {"pid": os.getpid()})
@@ -102,7 +102,7 @@ class BackgroundTests(unittest.TestCase):
         self.assertFalse(metadata(directory)["running"])
 
     def test_stale_lock_can_be_reused(self):
-        directory = Path(tempfile.mkdtemp())
+        directory = Path(tempfile.mkdtemp()).resolve()
         fd = claim(directory)
         write_lock(fd, {"pid": 999999999})
         os.close(fd)
@@ -112,7 +112,7 @@ class BackgroundTests(unittest.TestCase):
         self.assertEqual(metadata(directory)["pid"], os.getpid())
 
     def test_watch_interrupt_never_signals_worker(self):
-        directory = Path(tempfile.mkdtemp())
+        directory = Path(tempfile.mkdtemp()).resolve()
         with patch("charmm_gui_cli.background.metadata", return_value={"running": True}), \
                 patch("charmm_gui_cli.background.time.sleep", side_effect=KeyboardInterrupt), \
                 patch("os.kill") as kill, patch("sys.stderr", io.StringIO()):

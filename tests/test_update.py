@@ -57,12 +57,14 @@ def response(content, status=200):
 def transport(archive=None, version=VERSION, digest=None):
     archive = archive if archive is not None else archive_bytes()
     digest = digest if digest is not None else hashlib.sha256(archive).hexdigest()
-    base = updater.RAW_BASE + "/" + COMMIT
+    base = f"https://github.com/{updater.REPOSITORY}/releases/download/v{version}"
     payloads = {
-        updater.REFERENCE_URL: json.dumps({"ref": "refs/heads/main", "object": {"type": "commit", "sha": COMMIT}}).encode(),
-        base + "/pyproject.toml": f'[project]\nversion = "{version}"\n'.encode(),
-        base + "/download/SHA256SUMS": f"{digest}  charmm-gui-cli-{version}.tar.gz\n".encode(),
-        base + f"/download/charmm-gui-cli-{version}.tar.gz": archive,
+        updater.RELEASE_URL: json.dumps({"tag_name": "v" + version, "draft": False, "prerelease": False,
+            "assets": [{"name": name, "browser_download_url": base + "/" + name} for name in
+                       ("SHA256SUMS", f"charmm-gui-cli-{version}.tar.gz")]}).encode(),
+        f"https://api.github.com/repos/{updater.REPOSITORY}/git/ref/tags/v{version}": json.dumps({"ref": "refs/tags/v" + version, "object": {"type": "commit", "sha": COMMIT}}).encode(),
+        base + "/SHA256SUMS": f"{digest}  charmm-gui-cli-{version}.tar.gz\n".encode(),
+        base + f"/charmm-gui-cli-{version}.tar.gz": archive,
     }
     session = Mock()
     session.get.side_effect = lambda url, **kwargs: response(payloads[url])
@@ -72,7 +74,7 @@ def transport(archive=None, version=VERSION, digest=None):
 class UpdateTests(unittest.TestCase):
     def setUp(self):
         # Retain test artifacts instead of deleting directories.
-        self.directory = Path(tempfile.mkdtemp(prefix="cgui-update-test-"))
+        self.directory = Path(tempfile.mkdtemp(prefix="cgui-update-test-")).resolve()
         self.prefix = self.directory / "install"
         self.bin_dir = self.directory / "bin"
         i18n.set_language("en")
@@ -102,12 +104,11 @@ class UpdateTests(unittest.TestCase):
         session, _ = transport()
         result = updater.check_release(session, "0.5.1")
         self.assertEqual(result["release_commit"], COMMIT)
-        self.assertIn(COMMIT, result["archive_url"])
+        self.assertIn("/releases/download/v" + VERSION, result["archive_url"])
         self.assertEqual(len(session.get.call_args_list), 3)
         for call in session.get.call_args_list:
             self.assertFalse(call.kwargs["allow_redirects"])
-            if call.args[0] != updater.REFERENCE_URL:
-                self.assertIn(COMMIT, call.args[0])
+            self.assertIn("github", call.args[0])
 
     def test_check_only_does_not_touch_files_or_invoke_installer(self):
         session, _ = transport()
@@ -142,7 +143,7 @@ class UpdateTests(unittest.TestCase):
             session.get.return_value = response(b"TOKEN_COOKIE_PASSWORD_SECRET", status)
             with self.assertRaises(ToolError) as caught:
                 updater.check_release(session, VERSION)
-            self.assertEqual(caught.exception.key, "update.http")
+            self.assertEqual(caught.exception.key, "update.metadata" if status == 302 else "update.http")
             self.assertNotIn("SECRET", str(caught.exception))
 
     def test_invalid_reference_metadata_rejected_without_body(self):
@@ -157,10 +158,35 @@ class UpdateTests(unittest.TestCase):
     def test_unpublished_or_duplicate_checksum_refused(self):
         for checksum in (b"", b"BODY_SECRET", (b"a" * 64 + b"  charmm-gui-cli-0.5.2.tar.gz\n") * 2):
             session, payloads = transport()
-            payloads[updater.RAW_BASE + "/" + COMMIT + "/download/SHA256SUMS"] = checksum
+            payloads[f"https://github.com/{updater.REPOSITORY}/releases/download/v{VERSION}/SHA256SUMS"] = checksum
             with self.assertRaises(ToolError) as caught:
                 updater.check_release(session, "0.5.1")
             self.assertEqual(caught.exception.key, "update.not_published")
+
+    def test_release_assets_allow_only_trusted_https_redirects(self):
+        trusted = response(b"", 302)
+        trusted.headers["Location"] = "https://release-assets.githubusercontent.com/package?signature=PRIVATE_SIGNATURE"
+        session = Mock()
+        session.get.side_effect = [trusted, response(b"package bytes")]
+        self.assertEqual(updater._download(session, "https://github.com/package", limit=100), b"package bytes")
+        for location in ("http://github.com/package", "https://evil.invalid/package", "https://user:password@github.com/package"):
+            redirect = response(b"SECRET", 302)
+            redirect.headers["Location"] = location
+            session = Mock()
+            session.get.return_value = redirect
+            with self.assertRaises(ToolError) as caught:
+                updater._download(session, "https://github.com/package", limit=100)
+            self.assertNotIn("SECRET", str(caught.exception))
+            session.get.assert_called_once()
+
+    def test_missing_assets_and_nonfinal_releases_are_refused(self):
+        for mutation in ({"draft": True}, {"prerelease": True}, {"assets": []}):
+            session, payloads = transport()
+            release = json.loads(payloads[updater.RELEASE_URL])
+            release.update(mutation)
+            payloads[updater.RELEASE_URL] = json.dumps(release).encode()
+            with self.assertRaises(ToolError):
+                updater.check_release(session, VERSION)
 
     def test_download_size_limit_and_exclusive_destination(self):
         session = Mock()

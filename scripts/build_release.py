@@ -83,7 +83,8 @@ def metadata(root):
 def selected_files(root):
     """Allowlist only; never recursively include user/session/runtime data."""
     names = list(ROOT_FILES + DOC_FILES + SCRIPT_FILES + EXAMPLE_FILES)
-    names += [str(path.relative_to(root)) for path in sorted((root / "charmm_gui_cli").glob("*.py"))]
+    names += [str(path.relative_to(root)) for path in sorted((root / "charmm_gui_cli").rglob("*.py"))
+              if "__pycache__" not in path.parts]
     names += [str(path.relative_to(root)) for path in sorted((root / "tests").glob("test_*.py"))]
     result = []
     for name in sorted(set(names)):

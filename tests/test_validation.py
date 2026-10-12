@@ -15,7 +15,7 @@ from charmm_gui_cli.validation import (extract_for_validation, inspect_coordinat
 
 class ValidationTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="charmm-validation-test-"))
+        self.root = Path(tempfile.mkdtemp(prefix="charmm-validation-test-")).resolve()
         (self.root / "toppar").mkdir()
         (self.root / "topol.top").write_text('#include "toppar/ligand.itp"\n[ system ]\nExample\n[ molecules ]\nLIG 1\n')
         (self.root / "toppar/ligand.itp").write_text(

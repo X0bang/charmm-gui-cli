@@ -15,7 +15,7 @@ from charmm_gui_cli.cli import main
 
 class BuildConfigTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-build-config-test-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-build-config-test-")).resolve()
         atomic_write(self.root / "protein.pdb", "END\n")
         atomic_write(self.root / "ligand.sdf", "dummy test file\n")
         self.path = self.root / "build.yaml"

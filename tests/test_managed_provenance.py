@@ -14,7 +14,7 @@ from charmm_gui_cli.auth import ToolError
 
 class ManagedProvenanceTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-managed-provenance-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-managed-provenance-")).resolve()
         self.run = self.root / "run"
         self.bilayer = self.run / "bilayer"
         self.bilayer.mkdir(parents=True)

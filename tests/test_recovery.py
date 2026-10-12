@@ -65,7 +65,7 @@ class RetryTests(unittest.TestCase):
         self.assertIn(t("recovery.transport_error"), recovery_guidance("transport_error"))
 
     def test_missing_and_invalid_token_files_have_structured_auth_guidance(self):
-        directory = Path(tempfile.mkdtemp(prefix="cgui-recovery-auth-"))
+        directory = Path(tempfile.mkdtemp(prefix="cgui-recovery-auth-")).resolve()
         for path in (directory / "missing.token", directory / "invalid.token"):
             if path.name == "invalid.token":
                 path.write_text("not-a-jwt")
@@ -78,7 +78,7 @@ class RetryTests(unittest.TestCase):
         item = response()
         item.iter_content = Mock(side_effect=requests.exceptions.SSLError("SECRET CERT DETAIL"))
         self.session.request.return_value = item
-        directory = Path(tempfile.mkdtemp(prefix="cgui-recovery-download-"))
+        directory = Path(tempfile.mkdtemp(prefix="cgui-recovery-download-")).resolve()
         with self.assertRaises(ToolError) as caught:
             Client(token(), self.session).download("234", directory / "charmm-gui.tgz")
         self.assertEqual(caught.exception.category, "transport_error")
@@ -205,7 +205,7 @@ class RetryTests(unittest.TestCase):
 
 class RecoveryTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-recovery-test-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-recovery-test-")).resolve()
         self.directory = self.root / "build"
         self.client = Mock()
         self.client.submit.return_value = "234"

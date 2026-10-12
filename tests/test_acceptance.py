@@ -27,7 +27,7 @@ def pdb_atom(serial, resid, resname, atom, segment, z, element):
 
 class AcceptanceTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="charmm-acceptance-test-"))
+        self.root = Path(tempfile.mkdtemp(prefix="charmm-acceptance-test-")).resolve()
         (self.root / "lig").mkdir()
         (self.root / "step3_size.str").write_text("SET NLIPTOP = 4\nSET NLIPBOT = 4\nSET ZCEN = -8.425\n")
         self.write_coordinates()
@@ -74,7 +74,7 @@ class AcceptanceTests(unittest.TestCase):
         self.assertEqual(result["status"], "incomplete")
 
     def test_penalty_files_outside_extracted_system_are_refused(self):
-        outside = Path(tempfile.mkdtemp(prefix="charmm-unrelated-evidence-"))
+        outside = Path(tempfile.mkdtemp(prefix="charmm-unrelated-evidence-")).resolve()
         rtf, prm = outside / "lig.rtf", outside / "lig.prm"
         rtf.write_text("RESI LIG 0 ! param penalty= 1 ; charge penalty= 1\n")
         prm.write_text("! penalty= 1\n")

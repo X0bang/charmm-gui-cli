@@ -36,7 +36,7 @@ def fake_token(label="global"):
 
 class SessionLoginTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-session-login-test-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-session-login-test-")).resolve()
         self.stack = contextlib.ExitStack()
         self.stack.enter_context(patch("pathlib.Path.home", return_value=self.root))
         self.stack.enter_context(patch.dict(os.environ, {}, clear=True))
