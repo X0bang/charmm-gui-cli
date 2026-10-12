@@ -336,9 +336,10 @@ class ManagedTests(unittest.TestCase):
             destination.rename(destination.with_name("reserved-sources"))
             self.make_run(state="inputs_ready", directory=destination)
         with patch("charmm_gui_cli.input_sources.prepare_sources", side_effect=sources) as prepare, \
-                patch.object(managed, "initialize", side_effect=initialize):
+                patch.object(managed, "initialize", side_effect=initialize), \
+                patch("pathlib.Path.cwd", return_value=self.root):
             directory = managed.create_managed_build(complex_pdb="complex.pdb", accept_conect_bond_orders=True)
-        self.assertEqual(directory.parent.parent, Path.cwd())
+        self.assertEqual(directory.parent.parent, self.root)
         self.assertEqual(managed.latest_run(), directory)
         self.assertTrue(prepare.call_args.kwargs["accept_conect_bond_orders"])
         self.assertEqual(json.loads((directory / "managed.json").read_text())["source_report"]["mode"], "split")
