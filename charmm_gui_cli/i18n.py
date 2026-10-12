@@ -4,6 +4,8 @@ import os
 
 
 MESSAGES = {
+    "background.runtime_invalid": {"zh": "查询间隔至少 10 秒，等待上限和 POST 超时必须为有限的正数。", "en": "Polling interval must be at least 10 seconds; wait limit and POST timeout must be finite positive numbers."},
+    "background.gromacs_missing": {"zh": "--grompp 需要可用的 GROMACS；请先安装或指定 --gmx。", "en": "--grompp requires an available GROMACS executable; install it or supply --gmx."},
     "help.background_overview": {"zh": "后台运行（默认）\n  charmm-gui-cli jobs watch NAME           跟踪日志；Ctrl-C 只退出查看\n  charmm-gui-cli --foreground build ...    前台运行并返回最终退出码\n  charmm-gui-cli jobs reconcile NAME       仅 GET 核对结果不明的提交\n  check 输出在当前目录 charmm-gui-checks/；--open 打开预览图。\n", "en": "Background execution (default)\n  charmm-gui-cli jobs watch NAME           Follow logs; Ctrl-C only stops watching\n  charmm-gui-cli --foreground build ...    Run synchronously with the final exit code\n  charmm-gui-cli jobs reconcile NAME       Reconcile uncertain submissions using GET only\n  check writes to charmm-gui-checks/ in the current directory; --open opens a preview.\n"},
     "web.preparation_failed": {"zh": "CHARMM-GUI 结构准备失败。", "en": "CHARMM-GUI preparation failed."},
     "web.preparation_incomplete": {"zh": "未能确认结构准备完成：缺少取向步骤或 PDB/PSF/配体参数链接。", "en": "Preparation completion was not established: expected orientation step and PDB/PSF/ligand parameter links."},

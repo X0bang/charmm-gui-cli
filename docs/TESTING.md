@@ -4,7 +4,7 @@
 
 ## 0.6.0 输入与后台任务验收
 
-开发分支：`feat/robust-inputs-and-background-runs`。宿主 Linux/Python 3.13；传输层使用 mock，不把本次软件回归当成新一次远端科学建模验收。中文、英文环境完整 631 项测试均通过，包括平台预览打开器和终端 JSON 兼容测试。Python 3.10.12 在临时目录安装匹配的化学/HTTP 依赖后，完整 631 项也通过；三个安装器失败路径测试显式模拟 ensurepip 可用以隔离环境前提，缺失 ensurepip 的专门测试仍保留。
+开发分支：`feat/robust-inputs-and-background-runs`。宿主 Linux/Python 3.13；传输层使用 mock，不把本次软件回归当成新一次远端科学建模验收。完整 632 项通过（英文/Python 3.13、中文/Python 3.10.12），包括平台预览打开器、恢复参数前检和终端 JSON 兼容测试。此前中文、英文环境的 631 项均通过。Python 3.10 依赖安装在临时目录；三个安装器失败路径测试显式模拟 ensurepip 可用以隔离环境前提，缺失 ensurepip 的专门测试仍保留。
 
 隔离安装器在新的临时安装前缀真实安装 0.6.0 及化学依赖，跨目录 `--version`、中文 `jobs watch -h`、`doctor` 均通过。未改动主安装、会话或已有模型。源码包与 wheel 由公开文件白名单生成；真实 Ubuntu 22.04 安装仍需 python3-venv。
 

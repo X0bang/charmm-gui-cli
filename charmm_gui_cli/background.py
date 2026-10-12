@@ -10,6 +10,8 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import math
+import shutil
 
 from .auth import ToolError, atomic_json, load_token, resolve_cookie_path
 from .i18n import set_language, t
@@ -68,6 +70,11 @@ def write_lock(fd, value):
 def launch(args):
     from .build_command import execute
     from . import managed
+    if (getattr(args, "interval", 30) < 10 or getattr(args, "max_wait", 21600) <= 0
+            or not math.isfinite(getattr(args, "post_timeout", 900)) or getattr(args, "post_timeout", 900) <= 0):
+        raise ToolError(key="background.runtime_invalid", next_step="charmm-gui-cli jobs resume -h")
+    if getattr(args, "grompp", False) and not shutil.which(getattr(args, "gmx", "gmx")):
+        raise ToolError(key="background.gromacs_missing", next_step="charmm-gui-cli doctor")
     # Local checks are completed synchronously; no modeling POST occurs here.
     if args.command == "build":
         local = argparse.Namespace(**vars(args))
@@ -78,7 +85,9 @@ def launch(args):
         directory = Path(result["directory"])
     else:
         directory = managed.resolve_run(args.directory)
-        result = {"directory": str(directory), "state": managed._read_json(directory / "full-run.json")["state"]}
+        from .full_build import _read
+        manifest = _read(directory)
+        result = {"directory": str(directory), "state": manifest.get("state", "unknown")}
     fd = claim(directory)
     try:
         manifest = managed._read_json(directory / "full-run.json")

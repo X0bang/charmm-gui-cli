@@ -72,11 +72,21 @@ class BackgroundTests(unittest.TestCase):
     def test_expired_login_fails_before_worker_spawn(self):
         from charmm_gui_cli.background import launch
         directory = Path(tempfile.mkdtemp())
-        atomic_json(directory / "full-run.json", {"schema_version": 2, "state": "inputs_ready"})
+        atomic_json(directory / "full-run.json", {"schema_version": 2, "state": "inputs_ready", "inputs": {"files": {}}})
         args = Namespace(command="build-resume", directory=directory, token_file=None, cookies=None, post_timeout=900)
         with patch("charmm_gui_cli.background.load_token", side_effect=ToolError("expired", category="authentication")), \
                 patch("charmm_gui_cli.background.subprocess.Popen") as popen, self.assertRaises(ToolError):
             launch(args)
+        popen.assert_not_called()
+
+    def test_invalid_resume_runtime_fails_before_auth_or_spawn(self):
+        from charmm_gui_cli.background import launch
+        args = Namespace(command="build-resume", directory="unused", interval=1, max_wait=60, post_timeout=900)
+        with patch("charmm_gui_cli.background.load_token") as token, \
+                patch("charmm_gui_cli.background.subprocess.Popen") as popen, self.assertRaises(ToolError) as error:
+            launch(args)
+        self.assertEqual(error.exception.key, "background.runtime_invalid")
+        token.assert_not_called()
         popen.assert_not_called()
 
     def test_active_lock_rejects_duplicate(self):
