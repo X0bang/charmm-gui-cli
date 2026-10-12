@@ -21,7 +21,7 @@ def packed_tar(payload=b"test\n"):
 
 class ArchiveTransportTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-archive-transport-test-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-archive-transport-test-")).resolve()
         self.raw = self.root / "response.raw"
         self.destination = self.root / "archive.tgz"
 

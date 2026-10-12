@@ -11,7 +11,7 @@ from charmm_gui_cli.inputs import Atom, _sdf
 
 class ManagedComponentTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-managed-components-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-managed-components-")).resolve()
         self.home_patch = patch("pathlib.Path.home", return_value=self.root / "home")
         self.home_patch.start()
         # Pipeline mocks use non-tar bytes; actual provenance has a separate suite.

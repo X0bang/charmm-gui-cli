@@ -16,7 +16,7 @@ def pdb_atom(serial, name, element, resname, chain, resid, xyz, record="HETATM",
 
 class MulticomponentTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="charmm-multicomponent-"))
+        self.root = Path(tempfile.mkdtemp(prefix="charmm-multicomponent-")).resolve()
         self.source = self.root / "bound.pdb"
         self.sdf = self.root / "chemical.sdf"
         self.sdf.write_text(_sdf([Atom(1, "C1", "C", (99, 99, 99)), Atom(2, "O1", "O", (100, 99, 99))], {(0, 1): 2}, "LIG"))

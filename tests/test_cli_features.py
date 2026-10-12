@@ -24,7 +24,7 @@ def pdb_atom(serial, name, resname, xyz, element, record="ATOM", chain="A", resi
 
 class CLIFeatureTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-cli-features-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-cli-features-")).resolve()
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.network = self.stack.enter_context(patch("requests.Session.request", side_effect=AssertionError("No network in CLI feature tests")))

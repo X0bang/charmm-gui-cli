@@ -40,7 +40,7 @@ UPLOAD = ('<form action="?doc=input/pdbreader&step=2" method="post"><input name=
 
 class MultiComponentHttpTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-multicomponent-http-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-multicomponent-http-")).resolve()
         (self.root / "inputs").mkdir()
         groups = []
         files = {"complex.pdb": str(self.root / "inputs/complex.pdb")}

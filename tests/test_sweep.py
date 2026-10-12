@@ -1,6 +1,7 @@
 """Offline scan expansion and sealed-source reuse; retained synthetic fixtures."""
 
 import json
+from charmm_gui_cli.layout import inputs_path
 from pathlib import Path
 import tempfile
 import unittest
@@ -31,7 +32,7 @@ READY = '''<script>var formstop=0;var jobid='123';</script>
 
 class SweepTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-sweep-test-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-sweep-test-")).resolve()
         self.path = self.root / "sweep.yaml"
         self.raw = {"version": 1, "inputs": {"protein": "protein.pdb", "ligand": "ligand.sdf"},
                     "axes": {"salt_concentration": [0.1, 0.15], "margin": [20, 25]}}
@@ -73,7 +74,7 @@ class SweepTests(unittest.TestCase):
             fields.extend([key, val] for key, val in overrides.items())
             atomic_json((prep / output).with_suffix(".intent.json"), {"state": "response_received", "target": modeling_target(form.get("action")),
                         "fields": fields, "upload_fields": uploads})
-        atomic_json(prep / "web-run.json", {"state": "upload_response_received", "job_id": "123", "input_pdb": str(directory / "inputs/complex.pdb")})
+        atomic_json(prep / "web-run.json", {"state": "upload_response_received", "job_id": "123", "input_pdb": str(inputs_path(directory) / "complex.pdb")})
         value.update(state="prepared", source_job_id="123", preparation_snapshot=str(prep / "parameterization.html"), preparation_page_state="ready")
         atomic_json(directory / "full-run.json", value)
 
@@ -250,7 +251,7 @@ class SweepTests(unittest.TestCase):
             with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "running"}, 0)) as execute:
                 summary, code = batch.advance(batch_dir, wait=False, max_active=2, submit_interval=0)
             self.assertEqual(execute.call_count, 2)
-            third = json.loads((batch_dir / "jobs/scan-0003/full-run.json").read_text())
+            third = json.loads((batch_dir / "jobs/scan-0003/.charmm-gui/full-run.json").read_text())
             self.assertEqual(third["state"], "prepared_reused")
             rows = json.loads((batch_dir / "batch.json").read_text())["jobs"]
             self.assertFalse(rows[2]["started"])

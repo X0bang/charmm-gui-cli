@@ -17,7 +17,7 @@ def atom(serial, name, residue, resid, xyz, element="C"):
 
 class PoseValidationCliTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-pose-cli-test-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-pose-cli-test-")).resolve()
         self.system = self.root / "system"
         self.system.mkdir()
         self.reference = self.root / "complex.pdb"

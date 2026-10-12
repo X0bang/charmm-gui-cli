@@ -26,7 +26,7 @@ class PostHeartbeatTests(unittest.TestCase):
             time.sleep(0.04)
             return "done"
         with patch.object(client, "request", side_effect=slow) as request, contextlib.redirect_stderr(output):
-            result = client._modeling_post("?doc=input/pdbreader", Path(tempfile.mkdtemp()) / "intent.json", {})
+            result = client._modeling_post("?doc=input/pdbreader", Path(tempfile.mkdtemp()).resolve() / "intent.json", {})
         self.assertEqual(result, "done")
         self.assertEqual(request.call_count, 1)
         self.assertIn("0:00", output.getvalue())

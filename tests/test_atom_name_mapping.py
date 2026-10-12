@@ -32,7 +32,7 @@ def pdb_atom(serial, name, resname, resid, xyz, element, segment):
 
 class AtomNameMappingTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-name-map-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-name-map-")).resolve()
         self.run = self.root / "bilayer"
         self.run.mkdir()
         self.archive = self.run / "charmm-gui.tgz"

@@ -28,7 +28,7 @@ def ssbond():
 
 class PdbBoundaryTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-pdb-boundaries-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-pdb-boundaries-")).resolve()
         self.source = self.root / "source.pdb"
         self.protein = [atom(1, "CYS", 1, (0, 0, 0)), atom(2, "CYS", 2, (2, 0, 0)),
                         atom(3, "ALA", 3, (0, 2, 0))]

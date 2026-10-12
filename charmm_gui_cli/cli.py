@@ -332,364 +332,43 @@ def parser():
 
 
 def dispatch(args):
-    if args.command == "update":
-        from .updater import update
-        result = update(check=args.check, prefix=args.prefix, bin_dir=args.bin_dir)
-        emit(result, command="update")
-        return 0
-    if args.command == "check":
-        from .precheck import check_inputs
-        from .preview import render_model, new_preview_path
-        report = check_inputs(out=args.out or new_preview_path("checks"), protein=args.protein,
-            ligand=args.ligand, complex_pdb=args.complex_pdb, components=args.components,
-            ligand_resname=args.ligand_resname, ligand_smiles=args.ligand_smiles,
-            accept_conect_bond_orders=args.accept_conect_bond_orders, hydrogens=args.hydrogens)
-        if report.get("passed") and not args.no_preview:
-            try:
-                report["preview"] = render_model(report["prepared_complex"], Path(report["directory"]) / "preview",
-                    ligand_resnames=report["component_resnames"], scope="prepared_input")
-            except (ToolError, OSError) as exc:
-                report["preview"] = {"status": "failed", "message": str(exc)}
-            atomic_json(Path(report["check_file"]), report)
-        emit(report if args.full else precheck_summary(report), command="check")
-        if args.open:
-            import shutil
-            import subprocess
-            opener = shutil.which("open" if sys.platform == "darwin" else "xdg-open")
-            images = report.get("preview", {}).get("images", [])
-            if opener and images and images[0].get("file"):
-                try:
-                    subprocess.Popen([opener, images[0]["file"]], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                except OSError:
-                    pass
-        return 0 if report.get("passed") else 2
-    if args.command == "preview":
-        from .preview import render_model, preview_run, new_preview_path
-        if Path(args.target).is_file():
-            report = render_model(args.target, args.out or new_preview_path(),
-                ligand_resnames=args.ligand or ("LIG",), width=args.width,
-                views=args.view or ("side", "top", "ligand"))
-        else:
-            if args.ligand:
-                raise ToolError("Task previews use the recorded component names; --ligand is only for a PDB file.")
-            from .managed import resolve_run
-            report = preview_run(resolve_run(args.target), out=args.out, width=args.width,
-                                 views=args.view or ("side", "top", "ligand"))
-        emit(report)
-        return 0
-    if args.command in ("sweep", "sweep-resume", "sweep-status"):
-        from . import sweep, batch as batching, managed
-        if args.command == "sweep":
-            directory = args.out or managed.new_batch_path()
-            prepared = sweep.prepare(args.config, directory)
-            if args.dry_run:
-                emit(prepared)
-                return 2 if prepared.get("failed") else 0
-        else:
-            directory = args.directory
-        saved = sweep.read(directory)
-        batch_directory = Path(saved["batch_directory"])
-        if args.command == "sweep-status":
-            report = batching.status(batch_directory, remote_check=args.remote_check, token_file=args.token_file)
-            if args.csv:
-                atomic_write(args.csv, batching.export_csv(report))
-                report["csv"] = str(args.csv.resolve())
-            emit({"sweep_directory": str(Path(directory).resolve()), **report})
-            return 0
-        report, code = batching.advance(batch_directory, max_active=args.max_active,
-            submit_interval=args.submit_interval, wait=args.wait, interval=args.interval,
-            max_wait=args.max_wait, token_file=args.token_file, cookies=args.cookies,
-            grompp=args.grompp, no_grompp=args.no_grompp, gmx=args.gmx, no_preview=args.no_preview, post_timeout=args.post_timeout)
-        emit({"sweep_directory": str(Path(directory).resolve()), **report})
-        return code
-    if args.command == "doctor":
-        from .doctor import inspect_installation
-        report = inspect_installation(args.gmx)
-        emit(report)
-        return 0 if report["passed"] else 2
-    if args.command == "jobs":
-        from . import managed
-        if args.jobs_command in (None, "list"):
-            emit({"jobs": managed.list_runs(), "next_step": "charmm-gui-cli jobs resume NAME"}, command="jobs.list")
-        elif args.jobs_command == "export":
-            from .delivery import export_run
-            directory = managed.resolve_run(args.target)
-            result = export_run(directory, to=args.to)
-            emit({"name": managed._job_metadata(directory).get("name", directory.name),
-                  "state": result["status"], "passed": result["passed"], "delivery": result}, command="build")
-            return 0
-        elif args.jobs_command == "watch":
-            from .background import watch
-            directory = managed.resolve_run(args.target)
-            code = watch(directory)
-            if code != 130:
-                emit(managed.inspect_run(directory), command="jobs.status")
-            return code
-        elif args.jobs_command == "reconcile":
-            from .background import metadata
-            from .reconcile import reconcile
-            from .web import WebClient
-            directory = managed.resolve_run(args.target)
-            if metadata(directory)["running"]:
-                raise ToolError(key="background.running", next_step="charmm-gui-cli jobs list")
-            _, source = load_token(args.token_file)
-            result = reconcile(directory, WebClient(resolve_cookie_path(args.cookies, source)),
-                               confirm_not_submitted=args.confirm_not_submitted, source_job_id=args.source_jobid)
-            emit(result)
-            return 0
-        elif args.jobs_command in ("status", "show"):
-            emit(managed.inspect_run(args.target, remote_check=args.remote_check, token_file=args.token_file), command="jobs.status")
-        elif args.jobs_command == "report":
-            if args.full and args.format != "json":
-                raise ToolError(key="cli.full_json")
-            if args.format == "html" and args.out is None:
-                raise ToolError(key="cli.html_out")
-            directory = managed.resolve_run(args.target)
-            result = managed.inspect_run(directory)
-            if result.get("validation_status") == "stale_or_unreadable":
-                raise ToolError(key="cli.stale_report")
-            path = directory / "results" / "validation.json"
-            if not path.is_file():
-                raise ToolError(key="cli.no_report")
-            report = managed._read_json(path)
-            summary = report_summary(report, result.get("name"), path)
-            if args.format == "json":
-                payload = report if args.full else summary
-                if args.out:
-                    from .reporting import write_new
-                    destination = write_new(args.out, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
-                    emit({"report": destination, "passed": report.get("passed"), "format": "json"})
-                else:
-                    emit(payload)
-            else:
-                from .reporting import display_result, render_text, render_html, verified_images, write_new
-                displayed = display_result(summary, result, managed._read_json(directory / "full-run.json"), report)
-                if args.format == "html":
-                    images, note = verified_images(directory, report)
-                    content = render_html(displayed, images, note)
-                else:
-                    content = render_text(displayed)
-                if args.out:
-                    destination = write_new(args.out, content)
-                    emit({"report": destination, "passed": report.get("passed"), "format": args.format})
-                else:
-                    print(content, end="")
-            return 0 if report.get("passed") else 2
-        elif args.jobs_command == "resume":
-            from .build_command import execute
-            args.directory = managed.resolve_run(args.target)
-            args.command = "build-resume"
-            from .background import launch
-            result, code = execute(args) if args.foreground else launch(args)
-            emit(result, command="jobs.resume")
-            return code
-        elif args.jobs_command == "attach":
-            directory = managed.resolve_run(args.target)
-            token, _ = load_token(args.token_file)
-            result = workflow.attach(Client(token), directory / "bilayer", args.jobid)
-            managed.record_recovery(directory, state="submitted")
-            emit({"directory": str(directory), **brief(result), "next_step": "charmm-gui-cli jobs resume " + args.target})
-        return 0
-    if args.command in ("batch", "batch-resume", "batch-status"):
-        from . import batch as batching, managed
-        if args.command == "batch-status":
-            report = batching.status(args.directory, remote_check=args.remote_check, token_file=args.token_file)
-            if args.csv:
-                atomic_write(args.csv, batching.export_csv(report))
-                report["csv"] = str(args.csv.resolve())
-            emit(report)
-            return 0
-        if args.command == "batch":
-            directory = args.out or managed.new_batch_path()
-            report = batching.initialize(args.config, directory)
-            if args.dry_run:
-                emit(report)
-                return 2 if report.get("failed", 0) else 0
-        else:
-            directory = args.directory
-        report, code = batching.advance(directory, max_active=args.max_active,
-            submit_interval=args.submit_interval, wait=args.wait, interval=args.interval,
-            max_wait=args.max_wait, token_file=args.token_file, cookies=args.cookies,
-            grompp=args.grompp, no_grompp=args.no_grompp, gmx=args.gmx, no_preview=args.no_preview, post_timeout=args.post_timeout)
-        emit(report)
-        return code
-    if args.command == "inputs":
-        from .inputs import prepare_inputs
-        emit(prepare_inputs(args.protein, args.ligand, args.out, ligand_resname=args.ligand_resname,
-                            hydrogen_policy=args.hydrogens))
-        return 0
-    if args.command == "split":
-        from .inputs import split_complex
-        emit(split_complex(args.pdb, args.out, ligand_resname=args.ligand, accept_conect_bond_orders=True))
-        return 0
-    if args.command in ("build", "build-resume"):
-        args._managed_cli = True
-        from .build_command import execute
-        from .background import launch
-        result, code = execute(args) if args.foreground or getattr(args, "dry_run", False) else launch(args)
-        emit(result, command=args.command)
-        return code
-    if args.command == "validate":
-        from .validation import extract_for_validation, inspect_environment, validate_system
-        build_config = None
-        if args.build_config:
-            from .build_config import load_build_config
-            build_config = load_build_config(args.build_config)
-        if args.out.exists():
-            raise ToolError(key="cli.validation_exists")
-        args.out.mkdir(parents=True)
-        system = args.system
-        if system.is_file():
-            system = extract_for_validation(system, args.out / "extracted")
-        report = validate_system(system, args.input_manifest, run_grompp=args.grompp,
-                                 gmx=args.gmx, output_parent=args.out)
-        if build_config is not None:
-            coordinates = report.get("files", {}).get("coordinates")
-            if not coordinates:
-                environment = {"passed": False, "error": "No validated coordinate file was identified for environment checks."}
-            else:
-                lipids = sorted({name for leaflet in ("upper", "lower")
-                                 for name in build_config["membrane"][leaflet].split("=", 1)[0].split(":")})
-                try:
-                    environment = inspect_environment(
-                        coordinates, expected_lipids=lipids, ion_type=build_config["ions"]["type"],
-                        concentration_M=build_config["ions"]["concentration_M"], system_dir=system)
-                except ToolError as exc:
-                    environment = {"passed": False, "error": str(exc)}
-            report["environment_validation"] = environment
-            report["passed"] = bool(report["passed"] and environment["passed"])
-            from .acceptance import assess_acceptance
-            acceptance = assess_acceptance(system, membrane=build_config["membrane"], ligand_resname=build_config["ligand_resname"])
-            report.update(acceptance_validation=acceptance, review_required=acceptance.get("review_required", False),
-                          review_warnings=acceptance.get("warnings", []))
-            report["passed"] = bool(report["passed"] and acceptance["passed"])
-        if args.reference_pdb is not None:
-            from .pose_validation import validate_bound_pose
-            pose = validate_bound_pose(system, args.input_manifest, args.reference_pdb)
-            report["bound_pose_validation"] = pose
-            report["passed"] = bool(report["passed"] and pose["passed"])
-        atomic_json(args.out / "validation.json", report)
-        emit(report)
-        return 0 if report["passed"] else 2
-    if args.command in ("web-login", "web-inspect", "web-upload", "web-step"):
-        from .web import WebClient
-        cookies = resolve_cookie_path(args.cookies)
-        web_client = WebClient(None if args.command == "web-login" else cookies)
-        if args.command == "web-login":
-            result = web_client.login(args.email or input(t("prompt.email")), getpass(t("prompt.password")))
-            web_client.cookie_path = cookies
-            web_client.save_cookies()
-        elif args.command == "web-upload":
-            result = web_client.upload_structure(args.pdb, args.out, args.project)
-        elif args.command == "web-step":
-            try:
-                fields = dict(value.split("=", 1) for value in args.fields)
-                files = dict(value.split("=", 1) for value in args.files)
-            except ValueError:
-                raise ToolError(key="cli.fields") from None
-            result = web_client.submit_snapshot(args.snapshot, args.out, fields, files)
-        else:
-            result = web_client.inspect(args.doc, args.out)
-        emit(result)
-        return 0
-    if args.command == "prepare":
-        config = validate_config({
-            "version": 1, "source_job_id": None, "input_pdb": str(args.pdb.resolve()),
-            "expected_ligands": args.ligand,
-            "preparation": {"ligand_parameters_ready": False, "orientation": "ppm"},
-            "membrane": {"upper": "POPC=1", "lower": "POPC=1", "margin_A": 20, "water_padding_A": 22.5},
-            "ions": {"type": "NaCl", "concentration_M": 0.15},
-        })
-        proposal = plan(config)
-        if proposal["local_pdb"]["missing_ligands"]:
-            raise ToolError(key="cli.ligand_absent")
-        try:
-            args.out.mkdir(parents=True, exist_ok=False)
-        except FileExistsError:
-            raise ToolError(key="cli.preparation_exists") from None
-        atomic_write(args.out / "system.yaml", yaml.safe_dump(config, sort_keys=False))
-        atomic_json(args.out / "preparation.json", proposal)
-        emit({"config": str(args.out / "system.yaml"), "report": str(args.out / "preparation.json"),
-              "next_step": "Prepare the complex/ligand on the website, then fill source_job_id and preparation fields.",
-              "defaults": "POPC, NaCl 0.15 M and PPM are editable placeholders, not recommendations for this protein."})
-        return 0
-    if args.command == "login":
-        from .web import WebClient
-        destination = (args.save_to or args.token_file or default_token_path()).expanduser()
-        cookies = resolve_cookie_path(args.cookies, str(destination))
-        if destination.resolve() == cookies.resolve():
-            raise ToolError(key="cli.session_paths")
-        email = args.email or input(t("prompt.email"))
-        password = getpass(t("prompt.password"))
-        token = Client().login(email, password)
-        # Authenticate both transports before touching the saved credentials.
-        # A failed website login must not leave a new JWT paired with old cookies.
-        web_client = WebClient()
-        web_result = web_client.login(email, password)
-        web_client.cookie_path = cookies
-        web_client.save_cookies()
-        atomic_write(destination, token + "\n")
-        result = {"logged_in": True, "api_authenticated": True, **web_result,
-                  "saved_to": str(destination), "cookie_file": str(cookies), "permissions": "0600",
-                  "next_step": "charmm-gui-cli build --protein protein.pdb --ligand bound-ligand.sdf --name receptor-a"}
-        if os.environ.get("CHARMMGUI_TOKEN"):
-            result["notice"] = "CHARMMGUI_TOKEN is set and overrides the saved login. Unset it to use this session by default."
-        emit(result, command="login", email=email)
-        return 0
-    if args.command == "plan":
-        proposal = plan(load_config(args.config))
-        emit(proposal)
-        return 0 if proposal["ready_to_submit"] else 2
-    if args.command == "inspect":
-        report = inspect_archive(args.archive, args.ligand, args.pdb_member)
-        emit(report)
-        return 0 if report["passed"] else 2
-    token, source = load_token(args.token_file)
-    client = Client(token)
-    if args.command == "auth":
-        info = {"source": source, **token_info(token), "server_checked": False}
-        cookies = resolve_cookie_path(token_source=source)
-        info.update(cookie_file=str(cookies), web_session_saved=cookies.is_file())
-        if args.check or args.jobid:
-            data = client.status(args.jobid)
-            # A newly uploaded web job has status=null before computation,
-            # yet a matching job record already proves API access to it.
-            if "jobid" in data and data["jobid"] != args.jobid:
-                raise ToolError(key="cli.jobid_mismatch")
-            if "jobid" not in data:
-                workflow.status_summary(data)
-            info["job_access_confirmed"] = args.jobid
-            info["remote_status"] = data.get("status")
-            info["server_checked"] = True
-        emit(info)
-        return 2 if info["expired"] else 0
-    if args.command == "status":
-        data = client.status(args.jobid)
-        if args.diagnostic:
-            emit({"job_id": args.jobid, "status": data.get("status"),
-                  "last_output_file": data.get("lastOutFile"), "last_input_step": data.get("lastInpStep"),
-                  "archive_available": data.get("hasTarFile"),
-                  "response_shape": {key: type(value).__name__ for key, value in data.items()}})
-        else:
-            emit({"job_id": args.jobid, **workflow.status_summary(data)}, command="status")
-    elif args.command == "download":
-        if workflow.status_summary(client.status(args.jobid))["status"] != "done":
-            raise ToolError(key="cli.not_done")
-        emit({"archive": str(client.download(args.jobid, args.out))})
-    elif args.command == "attach":
-        emit(brief(workflow.attach(client, args.directory, args.jobid)))
-    elif args.command in ("run", "resume"):
-        if args.interval < 10 or args.max_wait <= 0:
-            raise ToolError(key="cli.polling")
-        directory = args.out if args.command == "run" else args.directory
-        if args.command == "run":
-            result = workflow.start(client, load_config(args.config), directory)
-            if not args.wait:
-                emit(brief(result))
-                return 0
-        emit(brief(workflow.resume(client, directory, wait=args.wait, interval=args.interval,
-                                   max_wait=args.max_wait, pdb_member=args.pdb_member)))
-    return 0
+    from importlib import import_module
+    handlers = {
+        'update': 'update',
+        'check': 'check',
+        'preview': 'preview',
+        'sweep': 'sweep',
+        'sweep-resume': 'sweep_resume',
+        'sweep-status': 'sweep_status',
+        'doctor': 'doctor',
+        'jobs': 'jobs',
+        'batch': 'batch',
+        'batch-resume': 'batch_resume',
+        'batch-status': 'batch_status',
+        'inputs': 'inputs',
+        'split': 'split',
+        'build': 'build',
+        'build-resume': 'build_resume',
+        'validate': 'validate',
+        'web-login': 'web_login',
+        'web-inspect': 'web_inspect',
+        'web-upload': 'web_upload',
+        'web-step': 'web_step',
+        'prepare': 'prepare',
+        'login': 'login',
+        'plan': 'plan',
+        'inspect': 'inspect',
+        'auth': 'auth',
+        'status': 'status',
+        'download': 'download',
+        'attach': 'attach',
+        'run': 'run',
+        'resume': 'resume',
+    }
+    module = import_module(".commands." + handlers[args.command], __package__)
+    return module.execute(args)
+
+
 
 
 def main(argv=None):

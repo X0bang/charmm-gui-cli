@@ -16,7 +16,7 @@ DATASET = Path(__file__).resolve().parents[1] / "test-dataset/CrtW_BetaCarotene_
 
 class InputsTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="charmm-input-test-"))
+        self.root = Path(tempfile.mkdtemp(prefix="charmm-input-test-")).resolve()
 
     def split(self):
         if not DATASET.is_file():

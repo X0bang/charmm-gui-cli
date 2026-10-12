@@ -26,7 +26,7 @@ import install_user
 
 class PackagingTests(unittest.TestCase):
     def setUp(self):
-        self.directory = Path(tempfile.mkdtemp(prefix="cgui-packaging-test-"))
+        self.directory = Path(tempfile.mkdtemp(prefix="cgui-packaging-test-")).resolve()
 
     def test_source_allowlist_excludes_runtime_credentials_and_user_data(self):
         names = build_release.selected_files(ROOT)

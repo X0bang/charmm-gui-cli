@@ -25,7 +25,7 @@ def raw_response(content):
 
 class ArchivePreparingTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-archive-preparing-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-archive-preparing-")).resolve()
         self.session = Mock(spec=requests.Session)
 
     def test_exact_observed_message_retains_response_without_publishing_archive(self):

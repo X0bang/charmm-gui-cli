@@ -14,7 +14,7 @@ requires_private_fixture = unittest.skipUnless(DATASET.is_file(), "Private integ
 
 class InputSourcesTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="charmm-sources-test-"))
+        self.root = Path(tempfile.mkdtemp(prefix="charmm-sources-test-")).resolve()
         self.protein = self.root / "protein.pdb"
         self.protein.write_text("ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C\nEND\n")
 

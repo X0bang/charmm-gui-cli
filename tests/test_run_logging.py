@@ -20,7 +20,7 @@ class RunLoggingTests(unittest.TestCase):
         self.assertNotIn("\x1b", stream.getvalue())
 
     def test_inline_refreshes_do_not_enter_log(self):
-        path = Path(tempfile.mkdtemp()) / "run.log"
+        path = Path(tempfile.mkdtemp()).resolve() / "run.log"
         stream = LogStream(io.StringIO(), path)
         stream.write("record\n")
         stream.write("\r⠋ refresh")

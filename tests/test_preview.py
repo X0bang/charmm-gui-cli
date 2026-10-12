@@ -29,7 +29,7 @@ def atom(index, name, residue, xyz, *, segment="", chain="A", resid=1, element="
 @unittest.skipUnless(importlib.util.find_spec("numpy") and importlib.util.find_spec("PIL"), "Preview dependencies unavailable")
 class PreviewTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-preview-test-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-preview-test-")).resolve()
         self.pdb = self.root / "model.pdb"
         rows = [atom(1, "CA", "ALA", (-2, 0, 0), resid=1),
                 atom(2, "CA", "ALA", (1.8, 0, 0), resid=2),

@@ -17,6 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
       - name: Verify packages and publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -28,16 +32,12 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           source="charmm-gui-cli-${version}.tar.gz"
           wheel="charmm_gui_cli-${version}-py3-none-any.whl"
-          base="https://raw.githubusercontent.com/${GH_REPO}/${GITHUB_SHA}"
-          for name in "$source" "$wheel" SHA256SUMS; do
-            curl --fail --silent --show-error --location --retry 3 \
-              "${base}/download/${name}" --output "$name"
-          done
+          python -c 'import sys; from scripts.build_release import metadata; sys.exit(metadata(__import__("pathlib").Path("."))["version"] != sys.argv[1])' "$version"
+          python scripts/build_release.py --out release-assets
+          cd release-assets
           sha256sum --ignore-missing --check SHA256SUMS
-          curl --fail --silent --show-error --location --retry 3 \
-            "${base}/CHANGELOG.md" --output release-notes.md
           # Keep a failed or incomplete upload private; never publish an empty release.
           gh release create "$GITHUB_REF_NAME" --verify-tag --draft \
-            --title "charmm-gui-cli ${version}" --notes-file release-notes.md \
+            --title "charmm-gui-cli ${version}" --notes-file ../CHANGELOG.md \
             "$source" "$wheel" SHA256SUMS
           gh release edit "$GITHUB_REF_NAME" --draft=false --latest

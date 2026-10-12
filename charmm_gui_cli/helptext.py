@@ -1,9 +1,4 @@
-"""Dynamic localized workflow help; importing it never accesses the network."""
-
-from .i18n import t
-
-
-def __getattr__(name):
-    if name in ("OVERVIEW", "BUILD_GUIDE"):
-        return t("help." + name.lower())
-    raise AttributeError(name)
+"""Compatibility import; implementation lives in locales.helptext."""
+import sys
+from .locales import helptext as _implementation
+sys.modules[__name__] = _implementation

@@ -23,7 +23,7 @@ class ReportingTests(unittest.TestCase):
         language.start()
         self.addCleanup(language.stop)
         i18n.set_language("zh")
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-report-test-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-report-test-")).resolve()
         self.report = {"fingerprint": "current", "passed": True, "status": "validated",
                        "review_warnings": ["<script>alert(1)</script>"], "review_required": True}
         self.context = {"directory": str(self.root), "name": "model-a", "passed": True,

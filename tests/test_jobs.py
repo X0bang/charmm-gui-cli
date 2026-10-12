@@ -15,7 +15,7 @@ from charmm_gui_cli.cli import main
 
 class JobsTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-jobs-test-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-jobs-test-")).resolve()
         self.home = self.root / "home"
         self.home.mkdir()
         self.stack = contextlib.ExitStack()

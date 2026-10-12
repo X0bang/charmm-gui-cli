@@ -14,7 +14,7 @@ from tests.test_pdb_boundaries import atom
 
 class RobustInputTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="cgui-robust-inputs-"))
+        self.root = Path(tempfile.mkdtemp(prefix="cgui-robust-inputs-")).resolve()
         self.path = self.root / "input.pdb"
 
     def pdb(self, lines):

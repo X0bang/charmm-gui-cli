@@ -147,7 +147,7 @@ class WebClientTests(unittest.TestCase):
                 self.assertNotIn(secret, output.getvalue())
 
     def test_foreign_cookie_domain_is_rejected(self):
-        root = Path(tempfile.mkdtemp(prefix="cgui-web-test-"))
+        root = Path(tempfile.mkdtemp(prefix="cgui-web-test-")).resolve()
         path = root / "cookies.json"
         atomic_json(path, {"cookies": [{"name": "session", "value": "SECRET", "domain": ".example.org"}]})
         with self.assertRaises(ToolError) as caught:
@@ -180,7 +180,7 @@ class WebClientTests(unittest.TestCase):
             self.assertTrue(modeling_target(action).startswith(WEB_BASE))
 
     def test_two_concurrent_step_attempts_make_only_one_post(self):
-        root = Path(tempfile.mkdtemp(prefix="cgui-web-claim-test-"))
+        root = Path(tempfile.mkdtemp(prefix="cgui-web-claim-test-")).resolve()
         snapshot, output = root / "before.html", root / "after.html"
         snapshot.write_text('<form action="?doc=input/pdbreader&step=2"><input name="jobid" value="123"></form>')
         barrier = threading.Barrier(2)
