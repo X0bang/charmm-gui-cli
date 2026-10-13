@@ -114,6 +114,8 @@ def check_release(session, current_version):
     """Use the latest published release, never an unreleased main version."""
     try:
         release = json.loads(_download(session, RELEASE_URL, limit=256 * 1024))
+        if not isinstance(release, dict) or not isinstance(release.get("tag_name"), str):
+            raise ValueError
         tag = release["tag_name"]
         version = tag.removeprefix("v")
         _version(version)
@@ -132,6 +134,8 @@ def check_release(session, current_version):
         elif ref["object"]["type"] != "commit":
             raise ValueError
         assets = release["assets"]
+        if not isinstance(assets, list) or any(not isinstance(asset, dict) for asset in assets):
+            raise ValueError
         filename = "charmm-gui-cli-" + version + ".tar.gz"
         urls = {}
         for name in (filename, "SHA256SUMS"):
@@ -142,7 +146,7 @@ def check_release(session, current_version):
             if url != f"https://github.com/{REPOSITORY}/releases/download/{tag}/{name}":
                 raise ValueError
             urls[name] = url
-    except (ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, TypeError, AttributeError):
         raise _error("metadata") from None
     checksums = _download(session, urls["SHA256SUMS"], limit=64 * 1024)
     try:

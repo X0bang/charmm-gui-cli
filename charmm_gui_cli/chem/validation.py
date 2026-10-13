@@ -8,6 +8,7 @@ from collections import Counter
 import hashlib
 import json
 import math
+import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
@@ -121,15 +122,25 @@ def extract_for_validation(archive_path, destination, *, max_bytes=4 * 1024 ** 3
                 if str(path) in targets:
                     raise ToolError("Archive has duplicate file paths.")
                 targets.add(str(path))
-        destination.mkdir(parents=True)
-        for member in members:
-            path = destination.joinpath(*PurePosixPath(member.name).parts)
-            if member.isdir():
-                path.mkdir(parents=True, exist_ok=True)
-            else:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                with archive.extractfile(member) as source, path.open("xb") as output:
-                    shutil.copyfileobj(source, output)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        # Never expose a partial model as the final, user-editable directory.
+        # Only this invocation's temporary tree is removed on an exception.
+        with tempfile.TemporaryDirectory(prefix=".extract-", dir=destination.parent) as temporary:
+            staging = Path(temporary) / "model"
+            staging.mkdir()
+            for member in members:
+                path = staging.joinpath(*PurePosixPath(member.name).parts)
+                if member.isdir():
+                    path.mkdir(parents=True, exist_ok=True)
+                else:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    with archive.extractfile(member) as source, path.open("xb") as output:
+                        shutil.copyfileobj(source, output)
+                        output.flush()
+                        os.fsync(output.fileno())
+            if destination.exists() or destination.is_symlink():
+                raise ToolError(key="validation.destination_exists")
+            staging.rename(destination)
     return destination.resolve()
 
 

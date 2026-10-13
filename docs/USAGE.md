@@ -159,12 +159,16 @@ charmm-gui-cli build-resume /path/to/run
 charmm-gui-cli build --protein protein.pdb --ligand bound.sdf --no-wait
 ```
 
-0.6.0 默认在后台运行，任务目录为当前目录的 `charmm-gui-runs/<任务名>/`，日志为 `run.log`；用 `jobs watch NAME` 跟踪，Ctrl-C 只退出查看。脚本和 Slurm 使用 `charmm-gui-cli --foreground build ...` 获取最终退出码。旧任务位置不迁移，`jobs` 仍通过全局索引查找。用户主要关心两项结果：
+建模默认在后台运行，任务只占当前目录下的 `./<任务名>/`，`--out DIR` 可指定其他位置，日志为该目录的 `run.log`；用 `jobs watch NAME` 跟踪，Ctrl-C 只退出查看。脚本和 Slurm 使用 `charmm-gui-cli --foreground build ...` 获取最终退出码。旧任务位置不迁移，`jobs` 仍通过全局索引查找。主要结果是：
 
-- `bilayer/charmm-gui.tgz`：完整 CHARMM-GUI 模型归档。
-- `results/validation.json`：自动验收结论及证据；解压结构、拓扑和可选 TPR 路径也记录在报告中。
+- `charmm-gui.tgz`：完整 CHARMM-GUI 模型归档，仅保留一份。
+- `model/`：解压后的模型和模拟输入，仅保留一份。
+- `report.txt`：可直接阅读的验收结论；详细证据保存在 `.charmm-gui/results/validation.json`。
+- `inputs/`：实际使用的输入，`system-config.json` 区分 requested 和 applied 参数。
 
-无需手工编辑这些文件。程序不会覆盖已有任务、删除原始结构或自动清理失败文件。报告缓存绑定归档、输入、配置、工具版本和 GROMACS 编译器；缺少编译产物或证据变化会重新检查。
+程序不会覆盖已有任务或删除原始结构。新任务的本地准备失败时，仅撤销本次创建的暂存内容，可修正后使用同名重新建模；远端任务、提交意图和未知 POST 不会因此被清除。报告缓存核对归档、实际模型、输入、配置和编译产物。升级后可查看历史报告及其原验收版本；显式重新验收使用当前版本。
+
+模型解压完成后才交付为 `model/`，中断可恢复。修改模型会使旧验收结论失效；重复导出不会覆盖用户编辑的 `report.txt`、`README.txt` 或 `inputs/system-config.json`，请先备份修改或导出到新目录。
 
 每阶段默认最多等待 6 小时，每 30 秒查询；`--max-wait` 和 `--interval` 可调整。达到等待上限或终端中断不等于取消远端任务，使用 `build-resume` 继续；不要为同一个未完成任务再次 `build`。
 

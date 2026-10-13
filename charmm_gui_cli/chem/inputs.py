@@ -16,6 +16,7 @@ import re
 
 from ..auth import ToolError
 from ..pdb_normalization import normalize_lines
+from ..i18n import t
 
 
 @dataclass
@@ -84,7 +85,7 @@ def _pdb(path, *, report=None):
     for line in lines:
         if line.startswith(("ATOM  ", "HETATM")):
             if line[16:17].strip():
-                raise ToolError("Resolve alternate atom locations before input preparation.")
+                raise ToolError(key="input.altloc", next_step=t("input.altloc_next"))
             element = line[76:78].strip().title()
             if not element:
                 raise ToolError("PDB atoms need explicit element columns 77-78.")
@@ -150,7 +151,7 @@ def read_ligand(path):
         raise ToolError("Ligand SDF must contain exactly one molecule.")
     lines = records[0].splitlines()
     if len(lines) < 5 or "V2000" not in lines[3]:
-        raise ToolError("Ligand input must be SDF V2000; convert other formats explicitly first.")
+        raise ToolError(key="input.sdf_format", next_step=t("input.sdf_convert_next"))
     try:
         n, nb = int(lines[3][:3]), int(lines[3][3:6])
         if n < 1 or nb < 0 or len(lines) < 5 + n + nb:
@@ -252,6 +253,13 @@ def _validate_ligand(ligand):
             raise ToolError("RDKit could not sanitize the ligand; verify bonds, charges and atom types.")
         report["rdkit_sanitized"] = True
         report["molecular_formula"] = rdMolDescriptors.CalcMolFormula(mol)
+        implicit = sum(atom.GetNumImplicitHs() for atom in mol.GetAtoms())
+        report["implicit_hydrogen_atoms"] = implicit
+        report["explicit_hydrogen_atoms"] = sum(atom.element == "H" for atom in atoms)
+        if implicit:
+            report["chemistry_warnings"] = [{"key": "input.implicit_hydrogens", "params": {"count": implicit}}]
+            from ..i18n import MESSAGES
+            report["warnings"].append(MESSAGES["input.implicit_hydrogens"]["en"].format(count=implicit))
         report["warnings"].append("RDKit sanitization is not a force-field quality or protonation-state assessment.")
     return report
 
@@ -388,7 +396,7 @@ def _validate_protein(atoms):
     if not atoms or not any(a.line[12:16].strip() == "CA" for a in atoms):
         raise ToolError("Protein input must contain protein ATOM records including alpha carbons.")
     if any(not a.line.startswith("ATOM  ") for a in atoms):
-        raise ToolError("Protein input contains HETATM records; resolve cofactors, waters and ligands explicitly first.")
+        raise ToolError(key="input.protein_hetero", next_step=t("input.protein_hetero_next"))
 
 
 def _conect(bonds):
@@ -436,7 +444,7 @@ def prepare_inputs(protein_pdb, ligand_sdf, output_dir, *, ligand_resname="LIG",
     if distance < 0.8:
         raise ToolError("Protein/ligand heavy atoms overlap (<0.8 A); verify coordinate frame and binding pose.")
     if distance > 6 and not allow_distant_pose:
-        raise ToolError("Ligand is >6 A from protein; supply a bound pose in the same coordinate frame or explicitly allow_distant_pose.")
+        raise ToolError(key="input.distant_pose", next_step=t("input.distant_pose_next"))
     protein_map = {a.serial: i + 1 for i, a in enumerate(protein)}
     metadata = [line for line in Path(protein_pdb).read_text().splitlines() if line.startswith("SSBOND")]
     protein_lines = metadata + _protein_pdb_lines(protein_pdb, protein, protein_map)

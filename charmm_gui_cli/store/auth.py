@@ -32,7 +32,7 @@ class ToolError(Exception):
     """A user-facing error that never includes credentials or response bodies."""
 
     def __init__(self, message=None, *, key=None, params=None, category="operation_error", next_step=None, retryable=False,
-                 retry_after_seconds=None, cause_category=None):
+                 retry_after_seconds=None, cause_category=None, server_message=None):
         self.key = key
         self.params = dict(params or {})
         # Keep str(error) and stored error messages stable for old consumers.
@@ -45,6 +45,7 @@ class ToolError(Exception):
         self.retryable = retryable
         self.retry_after_seconds = retry_after_seconds
         self.cause_category = cause_category
+        self.server_message = server_message
 
     def localized(self):
         return t(self.key, **self.params) if self.key else str(self)
@@ -56,6 +57,11 @@ class ToolError(Exception):
             result["retry_after_seconds"] = self.retry_after_seconds
         if self.cause_category is not None:
             result["cause_category"] = self.cause_category
+        if self.server_message is not None:
+            result["server_message"] = self.server_message
+        if self.key:
+            result["message_key"] = self.key
+            result["message_params"] = self.params
         return result
 
 

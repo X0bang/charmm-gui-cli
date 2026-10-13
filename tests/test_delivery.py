@@ -214,11 +214,21 @@ class DeliveryTests(unittest.TestCase):
 
     def test_new_initialization_records_creation_directory_before_remote_work(self):
         from charmm_gui_cli.full_build import initialize
-        config = {"protein": "protein.pdb", "ligand": "ligand.sdf", "ligand_resname": "LIG", "ligand_hydrogens": "preserve"}
+        config = {"protein": "protein.pdb", "ligand": "ligand.sdf", "ligand_resname": "LIG", "ligand_hydrogens": "preserve",
+                  "preparation": {"n_terminal": "NTER", "c_terminal": "CTER", "orientation": "ppm"}}
         with patch("charmm_gui_cli.full_build.load_build_config", return_value=config), \
                 patch("charmm_gui_cli.full_build.prepare_inputs", return_value={"files": {}}):
             result = initialize(self.root / "config.yaml", self.root / "new-run")
         context = result["delivery_context"]
         self.assertEqual(context["creation_directory"], str(self.project))
         self.assertEqual(len(context["task_id"]), 32)
+
+    def test_legacy_filename_like_job_remains_exportable(self):
+        atomic_json(self.run / "job.json", {"name": "legacy.sdf"})
+        result = delivery.export_run(self.run, to=self.root / "legacy-export")
+        self.assertTrue(result["passed"])
+        self.assertTrue((self.root / "legacy-export/report.txt").is_file())
+        config = json.loads((self.root / "legacy-export/inputs/system-config.json").read_text())
+        self.assertIn("requested", config)
+        self.assertIn("applied", config)
 

@@ -342,8 +342,11 @@ def preview_run(directory, *, report=None, out=None, width=1400, views=("side", 
         if report is not None and report.get("fingerprint") != stored.get("fingerprint"):
             raise ToolError("Preview report does not match current final validation evidence.")
         extracted = Path(stored["extracted_directory"]).resolve()
-        if not extracted.is_relative_to(directory / "results" / "checks"):
-            raise ToolError("Final extracted system must be inside this task's validation directory.")
+        from ..layout import modern, task_root
+        valid = (extracted == task_root(directory) / "model" if modern(directory)
+                 else extracted.is_relative_to(directory / "results" / "checks"))
+        if not valid:
+            raise ToolError(key="preview.invalid_model_path")
         finals = [p for p in extracted.rglob("step5_input.pdb") if p.parent.name == "gromacs"]
         if len(finals) > 1:
             raise ToolError("Multiple final-input PDB files exist; refusing an ambiguous preview.")

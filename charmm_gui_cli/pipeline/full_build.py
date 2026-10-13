@@ -28,12 +28,10 @@ def _save(directory, manifest):
 def initialize(config_path, directory, *, _reserved=False):
     config = load_build_config(config_path)
     directory = Path(directory).resolve()
-    if directory.exists() and not _reserved:
-        raise ToolError("Build directory already exists; use build-resume.")
-    if modern(directory) and not _reserved:
-        task_root(directory).mkdir(mode=0o700, parents=True, exist_ok=False)
     if not _reserved:
-        directory.mkdir(parents=True)
+        from ..store.local_build import local_initialization
+        with local_initialization(directory):
+            return initialize(config_path, directory, _reserved=True)
     from ..delivery import creation_context
     manifest = {"schema_version": 2, "created_at": now(), "state": "preparing_inputs", "config": config,
                 "delivery_context": creation_context()}
@@ -41,6 +39,8 @@ def initialize(config_path, directory, *, _reserved=False):
     prepared = prepare_inputs(config["protein"], config["ligand"], inputs_path(directory),
                               ligand_resname=config["ligand_resname"],
                               hydrogen_policy=config["ligand_hydrogens"])
+    from ..build_config import validate_terminal_residues
+    validate_terminal_residues(config["preparation"], prepared.get("manifest", {}).get("input_normalization", {}).get("terminal_predictions", []))
     manifest.update(state="inputs_ready", inputs=prepared)
     _save(directory, manifest)
     return manifest
@@ -153,11 +153,19 @@ def _preparation_fields(snapshot, config, groups=None, adjustments=None):
             raise snapshot_error(snapshot, "web.no_sdf_field", name=name)
         overrides.update({f"rename[{name}]": "cgenff", f"rename_option[cgenff][{name}]": "sdf",
                           f"newname[{name}]": name, f"comment[{name}]": "cgenff"})
+    used_terminals = set()
+    patches = config["preparation"].get("terminals", {})
     for field in soup.select("select[name]"):
         match = re.fullmatch(r"terminal\[([^]]+)\]\[(first|last)\]", field["name"])
         if match:
             chain, end = match.groups()
-            value = config["preparation"]["n_terminal" if end == "first" else "c_terminal"]
+            preparation = config["preparation"]
+            patches = preparation.get("terminals", {})
+            key = "n_terminal" if end == "first" else "c_terminal"
+            chain_key = chain if chain in patches else chain[-1:]
+            value = patches.get(chain_key, {}).get(key, preparation[key])
+            if key in patches.get(chain_key, {}):
+                used_terminals.add((chain_key, key))
             options = [option.get("value", "") for option in field.find_all("option") if not option.has_attr("disabled")]
             if value not in options and value == "NTER" and end == "first":
                 replacement = next((patch for patch in ("GLYP", "PROP") if patch in options), None)
@@ -172,6 +180,10 @@ def _preparation_fields(snapshot, config, groups=None, adjustments=None):
                 raise ToolError(key="terminal.unavailable", params={"chain": chain, "end": "N" if end == "first" else "C",
                                 "requested": value, "options": ", ".join(options)}, next_step=t("terminal.next"))
             overrides[field["name"]] = value
+    missing = {(chain, key) for chain, values in patches.items() for key in values} - used_terminals
+    if missing:
+        raise ToolError(key="terminal.chain_missing", params={"chains": ", ".join(sorted(chain + ":" + key for chain, key in missing))},
+                        next_step=t("terminal.next"))
     return overrides
 
 
@@ -229,10 +241,10 @@ def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, pro
         _await_preparation(web, directory, manifest, parameterized, wait, interval, max_wait, progress)
         if manifest["state"] != "prepared":
             return manifest
-        prepared_config = api_config(config, identifier)
+        prepared_config = api_config(config, identifier, existing=True)
         if groups is not None:
             prepared_config["expected_ligands"] = [group["resname"] for group in groups]
-            prepared_config = validate_config(prepared_config)
+            prepared_config = validate_config(prepared_config, existing=True)
         return _start_prepared_bilayer(directory, manifest, api, prepared_config, wait, interval, max_wait, progress)
 
 
@@ -245,7 +257,7 @@ def _start_prepared_bilayer(directory, manifest, api, prepared_config, wait, int
     if progress:
         progress({"state": "submitting_bilayer", "job_id": manifest["source_job_id"], "source_job_id": manifest["source_job_id"]})
     # workflow.start creates its own durable intent and never retries a POST.
-    result = start_api(api, prepared_config, build_directory)
+    result = start_api(api, prepared_config, build_directory, existing_configuration=True)
     manifest.update(build_job_id=result["job_id"], state="bilayer_submitted")
     _save(directory, manifest)
     if not wait:

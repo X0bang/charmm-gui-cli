@@ -59,11 +59,12 @@ def _options(raw, base):
         if key in result:
             composition(result[key])
     choices = {"salt": ("KCl", "NaCl"), "hydrogens": ("add_missing", "preserve"),
-               "orientation": ("ppm", "prepared"), "n_terminal": N_TERMINALS,
-               "c_terminal": C_TERMINALS}
+               "orientation": ("ppm", "prepared")}
     for key, allowed in choices.items():
         if key in result and result[key] not in allowed:
             raise ToolError(f"Unsupported batch {key}.")
+    from ..build_config import validate_preparation
+    validate_preparation({key: result[key] for key in ("n_terminal", "c_terminal") if key in result})
     if "ligand_resname" in result and not re.fullmatch(r"[A-Z][A-Z0-9]{0,2}", result["ligand_resname"]):
         raise ToolError("ligand_resname must be 1-3 uppercase letters/digits beginning with a letter.")
     return result

@@ -46,6 +46,12 @@ charmm-gui-cli build --complex complex.pdb \
 
 自动完成输入准备、上传、参数化、建膜、下载和验证；登录会话及中间文件由程序管理。
 
+脂质比例可写为 `--upper POPC:POPE=7:3`。名称先通过本地常用脂质目录检查；目录不含所有官网脂质，特殊名称核对后可使用 `--allow-unknown-lipids`（YAML：`membrane.allow_unknown_lipids: true`）。常用名称参考[官网脂质库](https://www.charmm-gui.org/?doc=archive&lib=lipid)，不代表每个 API 模块都支持全部名称。
+
+末端补丁支持按链设置，例如 `--n-terminal A=GLYP,B=NTER`，也可用 `PROA` 等 segment 名；YAML 使用 `preparation.terminals: {A: {n_terminal: GLYP}, B: {n_terminal: NTER}}`。未指定的链使用统一默认值。
+
+`check` 显示失败原因、自动修复和结构审阅项，`check --full` 显示完整证据；`--json`、`--lang`、`--foreground` 可放在子命令前后。新任务本地准备失败不会占住任务名，修正输入后可以重试。
+
 ### 后台运行与恢复
 
 `build`、`build-resume` 和 `jobs resume` 默认在后台运行。启动前在前台完成本地准备和登录检查；启动后显示任务名、PID、日志和查看命令。关闭终端不影响任务，退出 `watch` 也不会停止建模。

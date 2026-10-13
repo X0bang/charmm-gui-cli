@@ -1,6 +1,7 @@
 """Strict user configuration mapped only to known remote form fields."""
 
 import math
+from difflib import get_close_matches
 from pathlib import Path
 import re
 
@@ -9,6 +10,7 @@ import yaml
 from ..api import job_id
 from ..auth import ToolError
 from ..structure import analyze_pdb
+from ..chem.lipids import KNOWN_LIPIDS
 
 
 class UniqueLoader(yaml.SafeLoader):
@@ -41,7 +43,7 @@ def number(value, name, minimum=0, positive=False):
     return value
 
 
-def composition(value):
+def composition(value, *, allow_unknown=False):
     if not isinstance(value, str) or value.count("=") != 1:
         raise ToolError("Lipid composition must look like POPC:CHL1=3:1.")
     names, amounts = (part.split(":") for part in value.split("="))
@@ -49,6 +51,11 @@ def composition(value):
         raise ToolError("Lipid names and ratios must match, without duplicate names.")
     if not all(re.fullmatch(r"[A-Za-z0-9_+-]+", name) for name in names):
         raise ToolError("Invalid lipid name in composition.")
+    for name in names:
+        if name not in KNOWN_LIPIDS and not allow_unknown:
+            candidates = ", ".join(get_close_matches(name.upper(), sorted(KNOWN_LIPIDS), n=4)) or "POPC, POPE"
+            raise ToolError(key="config.unknown_lipid", params={"name": name, "candidates": candidates},
+                            next_step="charmm-gui-cli build -h")
     try:
         for amount in amounts:
             number(float(amount), "Lipid ratio", positive=True)
@@ -57,7 +64,7 @@ def composition(value):
     return value
 
 
-def validate_config(raw):
+def validate_config(raw, *, existing=False):
     raw = mapping(raw, ["version", "source_job_id", "input_pdb", "expected_ligands",
                         "preparation", "membrane", "ions"], "configuration")
     if type(raw.get("version")) is not int or raw["version"] != 1:
@@ -75,8 +82,11 @@ def validate_config(raw):
         raise ToolError("preparation.ligand_parameters_ready must be true or false.")
     if prep.get("orientation") not in ("prepared", "ppm"):
         raise ToolError("preparation.orientation must be prepared or ppm.")
-    membrane = mapping(raw.get("membrane"), ["upper", "lower", "margin_A", "water_padding_A"], "membrane")
-    upper, lower = composition(membrane.get("upper")), composition(membrane.get("lower"))
+    membrane = mapping(raw.get("membrane"), ["upper", "lower", "margin_A", "water_padding_A", "allow_unknown_lipids"], "membrane")
+    allow_unknown = membrane.get("allow_unknown_lipids", False)
+    if type(allow_unknown) is not bool:
+        raise ToolError(key="config.unknown_lipid_flag", next_step="charmm-gui-cli build -h")
+    upper, lower = composition(membrane.get("upper"), allow_unknown=allow_unknown or existing), composition(membrane.get("lower"), allow_unknown=allow_unknown or existing)
     margin = number(membrane.get("margin_A"), "margin_A", positive=True)
     water = number(membrane.get("water_padding_A", 22.5), "water_padding_A", positive=True)
     ions = mapping(raw.get("ions", {}), ["type", "concentration_M"], "ions")
@@ -90,7 +100,8 @@ def validate_config(raw):
     return {
         "version": 1, "source_job_id": source, "input_pdb": pdb,
         "expected_ligands": ligands, "preparation": dict(prep),
-        "membrane": {"upper": upper, "lower": lower, "margin_A": margin, "water_padding_A": water},
+        "membrane": {"upper": upper, "lower": lower, "margin_A": margin, "water_padding_A": water,
+                     **({"allow_unknown_lipids": True} if allow_unknown else {})},
         "ions": {"type": ion_type, "concentration_M": concentration},
     }
 

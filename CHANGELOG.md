@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Fix single-directory previews and verify extracted model bytes before reusing cached validation or showing a pass. Read historical reports with their original validation version.
+- Extract into an owned temporary tree and atomically publish the complete model; interruptions no longer leave an unrecoverable partial `model/`.
+- Protect generated reports, README and requested/applied settings against edited-file overwrites. Explicit exports also include root `report.txt` and distinguish requested/applied parameters; legacy filename-like task names remain exportable.
+- Preserve safe recognized API validation diagnostics; record execution failures independently of pipeline stages and honor non-retryable recovery guidance.
+- Validate modeling options before reserving task directories; roll back failed new-layout local preparation without touching existing tasks or submission intents.
+- Add an offline common-lipid catalog with explicit unknown-lipid opt-in, per-chain terminal patches, Gly/Pro residue checks and safe protein serial-overflow repair.
+- Show precheck error/review findings and full TTY evidence, clarify unsupported-format actions and implicit hydrogens; allow global options after commands and show help with no arguments.
+- Handle malformed release metadata without tracebacks and make release publication retries resume existing private drafts. Correct the usage guide's output paths.
+
 ## 0.7.0
 
 ### Breaking changes

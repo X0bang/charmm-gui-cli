@@ -345,7 +345,7 @@ def reuse_api_config(directory, manifest=None):
     directory = Path(directory).resolve()
     manifest = _json(directory / "full-run.json") if manifest is None else manifest
     identifier = validate_reuse(directory, manifest)
-    config = api_config(manifest["config"], identifier)
+    config = api_config(manifest["config"], identifier, existing=True)
     if payload_for(config).get("clone_job") != "true":
         raise ToolError("Preparation reuse requires clone_job=true.")
     return config
