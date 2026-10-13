@@ -23,9 +23,12 @@ class ManagedTests(unittest.TestCase):
         self.provenance_patch = patch.object(managed, "_archive_binding", side_effect=lambda manifest, archive, **kwargs:
                                              {"archive_provenance": {"archive_sha256": managed._digest(archive)}})
         self.provenance_patch.start()
+        self.model_patch = patch("charmm_gui_cli.delivery.verify_model")
+        self.model_patch.start()  # Synthetic bytes here; real model binding is tested separately.
         self.directory = self.root / "run"
 
     def tearDown(self):
+        self.model_patch.stop()
         self.provenance_patch.stop()
         self.acceptance_patch.stop()
         self.home_patch.stop()  # Preserve all files and directories.

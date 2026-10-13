@@ -42,15 +42,15 @@ def precheck_summary(report):
         "numbering_gaps": len(inventory.get("numbering_gaps", [])),
         "sequence_alignment_performed": False, "repaired": False}
     result["chemistry"] = [{key: component[key] for key in ("resname", "atoms", "heavy_atoms", "bonds",
-        "molecular_formula", "net_formal_charge", "rdkit_sanitized", "graph_sha256") if key in component}
+        "molecular_formula", "net_formal_charge", "rdkit_sanitized", "graph_sha256", "implicit_hydrogen_atoms",
+        "explicit_hydrogen_atoms", "chemistry_warnings") if key in component}
         for component in report.get("chemistry", [])]
     for key in ("automatic_repairs", "terminal_predictions", "input_normalization"):
         if key in report:
             result[key] = report[key]
     if "spatial_review" in report:
         result["spatial_review"] = report["spatial_review"].get("summary", {})
-    result["next_step"] = ("本地预检通过；确认审查项后，用同一组原始输入执行 charmm-gui-cli build。尚未创建远端任务。"
-                           if report.get("passed") else "按报告修正原始输入后重新 check；已有诊断文件保留，尚未创建远端任务。")
+    result["next_step"] = t("check.next_passed" if report.get("passed") else "check.next_failed")
     return result
 
 
@@ -133,6 +133,30 @@ class LocalizedParser(argparse.ArgumentParser):
         # argparse messages may reflect unknown arguments (including secrets).
         self.print_usage(sys.stderr)
         self.exit(2, t("cli.error", message=t("help.invalid_arguments")) + "\n")
+
+    def parse_args(self, args=None, namespace=None):
+        args = list(sys.argv[1:] if args is None else args)
+        if self.prog == "charmm-gui-cli":
+            # Support global options on either side of a command. Preserve all
+            # other arguments, and never interpret anything after literal --.
+            before, rest = [], []
+            index = 0
+            while index < len(args):
+                item = args[index]
+                if item == "--":
+                    rest.extend(args[index:])
+                    break
+                option = item.split("=", 1)[0]
+                if option in ("--json", "--foreground", "--lang", "--token-file"):
+                    before.append(item)
+                    if "=" not in item and option in ("--lang", "--token-file") and index + 1 < len(args):
+                        index += 1
+                        before.append(args[index])
+                else:
+                    rest.append(item)
+                index += 1
+            args = before + rest
+        return super().parse_args(args, namespace)
 
 
 def parser():
@@ -237,14 +261,15 @@ def parser():
     model = build.add_argument_group(t("help.model_group"))
     model.add_argument("--upper", help=t('help.text.46'))
     model.add_argument("--lower", help=t('help.text.47'))
+    model.add_argument("--allow-unknown-lipids", action="store_true", default=None, help=t("help.unknown_lipids"))
     model.add_argument("--salt", choices=("KCl", "NaCl"), help=t('help.text.48'))
     model.add_argument("--salt-concentration", type=float, help=t('help.text.49'))
     model.add_argument("--margin", type=float, help=t('help.text.50'))
     model.add_argument("--water-padding", type=float, help=t('help.text.51'))
     model.add_argument("--orientation", choices=("ppm", "prepared"), help=t('help.text.52'))
     from .pdb_normalization import N_TERMINALS, C_TERMINALS
-    model.add_argument("--n-terminal", choices=N_TERMINALS, help=t('help.text.53'))
-    model.add_argument("--c-terminal", choices=C_TERMINALS, help=t('help.text.54'))
+    model.add_argument("--n-terminal", help=t('help.terminal_mapping'))
+    model.add_argument("--c-terminal", help=t('help.terminal_mapping'))
     build.add_argument("--out", type=Path, help=t('help.text.55'))
     build.add_argument("--name", help=t('help.text.56'))
     build.add_argument("--dry-run", action="store_true", help=t('help.text.57'))
@@ -374,6 +399,9 @@ def dispatch(args):
 def main(argv=None):
     global _JSON_OUTPUT
     set_language()
+    if not (sys.argv[1:] if argv is None else argv):
+        parser().print_help()
+        return 0
     bootstrap = LocalizedParser(add_help=False, allow_abbrev=False)
     bootstrap.add_argument("--lang")
     early, _ = bootstrap.parse_known_args(sys.argv[1:] if argv is None else argv)

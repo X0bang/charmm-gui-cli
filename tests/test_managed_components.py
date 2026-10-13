@@ -140,12 +140,15 @@ class ManagedComponentTests(unittest.TestCase):
                 patch.object(managed, "inspect_environment", return_value={"passed": True}))
 
     def test_final_aggregate_compilation_cache_and_each_penalty_review(self):
+        boundary = patch("charmm_gui_cli.delivery.verify_model")
+        boundary.start()  # This fixture uses non-tar mock bytes.
+        self.addCleanup(boundary.stop)
         directory = self.done()
         gmx = self.root / "gmx-test"
         gmx.write_text("compiler identity fixture")
         gmx.chmod(0o700)
         a, b, c, d = self.mock_validators()
-        with a as extract, b as validate, c, d:
+        with a as extract, b as validate, c, d, patch("charmm_gui_cli.delivery.verify_model"):
             report = managed.finalize_managed_build(directory, grompp=True, gmx=str(gmx))
             reused = managed.finalize_managed_build(directory, grompp=True, gmx=str(gmx))
         self.assertTrue(report["passed"])

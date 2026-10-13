@@ -11,6 +11,11 @@ def _text(value):
     return "".join(c for c in str(value) if c.isprintable())
 
 
+def _error_text(error):
+    return _text(t(error["message_key"], **error.get("message_params", {}))
+                 if error.get("message_key") else error.get("message", ""))
+
+
 def _path(value):
     resolved = Path(str(value)).expanduser().resolve()
     try:
@@ -53,6 +58,9 @@ def format_build(value, **context):
         label = t("stage." + state)
     lines = [t("output.task", name=_text(value.get("name") or value.get("job_id") or "—")),
              t("output.state", state=label)]
+    execution = value.get("execution_state")
+    if execution in ("failed_remote", "failed_local", "interrupted"):
+        lines[1] = t("output.state", state=t("execution." + execution))
     if value.get("remote_status") is not None:
         remote = value["remote_status"]
         remote_label = t("stage.done") if remote == "done" else describe_progress({"state": remote}, localized=True)["label"]
@@ -93,6 +101,10 @@ def format_build(value, **context):
     recovery = recovery if isinstance(recovery, dict) else {}
     error = recovery.get("error", value.get("last_error"))
     error = error if isinstance(error, dict) else {}
+    if error.get("message"):
+        lines.append(t("cli.error", message=_error_text(error)))
+        if execution is None and error.get("retryable") is False and state != "submission_unknown":
+            lines[1] = t("output.state", state=t("execution.failed_local"))
     category = "submission_unknown" if state == "submission_unknown" else error.get("category", state)
     guidance = recovery_guidance(category, cause_category=error.get("cause_category"))
     name = value.get("name")
@@ -106,15 +118,30 @@ def format_build(value, **context):
         action = "charmm-gui-cli jobs reconcile " + name if isinstance(name, str) else "charmm-gui-cli jobs list"
         if error.get("cause_category") in ("authentication", "auth_required", "access_denied"):
             action = "charmm-gui-cli login"
+    elif error and error.get("retryable") is False:
+        action = value.get("next_step") or recovery.get("next_step") or error.get("next_step") or "charmm-gui-cli jobs status " + str(name or "NAME")
     lines.append(t("cli.next", action=action))
     return "\n".join(lines)
 
 
 def format_check(value, **context):
     lines = [t("check.result", state=t("output.passed") if value.get("passed") else t("output.failed")),
-             t("check.protein", residues=value.get("protein", {}).get("residues", value.get("protein_inventory", {}).get("protein_residues_all_models", "—")))]
+             t("check.protein", residues=value.get("protein", {}).get("residues") or value.get("protein_inventory", {}).get("protein_residues_all_models") or "—")]
+    error = value.get("error", {})
+    if isinstance(error, dict) and error.get("message"):
+        lines.append(t("cli.error", message=_error_text(error)))
+    protein = value.get("protein", {})
+    inventory = value.get("protein_inventory", {})
+    missing = protein.get("residues_missing_heavy_atoms", len(inventory.get("missing_heavy_atoms", [])))
+    gaps = protein.get("numbering_gaps", len(inventory.get("numbering_gaps", [])))
+    if missing or gaps:
+        lines.append(t("check.structure_review", missing=missing, gaps=gaps))
+    if value.get("review_required"):
+        lines.append(t("output.review"))
     for component in value.get("chemistry", []):
         lines.append(t("check.ligand", name=component.get("resname", "—"), formula=component.get("molecular_formula", "—"), charge=component.get("net_formal_charge", "—")))
+        for warning in component.get("chemistry_warnings", []):
+            lines.append("• " + t(warning["key"], **warning["params"]))
     for entry in value.get("automatic_repairs", []):
         lines.append("• " + t(entry["key"], **entry["params"]))
     for prediction in value.get("terminal_predictions", []):
@@ -126,7 +153,11 @@ def format_check(value, **context):
             lines.append(t("check.preview", path=_path(image["file"])))
     if value.get("check_file"):
         lines.append(t("output.report", path=_path(value["check_file"])))
-    lines.append(t("cli.next", action="charmm-gui-cli build -h" if value.get("passed") else "charmm-gui-cli check -h"))
+    lines.append(t("cli.next", action=error.get("next_step") or ("charmm-gui-cli build -h" if value.get("passed") else "charmm-gui-cli check -h")))
+    if context.get("full"):
+        import json
+        lines.append(t("check.full_details"))
+        lines.append(json.dumps(value, indent=2, ensure_ascii=False))
     return "\n".join(lines)
 
 
@@ -145,6 +176,10 @@ def format_jobs(value, **context):
 def format_job_status(value, **context):
     display = dict(value)
     display.pop("background", None)
+    if value.get("background", {}).get("running") and value.get("execution_state") not in ("failed_local", "failed_remote", "submission_unknown") and value.get("state") != "submission_unknown":
+        # The previous execution's recovery history is not this worker's state.
+        for key in ("recovery", "last_error", "next_step", "execution_state"):
+            display.pop(key, None)
     result = format_build(display)
     background = value.get("background", {})
     result += "\n" + t("jobs.running" if background.get("running") else "jobs.stopped")
@@ -154,7 +189,7 @@ def format_job_status(value, **context):
         if lines:
             lines = [line for line in lines if not line.startswith(t("cli.next", action=""))]
         result = "\n".join(lines) + "\n" + t("cli.next", action="charmm-gui-cli jobs watch " + str(value.get("name") or _path(value["directory"])))
-    elif background.get("exit_code", 0):
+    elif background.get("exit_code", 0) and not value.get("recovery", {}).get("error") and not value.get("last_error"):
         result += "\n" + t("background.worker_failed")
     for record in value.get("recent_stages", []):
         result += "\n" + _text(record)

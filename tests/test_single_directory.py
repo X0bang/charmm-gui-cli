@@ -38,7 +38,7 @@ class SingleDirectoryTests(unittest.TestCase):
         self.stack.enter_context(patch("charmm_gui_cli.managed._registry", return_value=fixture.root / "index"))
         managed._evidence(fixture.manifest, fixture.archive, False, "gmx", create_receipt=True)
         self.report = fixture.publish_report()
-        self.model = extract_for_validation(fixture.archive, self.root / "model")
+        self.model = self.root / "model"
         self.report["extracted_directory"] = str(self.model)
         atomic_json(self.run / "results/validation.json", self.report)
         managed.assign_name(self.run, "receptor-a")
@@ -76,6 +76,64 @@ class SingleDirectoryTests(unittest.TestCase):
         with self.assertRaises(ToolError) as caught:
             delivery.auto_export(self.run)
         self.assertEqual(caught.exception.key, "delivery.model_changed")
+
+    def test_edited_model_invalidates_status_and_cached_validation(self):
+        (self.model / "charmm-gui-200/step5_assembly.pdb").write_text("user edit")
+        self.assertEqual(managed.inspect_run("receptor-a")["validation_status"], "stale_or_unreadable")
+        with self.assertRaises(ToolError) as caught:
+            managed.finalize_managed_build(self.run)
+        self.assertEqual(caught.exception.key, "delivery.model_changed")
+
+    def test_historical_report_is_readable_without_claiming_new_validation(self):
+        evidence = self.report["evidence"]
+        evidence["tool_version"] = "0.6.1"
+        self.report["fingerprint"] = managed._canonical_hash(evidence)
+        atomic_json(self.run / "results/validation.json", self.report)
+        result = managed.inspect_run("receptor-a")
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["validation_tool_version"], "0.6.1")
+
+    def test_generated_files_edits_are_preserved_on_republish(self):
+        for name in ("report.txt", "README.txt", "inputs/system-config.json"):
+            delivery.auto_export(self.run)
+            path = self.root / name
+            original = path.read_bytes()
+            path.write_text("user edit")
+            with self.assertRaises(ToolError) as caught:
+                delivery.auto_export(self.run)
+            self.assertEqual(caught.exception.key, "delivery.modified")
+            self.assertEqual(path.read_text(), "user edit")
+            path.write_bytes(original)
+
+    def test_explicit_export_also_includes_visible_report(self):
+        result = delivery.export_run(self.run, to=self.fixture.root / "export")
+        self.assertTrue((Path(result["directory"]) / "report.txt").is_file())
+
+    def test_invalid_generated_file_evidence_is_a_controlled_error(self):
+        atomic_json(self.run / "generated-files.json", {"files": None})
+        with self.assertRaises(ToolError) as caught:
+            delivery.auto_export(self.run)
+        self.assertEqual(caught.exception.key, "delivery.unsafe")
+
+    def test_new_layout_preview_reaches_renderer(self):
+        from charmm_gui_cli.preview import preview_run
+        with patch("charmm_gui_cli.preview.render_model", return_value={"images": [], "model": "mock"}) as render:
+            preview_run(self.run)
+        self.assertEqual(render.call_args.args[0].resolve(),
+                         (self.model / "charmm-gui-200/step5_assembly.pdb").resolve())
+
+    def test_interrupted_extraction_does_not_publish_partial_model(self):
+        destination = self.fixture.root / "interrupted-model"
+        def interrupted(source, output):
+            output.write(b"x")
+            raise KeyboardInterrupt
+        with patch("charmm_gui_cli.validation.shutil.copyfileobj", side_effect=interrupted):
+            with self.assertRaises(KeyboardInterrupt):
+                extract_for_validation(self.fixture.archive, destination)
+        self.assertFalse(destination.exists())
+        self.assertFalse(list(destination.parent.glob(".extract-*")))
+        extract_for_validation(self.fixture.archive, destination)
+        delivery.verify_model(self.fixture.archive, destination)
 
     def test_revalidation_reuses_model_instead_of_extracting_again(self):
         self.fixture.manifest["config"].update(
@@ -127,7 +185,7 @@ class SingleDirectoryTests(unittest.TestCase):
         foreign = self.fixture.root / "foreign"
         foreign.mkdir()
         (foreign / "keep.txt").write_text("user file")
-        with patch("charmm_gui_cli.full_build.load_build_config", return_value={}), self.assertRaises(FileExistsError):
+        with patch("charmm_gui_cli.full_build.load_build_config", return_value={}), self.assertRaises(ToolError):
             initialize("unused.yaml", foreign / ".charmm-gui")
         self.assertEqual((foreign / "keep.txt").read_text(), "user file")
         self.assertFalse((foreign / ".charmm-gui").exists())

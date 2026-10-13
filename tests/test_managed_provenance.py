@@ -48,6 +48,12 @@ class ManagedProvenanceTests(unittest.TestCase):
         report = {"passed": True, "status": "validated", "validation_complete": True,
                   "fingerprint": managed._canonical_hash(evidence), "evidence": evidence}
         (self.run / "results").mkdir(exist_ok=True)
+        from charmm_gui_cli.layout import modern, task_root
+        from charmm_gui_cli.validation import extract_for_validation
+        model = task_root(self.run) / "model" if modern(self.run) else self.run / "results/checks/model"
+        if not model.exists():
+            extract_for_validation(self.archive, model)
+        report["extracted_directory"] = str(model)
         (self.run / "results/validation.json").write_text(json.dumps(report))
         return report
 

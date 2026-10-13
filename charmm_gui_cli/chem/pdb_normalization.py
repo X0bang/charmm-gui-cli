@@ -22,17 +22,32 @@ def finding(key, **params):
 
 
 def normalize_lines(path, report=None):
+    if Path(path).suffix.lower() in (".cif", ".mmcif"):
+        raise ToolError(key="input.mmcif", next_step=t("input.convert_pdb_next"))
     lines = Path(path).read_text().splitlines()
     indexes = [i for i, line in enumerate(lines) if line.startswith(("ATOM  ", "HETATM"))]
     repairs = []
     serials = []
+    overflow = 0
     for i in indexes:
+        if lines[i][6:11] == "*****" and lines[i].startswith("ATOM  "):
+            serials.append(None)
+            overflow += 1
+            continue
         try:
             serials.append(int(lines[i][6:11]))
         except ValueError:
             raise ToolError(key="input.atom_record", params={"line": i + 1}, next_step=t("input.inspect")) from None
+    if overflow:
+        if any(line.startswith("CONECT") for line in lines):
+            raise ToolError(key="input.overflow_conect", next_step=t("input.fix_serials"))
+        next_synthetic = max((serial for serial in serials if serial is not None), default=0) + 1
+        for index, serial in enumerate(serials):
+            if serial is None:
+                serials[index] = next_synthetic
+                next_synthetic += 1
     duplicated = {value for value, count in Counter(serials).items() if count > 1}
-    if duplicated:
+    if duplicated or overflow:
         conect_ids = set()
         for line in lines:
             if line.startswith("CONECT"):
@@ -65,7 +80,8 @@ def normalize_lines(path, report=None):
             if line.startswith("CONECT"):
                 values = [int(line[j:j + 5]) for j in range(6, len(line), 5) if line[j:j + 5].strip()]
                 lines[i] = "CONECT" + "".join(f"{serial_map.get(value, value):5d}" for value in values)
-        repairs.append(finding("input.renumbered", count=count, serials=", ".join(map(str, sorted(duplicated)))))
+        repairs.append(finding("input.overflow_renumbered", count=count) if overflow else
+                       finding("input.renumbered", count=count, serials=", ".join(map(str, sorted(duplicated)))))
 
     occupied = {lines[i][21:22] for i in indexes if lines[i][21:22].strip()}
     groups = list(dict.fromkeys(lines[i][72:76].strip() for i in indexes if not lines[i][21:22].strip()))

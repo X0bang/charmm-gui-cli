@@ -63,6 +63,13 @@ def execute(args):
             except (ToolError, OSError):
                 pass
         raise
+    except OSError:
+        if holder and (holder[0] / "full-run.json").is_file():
+            try:
+                managed.record_recovery(holder[0], ToolError(key="cli.filesystem", category="filesystem_error"))
+            except (ToolError, OSError):
+                pass
+        raise
     finally:
         if getattr(args, "_reporter", None) is not None:
             args._reporter.close()
@@ -99,7 +106,7 @@ def _execute(args, holder):
         components = getattr(args, "components", None)
         source_fields = ("protein", "ligand", "complex_pdb", "ligand_resname", "ligand_smiles", "hydrogens")
         model_fields = ("upper", "lower", "salt", "salt_concentration", "margin", "water_padding",
-                        "orientation", "n_terminal", "c_terminal")
+                        "orientation", "n_terminal", "c_terminal", "allow_unknown_lipids")
         if args.config and (components or any(getattr(args, key) is not None for key in source_fields + model_fields)
                             or args.accept_conect_bond_orders):
             raise ToolError("Choose either a YAML configuration or direct structure/model options, not both. See build -h.")
@@ -156,7 +163,8 @@ def _execute(args, holder):
             default = lambda value, fallback: fallback if value is None else value
             common = dict(output=args.out,
                 membrane={"upper": default(args.upper, "POPC=1"), "lower": default(args.lower, "POPC=1"),
-                          "margin_A": default(args.margin, 20), "water_padding_A": default(args.water_padding, 22.5)},
+                          "margin_A": default(args.margin, 20), "water_padding_A": default(args.water_padding, 22.5),
+                          **({"allow_unknown_lipids": True} if getattr(args, "allow_unknown_lipids", None) else {})},
                 ions={"type": default(args.salt, "KCl"), "concentration_M": default(args.salt_concentration, 0.15)},
                 preparation={"orientation": default(args.orientation, "ppm"),
                              "n_terminal": default(args.n_terminal, "NTER"), "c_terminal": default(args.c_terminal, "CTER")},
@@ -208,6 +216,8 @@ def _execute(args, holder):
     if local_complete:
         result = local_manifest
     else:
+        if (directory / "full-run.json").is_file():
+            managed.record_recovery(directory, state="running")
         result = advance(directory, None if api_only else WebClient(cookies, post_timeout=getattr(args, "post_timeout", 900)), Client(token), wait=args.wait,
                          interval=args.interval, max_wait=args.max_wait, progress=reporter)
     summary = {"directory": str(directory), **{key: result[key] for key in

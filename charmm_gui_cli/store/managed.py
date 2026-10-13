@@ -147,17 +147,36 @@ def record_recovery(directory, error=None, *, state=None):
         event["error"] = error.as_dict() if hasattr(error, "as_dict") else {
             "category": "operation_error", "message": str(error), "retryable": False}
         category = event["error"]["category"]
+        manifest_path = directory / "full-run.json"
+        manifest = _read_json(manifest_path)
+        event["failed_stage"] = manifest.get("state", "unknown")
+        ambiguous = category == "submission_unknown" or manifest.get("state") == "submission_unknown"
+        event["execution_state"] = ("submission_unknown" if ambiguous else
+                                    "interrupted" if category == "interrupted" else
+                                    "failed_remote" if category in ("api_error", "http_error", "remote_error", "preparation_failed") or manifest.get("state") in ("remote_error", "preparation_failed") else
+                                    "failed_local")
         name = _job_metadata(directory).get("name")
         resume = f"charmm-gui-cli jobs resume {name}" if name else f"charmm-gui-cli build-resume {directory}"
         if category in ("authentication", "auth_required"):
             event["next_step"] = "charmm-gui-cli login; " + resume
         elif category == "submission_unknown":
             event["next_step"] = event["error"].get("next_step") or "Check the existing remote job; use jobs attach with its cloned build ID when available."
+        elif event["error"].get("retryable"):
+            event["next_step"] = resume
         else:
             event["next_step"] = event["error"].get("next_step") or resume
     with run_lock(directory):
         _new_json(directory / "recovery-history" / (uuid.uuid4().hex + ".json"), event)
         atomic_json(directory / "recovery.json", event)
+        # Keep the pipeline stage intact for safe recovery; execution outcome is
+        # independent and durable rather than inventing a completed remote step.
+        manifest = _read_json(directory / "full-run.json")
+        manifest["execution_state"] = event.get("execution_state", state)
+        if error is not None:
+            manifest["failure"] = event
+        else:
+            manifest.pop("failure", None)
+        atomic_json(directory / "full-run.json", manifest)
     return event
 
 
@@ -167,7 +186,8 @@ def _recovery_summary(directory):
         try:
             event = _read_json(path)
             if event.get("active"):
-                return {"recovery": event, "next_step": event.get("next_step")}
+                return {"recovery": event, "next_step": event.get("next_step"),
+                        "execution_state": event.get("execution_state"), "failed_stage": event.get("failed_stage")}
         except ToolError:
             pass
     return {}
@@ -178,6 +198,7 @@ def inspect_run(target, *, remote_check=False, token_file=None):
     directory = resolve_run(target)
     manifest = _read_json(directory / "full-run.json")
     result = {"directory": str(directory), "state": manifest.get("state", "unknown"),
+              **({"execution_state": manifest["execution_state"]} if "execution_state" in manifest else {}),
               **_job_metadata(directory), **_bilayer_summary(directory), **_final_summary(directory),
               **_recovery_summary(directory), "server_checked": False}
     for key in ("source_job_id", "build_job_id"):
@@ -317,32 +338,33 @@ def create_managed_build(*, protein=None, ligand=None, complex_pdb=None, ligand_
                          membrane=None, ions=None, preparation=None, hydrogens="add_missing"):
     """Prepare inputs and initialize one new run; never contact CHARMM-GUI."""
     from ..input_sources import prepare_sources
+    from ..build_config import validate_model_options
+    from .local_build import local_initialization
+    model = validate_model_options(
+        membrane if membrane is not None else {"upper": "POPC=1", "lower": "POPC=1", "margin_A": 20, "water_padding_A": 22.5},
+        ions if ions is not None else {"type": "NaCl", "concentration_M": 0.15},
+        preparation if preparation is not None else {"orientation": "ppm", "n_terminal": "NTER", "c_terminal": "CTER"},
+        ligand_resname=ligand_resname, hydrogens=hydrogens)
     if output is None:
         directory = new_run_path()
     else:
         directory = Path(output).expanduser().resolve()
-    if directory.exists() or (modern(directory) and task_root(directory).exists()):
-        raise ToolError("Build directory already exists; resume it instead of overwriting it.")
-    if modern(directory):
-        task_root(directory).mkdir(mode=0o700, parents=True, exist_ok=False)
-        directory.mkdir(mode=0o700)
     staging = directory / "sources" if modern(directory) else directory.parent / f".{directory.name}.sources"
     if staging.exists():
         raise ToolError("Input staging for this build already exists; inspect it before starting a new run.")
-    sources = prepare_sources(protein=protein, ligand=ligand, complex_pdb=complex_pdb,
-                              ligand_resname=ligand_resname, ligand_smiles=ligand_smiles,
-                              accept_conect_bond_orders=accept_conect_bond_orders, out=staging)
-    config = {"version": 2, "protein": str(Path(sources["protein"]).resolve()),
-              "ligand": str(Path(sources["ligand"]).resolve()), "ligand_resname": ligand_resname,
-              "ligand_hydrogens": hydrogens,
-              "membrane": membrane if membrane is not None else {"upper": "POPC=1", "lower": "POPC=1", "margin_A": 20, "water_padding_A": 22.5},
-              "ions": ions if ions is not None else {"type": "NaCl", "concentration_M": 0.15},
-              "preparation": preparation if preparation is not None else {"orientation": "ppm", "n_terminal": "NTER", "c_terminal": "CTER"}}
-    config_path = staging / "build-config.json"
-    _new_json(config_path, config)  # JSON is valid YAML accepted by initialize.
-    initialize(config_path, directory, _reserved=modern(directory))
-    _new_json(directory / "managed.json", {"version": 1, "sources_directory": str(staging.resolve()),
-                                           "source_report": sources.get("report", {}), "config_file": str(config_path.resolve())})
+    with local_initialization(directory):
+        sources = prepare_sources(protein=protein, ligand=ligand, complex_pdb=complex_pdb,
+                                  ligand_resname=ligand_resname, ligand_smiles=ligand_smiles,
+                                  accept_conect_bond_orders=accept_conect_bond_orders, out=staging)
+        config = {"version": 2, "protein": str(Path(sources["protein"]).resolve()),
+                  "ligand": str(Path(sources["ligand"]).resolve()), "ligand_resname": ligand_resname,
+                  "ligand_hydrogens": hydrogens, "membrane": model["membrane"],
+                  "ions": model["ions"], "preparation": model["preparation"]}
+        config_path = staging / "build-config.json"
+        _new_json(config_path, config)  # JSON is valid YAML accepted by initialize.
+        initialize(config_path, directory, _reserved=True)
+        _new_json(directory / "managed.json", {"version": 1, "sources_directory": str(staging.resolve()),
+                                               "source_report": sources.get("report", {}), "config_file": str(config_path.resolve())})
     remember_run(directory)
     return directory.resolve()
 
@@ -351,38 +373,42 @@ def create_component_build(*, components_config, complex_pdb, output=None, membr
                            preparation=None, hydrogens="add_missing", allow_distant_pose=False):
     """Initialize one locally verified multicomponent run, without remote calls."""
     from ..build_config import load_build_config
+    from ..build_config import validate_model_options
     from ..workflow import now
 
     directory = new_run_path() if output is None else Path(output).expanduser().resolve()
-    if directory.exists() or (modern(directory) and task_root(directory).exists()):
-        raise ToolError("Build directory already exists; resume it instead of overwriting it.")
-    if modern(directory):
-        task_root(directory).mkdir(mode=0o700, parents=True, exist_ok=False)
-        directory.mkdir(mode=0o700)
-    inputs = prepare_build_components(components_config=components_config, complex_pdb=complex_pdb,
-                                      out=inputs_path(directory), hydrogens=hydrogens, allow_distant_pose=allow_distant_pose)
-    component_manifest = inputs["manifest"]
-    if any(group["mode"] != "cgenff_required" for group in component_manifest["chemistry_groups"]):
-        raise ToolError("Remote multicomponent builds currently support CGenFF SDF inputs only; trusted CHARMM topology upload is not yet verified. Local preparation has been retained.")
-    first = component_manifest["components"][0]
-    raw = {"version": 2, "protein": inputs["files"]["protein.pdb"], "ligand": first["sdf"],
-           "ligand_resname": first["resname"], "ligand_hydrogens": hydrogens,
-           "membrane": membrane if membrane is not None else {"upper": "POPC=1", "lower": "POPC=1", "margin_A": 20, "water_padding_A": 22.5},
-           "ions": ions if ions is not None else {"type": "NaCl", "concentration_M": 0.15},
-           "preparation": preparation if preparation is not None else {"orientation": "ppm", "n_terminal": "NTER", "c_terminal": "CTER"}}
-    config_path = directory / "component-build-config.json"
-    _new_json(config_path, raw)
-    config = load_build_config(config_path)
-    config.update(components_mode=True, component_resnames=[group["resname"] for group in component_manifest["chemistry_groups"]],
-                  components_config=str(Path(components_config).resolve()),
-                  component_manifest=inputs["files"]["input-manifest.json"])
-    from ..delivery import creation_context
-    manifest = {"schema_version": 2, "created_at": now(), "updated_at": now(), "state": "inputs_ready", "config": config, "inputs": inputs,
-                "delivery_context": creation_context()}
-    _new_json(directory / "full-run.json", manifest)
-    _new_json(directory / "managed.json", {"version": 1, "components_mode": True,
-                                            "sources_directory": str(inputs_path(directory) / "sources"),
-                                            "source_report": component_manifest, "config_file": str(config_path)})
+    model = validate_model_options(
+        membrane if membrane is not None else {"upper": "POPC=1", "lower": "POPC=1", "margin_A": 20, "water_padding_A": 22.5},
+        ions if ions is not None else {"type": "NaCl", "concentration_M": 0.15},
+        preparation if preparation is not None else {"orientation": "ppm", "n_terminal": "NTER", "c_terminal": "CTER"},
+        hydrogens=hydrogens)
+    from .local_build import local_initialization
+    with local_initialization(directory):
+        inputs = prepare_build_components(components_config=components_config, complex_pdb=complex_pdb,
+                                          out=inputs_path(directory), hydrogens=hydrogens, allow_distant_pose=allow_distant_pose)
+        component_manifest = inputs["manifest"]
+        if any(group["mode"] != "cgenff_required" for group in component_manifest["chemistry_groups"]):
+            raise ToolError(key="build.components_unsupported", next_step="charmm-gui-cli check --help")
+        first = component_manifest["components"][0]
+        raw = {"version": 2, "protein": inputs["files"]["protein.pdb"], "ligand": first["sdf"],
+               "ligand_resname": first["resname"], "ligand_hydrogens": hydrogens,
+               "membrane": model["membrane"], "ions": model["ions"], "preparation": model["preparation"]}
+        config_path = directory / "component-build-config.json"
+        _new_json(config_path, raw)
+        config = load_build_config(config_path)
+        from ..build_config import validate_terminal_residues
+        from ..pdb_normalization import normalize_lines, terminal_predictions
+        validate_terminal_residues(config["preparation"], terminal_predictions(normalize_lines(inputs["files"]["protein.pdb"])))
+        config.update(components_mode=True, component_resnames=[group["resname"] for group in component_manifest["chemistry_groups"]],
+                      components_config=str(Path(components_config).resolve()),
+                      component_manifest=inputs["files"]["input-manifest.json"])
+        from ..delivery import creation_context
+        manifest = {"schema_version": 2, "created_at": now(), "updated_at": now(), "state": "inputs_ready", "config": config, "inputs": inputs,
+                    "delivery_context": creation_context()}
+        _new_json(directory / "full-run.json", manifest)
+        _new_json(directory / "managed.json", {"version": 1, "components_mode": True,
+                                                "sources_directory": str(inputs_path(directory) / "sources"),
+                                                "source_report": component_manifest, "config_file": str(config_path)})
     remember_run(directory)
     return directory.resolve()
 
@@ -557,8 +583,13 @@ def _final_summary(directory):
         stored = report["evidence"]
         archive = full_archive_path(directory)
         evidence = _evidence(manifest, archive, stored["grompp"], stored["gmx"])
+        # Reading a historical result preserves its validation version. A fresh
+        # finalize still uses the current version and therefore revalidates it.
+        evidence["tool_version"] = stored["tool_version"]
         if _cache_reusable(report, evidence) and report.get("status") in ("validated", "validation_failed"):
+            _verify_cached_model(directory, archive, report)
             return {"state": report["status"], "passed": report.get("passed"),
+                    "validation_tool_version": stored["tool_version"],
                     "review_required": report.get("review_required", False),
                     "review_warning_count": len(report.get("review_warnings", [])),
                     "acceptance_status": report.get("acceptance_validation", {}).get("status"),
@@ -568,6 +599,17 @@ def _final_summary(directory):
     except (ToolError, OSError, KeyError, TypeError, ValueError):
         pass
     return {"validation_status": "stale_or_unreadable", "report_file": str(path)}
+
+
+def _verify_cached_model(directory, archive, report):
+    """Bind cached conclusions to model bytes, not just their source tarball."""
+    from ..delivery import verify_model
+    model = Path(report["extracted_directory"])
+    if modern(directory) and (model.is_symlink() or model.resolve() != task_root(directory) / "model"):
+        raise ToolError(key="preview.invalid_model_path")
+    if not model.resolve().is_relative_to(task_root(directory)):
+        raise ToolError(key="preview.invalid_model_path")
+    verify_model(archive, model)
 
 
 def finalize_managed_build(directory, *, grompp=False, gmx="gmx"):
@@ -594,6 +636,7 @@ def finalize_managed_build(directory, *, grompp=False, gmx="gmx"):
         if report_path.is_file():
             previous = _read_json(report_path)
             if _cache_reusable(previous, evidence):
+                _verify_cached_model(directory, archive, previous)
                 return previous
         results.mkdir(exist_ok=True)
         checks = results / "checks"

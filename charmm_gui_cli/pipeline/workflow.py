@@ -81,7 +81,8 @@ def read(directory):
         raise ToolError("Cannot read run.json in the run directory.") from None
     if not isinstance(manifest, dict) or manifest.get("schema_version") != 1:
         raise ToolError("Unsupported run manifest.")
-    validate_config(manifest.get("config"))
+    # New catalog coverage must not invalidate an existing recorded task.
+    validate_config(manifest.get("config"), existing=True)
     if manifest.get("job_id") is not None:
         job_id(manifest["job_id"])
     return manifest
@@ -178,8 +179,8 @@ def verify_archive_provenance(directory, manifest=None, *, create_receipt=False)
         reject("Cannot verify archive ownership/integrity: " + type(exc).__name__ + ".")
 
 
-def start(client, config, directory):
-    config = validate_config(config)
+def start(client, config, directory, *, existing_configuration=False):
+    config = validate_config(config, existing=existing_configuration)
     proposal = plan(config)
     if not proposal["ready_to_submit"]:
         raise ToolError("Preparation incomplete: " + " ".join(proposal["blockers"]))

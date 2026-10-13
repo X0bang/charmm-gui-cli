@@ -155,7 +155,7 @@ class MultiComponentHttpTests(unittest.TestCase):
             else:
                 self.assertEqual(uploads, {f"sdf_cgenff[{g['resname']}]": g["files"]["sdf"] for g in self.groups})
                 atomic_write(destination, ready())
-        def start(api, config, directory):
+        def start(api, config, directory, *, existing_configuration=False):
             self.assertEqual(set(config["expected_ligands"]), {"LIG", "COF"})
             directory.mkdir()
             atomic_json(directory / "run.json", {"job_id": "456"})

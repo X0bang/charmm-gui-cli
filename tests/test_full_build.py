@@ -119,7 +119,7 @@ class FullBuildTests(unittest.TestCase):
             else:
                 self.assertEqual(uploads["sdf_cgenff[LIG]"], self.manifest["inputs"]["files"]["ligand.sdf"])
                 atomic_write(destination, rendered())
-        def start(api, config, directory):
+        def start(api, config, directory, *, existing_configuration=False):
             directory.mkdir()
             atomic_json(directory / "run.json", {"job_id": "456"})
             return {"job_id": "456", "state": "submitted"}

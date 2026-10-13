@@ -105,8 +105,20 @@ class Client:
         if not isinstance(data, dict):
             raise ToolError(key="api.response_shape", category="unexpected_response")
         if data.get("error"):
-            raise ToolError(key="api.reported_error",
-                            category="api_error", next_step=t("api.access_next"))
+            # Only recognized, structured validation diagnostics are exposed;
+            # arbitrary response strings can contain credentials or page bodies.
+            error = data["error"]
+            match = re.fullmatch(r"Invalid lipid name ([A-Za-z0-9_+-]{1,20})[.!]?", error, re.I) if isinstance(error, str) else None
+            if match:
+                message = "Invalid lipid name " + match.group(1)
+                raise ToolError(key="api.invalid_lipid", params={"lipid": match.group(1)},
+                                category="api_error", server_message=message,
+                                next_step="charmm-gui-cli build -h")
+            if isinstance(error, str) and error.strip().lower() in (
+                    "invalid token", "token expired", "unauthorized", "authentication required"):
+                raise AuthError(key="api.token_invalid")
+            raise ToolError(key="api.reported_error", category="api_error",
+                            next_step="charmm-gui-cli jobs status NAME --remote-check")
         return data
 
     def login(self, email, password):

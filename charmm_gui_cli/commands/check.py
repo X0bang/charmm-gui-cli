@@ -24,7 +24,7 @@ def execute(args):
         except (ToolError, OSError) as exc:
             report["preview"] = {"status": "failed", "message": str(exc)}
         atomic_json(Path(report["check_file"]), report)
-    emit(report if args.full else precheck_summary(report), command="check")
+    emit(report if args.full else precheck_summary(report), command="check", full=args.full)
     if args.open:
         import shutil
         import subprocess

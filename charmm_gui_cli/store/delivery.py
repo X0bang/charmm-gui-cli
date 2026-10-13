@@ -5,6 +5,7 @@ from ..layout import modern, task_root, inputs_path, log_path, full_archive_path
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import tempfile
@@ -95,16 +96,51 @@ def verify_model(archive, model):
     """Check the one extracted model without creating a second copy."""
     files = _tree(Path(model), "model")
     observed = {}
-    with tarfile.open(archive, "r|gz") as handle:
-        for member in handle:
-            if member.isfile():
-                with handle.extractfile(member) as source:
-                    digest = hashlib.sha256()
-                    for chunk in iter(lambda: source.read(1024 * 1024), b""):
-                        digest.update(chunk)
-                observed[str(Path(member.name))] = digest.hexdigest()
+    try:
+        with tarfile.open(archive, "r|gz") as handle:
+            for member in handle:
+                if member.isfile():
+                    with handle.extractfile(member) as source:
+                        digest = hashlib.sha256()
+                        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                            digest.update(chunk)
+                    observed[str(Path(member.name))] = digest.hexdigest()
+    except (tarfile.TarError, EOFError):
+        raise ToolError(key="delivery.archive_invalid", next_step="charmm-gui-cli jobs status NAME") from None
     if observed != {name[6:]: _digest(path) for name, path in files.items()}:
         raise ToolError(key="delivery.model_changed", next_step="charmm-gui-cli jobs status NAME")
+
+
+def _system_configuration(directory, manifest):
+    """Record actual submitted patches, never global requests as applied facts."""
+    from .. import managed
+    requested = manifest["config"]
+    applied = json.loads(json.dumps(requested))
+    adjustments = manifest.get("terminal_adjustments", [])
+    applied["terminal_adjustments"] = adjustments
+    preparation = applied.setdefault("preparation", {})
+    preparation.pop("n_terminal", None)
+    preparation.pop("c_terminal", None)
+    terminals = dict(manifest.get("applied_terminals", {}))
+    intent = directory / "preparation/parameterization.intent.json"
+    if intent.is_file() and not intent.is_symlink():
+        submitted = managed._read_json(intent)
+        if submitted.get("state") == "response_received":
+            terminals = {key: value for key, value in submitted.get("fields", []) if key.startswith("terminal[")}
+    certificate = manifest.get("reused_preparation", {}).get("certificate", {})
+    if not terminals and certificate:
+        intent = Path(certificate.get("source_directory", "")) / "preparation/parameterization.intent.json"
+        expected = certificate.get("evidence_sha256", {}).get("preparation/parameterization.intent.json")
+        if expected and intent.is_file() and not intent.is_symlink() and _digest(intent) == expected:
+            source = managed._read_json(intent)
+            if source.get("state") == "response_received":
+                terminals = {key: value for key, value in source.get("fields", []) if key.startswith("terminal[")}
+    preparation["terminals"] = terminals
+    for entry in adjustments:
+        params = entry.get("params", {})
+        if params.get("chain") and params.get("patch"):
+            terminals.setdefault("terminal[" + params["chain"] + "][first]", params["patch"])
+    return {"requested": requested, "applied": applied}
 
 
 def publish_in_place(directory):
@@ -122,40 +158,13 @@ def publish_in_place(directory):
         _verify_report(directory, manifest, report)
         verify_model(full_archive_path(directory), root / "model")
         name = managed._job_metadata(directory).get("name", root.name)
-        atomic_write(root / "report.txt", render_text(display_result(
+        report_text = render_text(display_result(
             report_summary(report, name, report_path), {"name": name, "archive": str(full_archive_path(directory))},
-            manifest, report)))
-        requested = manifest["config"]
-        applied = json.loads(json.dumps(requested))
-        adjustments = manifest.get("terminal_adjustments", [])
-        applied["terminal_adjustments"] = adjustments
-        preparation = applied.setdefault("preparation", {})
-        preparation.pop("n_terminal", None)
-        preparation.pop("c_terminal", None)
-        terminals = dict(manifest.get("applied_terminals", {}))
-        intent = directory / "preparation/parameterization.intent.json"
-        if intent.is_file() and not intent.is_symlink():
-            submitted = managed._read_json(intent)
-            if submitted.get("state") == "response_received":
-                terminals = {key: value for key, value in submitted.get("fields", []) if key.startswith("terminal[")}
-        # Reused children inherit the source's actual, evidence-bound form.
-        certificate = manifest.get("reused_preparation", {}).get("certificate", {})
-        if not terminals and certificate:
-            intent = Path(certificate.get("source_directory", "")) / "preparation/parameterization.intent.json"
-            expected = certificate.get("evidence_sha256", {}).get("preparation/parameterization.intent.json")
-            if expected and intent.is_file() and not intent.is_symlink() and _digest(intent) == expected:
-                source = managed._read_json(intent)
-                if source.get("state") == "response_received":
-                    terminals = {key: value for key, value in source.get("fields", []) if key.startswith("terminal[")}
-        preparation["terminals"] = terminals
-        # Per-chain actual values, not a misleading global requested default.
-        for entry in adjustments:
-            params = entry.get("params", {})
-            if params.get("chain") and params.get("patch"):
-                preparation["terminals"].setdefault(
-                    "terminal[" + params["chain"] + "][first]", params["patch"])
-        atomic_json(root / "inputs/system-config.json", {"requested": requested, "applied": applied})
-        atomic_write(root / "README.txt", t("delivery.single_layout", name=name) + "\n")
+            manifest, report))
+        generated = {"report.txt": report_text,
+                     "inputs/system-config.json": json.dumps(_system_configuration(directory, manifest), indent=2, ensure_ascii=False) + "\n",
+                     "README.txt": t("delivery.single_layout", name=name) + "\n"}
+        _publish_generated(directory, generated)
         log_path(directory).touch(mode=0o600, exist_ok=True)
         from ..archive_transport import cleanup_download_duplicates
         result = {"directory": str(root), "archive": str(full_archive_path(directory)),
@@ -165,6 +174,31 @@ def publish_in_place(directory):
                   "download_temporary_files_removed": cleanup_download_duplicates(full_archive_path(directory))}
         atomic_json(directory / "delivery.json", result)
         return result
+
+
+def _publish_generated(directory, generated):
+    """Refresh summaries only if their last generated bytes are unchanged."""
+    from .. import managed
+    root = task_root(directory)
+    marker = directory / "generated-files.json"
+    if marker.is_symlink():
+        raise _error("delivery.unsafe", marker)
+    previous = managed._read_json(marker) if marker.is_file() else {}
+    for section in ("files", "pending"):
+        values = previous.get(section, {})
+        if not isinstance(values, dict) or any(not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest) for digest in values.values()):
+            raise _error("delivery.unsafe", marker)
+    expected = {name: hashlib.sha256(content.encode("utf-8")).hexdigest() for name, content in generated.items()}
+    for name in generated:
+        path = root / name
+        accepted = {expected[name], previous.get("files", {}).get(name), previous.get("pending", {}).get(name)}
+        if (path.is_symlink() or any(parent.is_symlink() for parent in path.parents if parent != root)
+                or path.exists() and (not path.is_file() or _digest(path) not in accepted)):
+            raise _error("delivery.modified", path)
+    atomic_json(marker, {"files": previous.get("files", {}), "pending": expected})
+    for name, content in generated.items():
+        atomic_write(root / name, content)
+    atomic_json(marker, {"files": expected})
 
 
 def _verify_report(directory, manifest, report):
@@ -205,7 +239,8 @@ def _export(directory, *, to=None):
         if not isinstance(context.get("creation_directory"), str) or not Path(context["creation_directory"]).is_absolute():
             raise _error("delivery.unsafe", directory / "full-run.json")
         name = managed._job_metadata(directory).get("name", directory.name)
-        managed.validate_name(name)
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", name):
+            raise _error("delivery.unsafe", directory)
         requested = Path(to).expanduser() if to is not None else Path(context["creation_directory"]) / name
         if requested.is_symlink():
             raise _error("delivery.foreign", requested)
@@ -222,11 +257,11 @@ def _export(directory, *, to=None):
                                             "failed" if report["evidence"]["grompp"] else "not_run",
                       "source_job_id": manifest.get("source_job_id"), "build_job_id": manifest.get("build_job_id")}, manifest, report)))
         config_path = directory / "results" / "delivery-config.json"
-        atomic_json(config_path, manifest["config"])
+        atomic_json(config_path, _system_configuration(directory, manifest))
         guide_path = directory / "results" / "delivery-readme.txt"
         atomic_write(guide_path, t("delivery.layout", name=name) + "\n")
         files = {"charmm-gui.tgz": full_archive_path(directory),
-                 "README.txt": guide_path, "reports/validation.txt": text_report,
+                 "README.txt": guide_path, "report.txt": text_report, "reports/validation.txt": text_report,
                  "inputs/system-config.json": config_path,
                  "reports/validation.json": report_path}
         extracted = Path(report["extracted_directory"])
@@ -234,6 +269,7 @@ def _export(directory, *, to=None):
             raise _error("delivery.unsafe", extracted)
         files.update(_tree(Path(report["extracted_directory"]), "model"))
         files.update(_tree(inputs_path(directory), "inputs"))
+        files["inputs/system-config.json"] = config_path
         compiled = report.get("checks", {}).get("grompp", {}).get("output_dir")
         if compiled and Path(compiled).resolve().is_relative_to(directory) and Path(compiled).is_dir():
             files.update(_tree(Path(compiled), "reports/grompp"))
