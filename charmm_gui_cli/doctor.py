@@ -1,4 +1,4 @@
-"""Compatibility import; implementation lives in commands.doctor."""
+"""Compatibility import; implementation lives in store.doctor."""
 import sys
-from .commands import doctor as _implementation
+from .store import doctor as _implementation
 sys.modules[__name__] = _implementation

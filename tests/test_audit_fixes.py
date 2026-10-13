@@ -246,7 +246,7 @@ class AuditFixTests(unittest.TestCase):
         self.assertEqual(caught.exception.key, "terminal.chain_missing")
         with self.assertRaises(ToolError) as caught:
             validate_terminal_residues(prep, [{"chain": "PROA", "first_resname": "GLY"}])
-        self.assertEqual(caught.exception.key, "terminal.chain_missing")
+        self.assertEqual(caught.exception.key, "terminal.chain_missing_local")
 
     def test_terminal_chain_alias_conflict_is_rejected_locally(self):
         prep = validate_preparation({"terminals": {"A": {"n_terminal": "GLYP"}, "PROA": {"n_terminal": "NTER"}}})

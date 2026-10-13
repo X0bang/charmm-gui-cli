@@ -4,7 +4,7 @@
 
 ## 安装
 
-支持 Ubuntu 22.04+、Python 3.10+，需要 venv。安装器自动安装包括 RDKit 在内的依赖，不修改系统 Python。
+支持 Ubuntu 22.04+ 和 macOS、Python 3.10+，需要 venv。安装器自动安装包括 RDKit 在内的依赖，不修改系统 Python。
 
 ```bash
 git clone https://github.com/X0bang/charmm-gui-cli.git
@@ -64,7 +64,7 @@ charmm-gui-cli --foreground build system.yaml --name receptor-b
 charmm-gui-cli --foreground jobs resume receptor-b  # 脚本/Slurm：等待并返回最终退出码
 ```
 
-网页建模 POST 默认读取超时 900 秒，等待期间每 30 秒记录心跳；可用 `--post-timeout 1800` 调整。只读 GET 保持原超时，结果不明的 POST 不自动重发。
+网页建模 POST 默认读取超时 900 秒，等待期间每 30 秒记录心跳；可用 `--post-timeout 1800` 调整。GET 单次超时不变，建模期间短暂断网会退避重试，默认最长 20 分钟；`jobs status` 可查看网络等待。可用 `CHARMM_GUI_GET_RETRY_SECONDS=600` 调为 10 分钟（范围 0–1800，0 使用短重试）。独立查询仍使用短重试，结果不明的 POST 不自动重发。
 
 ```bash
 charmm-gui-cli jobs reconcile receptor-a  # 仅 GET 核对提交结果
@@ -98,7 +98,7 @@ charmm-gui-cli jobs export receptor-a
 charmm-gui-cli jobs export receptor-a --to ./my-model
 ```
 
-新任务 `jobs export NAME` 只更新人类可读报告，不复制大文件；显式 `--to` 才创建独立结果副本。旧任务 `export` 保留原有独立导出行为。`--to` 指定目录本身，不是父目录；其他任务的目录或用户改动过的导出文件不会被覆盖。
+新任务 `jobs export NAME` 只更新人类可读报告，不复制大文件；显式 `--to` 才创建独立结果副本。改过的 `report.txt` 和 `README.txt` 会先保留为 `.user-edited` 文件，再生成新报告。模型和输入配置的改动不会被覆盖。旧任务 `export` 保留原有独立导出行为。`--to` 指定目录本身，不是父目录；其他任务的目录或用户改动过的独立导出文件不会被覆盖。
 
 旧任务导出保留报告中的原验收版本，仍核对归档、输入、参数和编译产物，不视为新版重新验收。
 
@@ -168,7 +168,7 @@ export CHARMM_GUI_CLI_LANG=zh  # 中文；改为 en 切换英文
 # unset CHARMM_GUI_CLI_LANG   # 恢复按系统语言自动检测
 ```
 
-全局参数放在子命令前。login、check、build/build-resume、status、update 和 jobs list/status/resume 在交互终端显示易读摘要；重定向、管道、未注册摘要的命令及 `--json` 保持 JSON 输出。JSON 字段名、结构及错误 category 不翻译。`jobs report --format text/html` 可显式选择报告格式。服务器语言为 C 或英文时，可在 `~/.bashrc` 设置 `export CHARMM_GUI_CLI_LANG=zh`，再打开新终端。尚未迁移的旧英文文案见 [清单](docs/I18N-TODO.md)。
+全局参数可放在子命令前或后。login、check、build/build-resume、status、update 和 jobs list/status/resume 在交互终端显示易读摘要；重定向、管道、未注册摘要的命令及 `--json` 保持 JSON 输出。JSON 字段名、结构及错误 category 不翻译。`jobs report --format text/html` 可显式选择报告格式。服务器语言为 C 或英文时，可在 `~/.bashrc` 设置 `export CHARMM_GUI_CLI_LANG=zh`，再打开新终端。尚未迁移的旧英文文案见 [清单](docs/I18N-TODO.md)。
 
 ## 科学边界
 

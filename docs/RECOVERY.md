@@ -12,7 +12,7 @@ charmm-gui-cli jobs report receptor-a
 
 任务名为 1–128 个 ASCII 字母、数字、点、下划线或连字符，首字符为字母或数字。同名只能指向同一个任务；创建同名新任务会被拒绝并提示恢复原任务。目录路径和旧 `build-resume` 仍可用。名称记录保存在全局用户配置目录，换工作目录后可直接恢复。
 
-`jobs status` 默认只读本地记录，显示阶段、错误分类、下一步和最终结果位置。`--remote-check` 仅读取已有建膜 job 的最新远端状态；远端 `done` 不代表已完成本地下载和验证。`jobs report` 按名称读取可信的最终报告，`--full` 输出完整 JSON。证据过期时会要求恢复任务重新检查。
+`jobs status` 默认只读本地记录，显示阶段、错误分类、下一步和最终结果位置。`--remote-check` 仅读取已有建膜 job 的最新远端状态。远端拒绝时显示脱敏后的错误摘要，下一步指向同一任务的本地状态查询，不重复失败的远端查询。`jobs report` 按名称读取可信的最终报告，`--full` 输出完整 JSON。证据失效会列出缺失或改变的归档、输入、模型、参数或编译产物，再提示恢复同一任务重新检查。
 
 ## 错误与处理
 
@@ -20,9 +20,9 @@ charmm-gui-cli jobs report receptor-a
 | --- | --- |
 | authentication | `login` 后恢复原任务；程序不保存密码或静默重登录 |
 | access_denied | 确认登录账户拥有该任务，切换正确账户后恢复 |
-| transient_network / transient_http | GET 最多尝试三次；耗尽后记录可恢复错误 |
+| transient_network / transient_http | 建模期间 GET 默认退避等待最多 20 分钟；独立查询最多尝试三次，耗尽后记录可恢复错误 |
 | transport_error | TLS/代理等非瞬时错误进入 `paused_network`，修复后显式恢复同一批次，不关闭证书验证或循环自动重试 |
-| rate_limited | 遵守服务端 Retry-After；长等待交回调度器，批次保存最早重试时间 |
+| rate_limited | 遵守服务端 Retry-After；建模 GET 在等待窗口内分段等待，超过窗口则交回调度器，批次保存最早重试时间 |
 | archive_preparing | 官网正在按需压缩归档；等待记录的重试时间后恢复原任务，仅重试下载，不重新建模 |
 | component_classification | 官网把非共价组分识别成蛋白工程残基；保留原源任务，检查 TER 和分类，不伪造字段或重传旧意图 |
 | wait_timeout | 远端任务继续存在，之后恢复原任务 |
@@ -32,6 +32,10 @@ charmm-gui-cli jobs report receptor-a
 | archive_provenance | 归档与任务 ID/下载收据/已记录哈希不符；保留文件并检查，不覆盖收据或自动重建 |
 
 自动重试只适用于只读 GET。上传与建模 POST 始终保留提交意图；网络失败、认证响应或 Ctrl-C 都不能证明服务端没有创建任务。认证问题也可能同时伴随 `submission_unknown`，此时登录后仍需核对原任务。
+
+`CHARMM_GUI_GET_RETRY_SECONDS` 可设置建模 GET 的等待窗口（0–1800 秒，默认 1200；0 使用原短重试）。单次读取超时保持不变，TLS 证书错误和 401/403 不进入长重试。等待每次不超过 30 秒，`run.log` 记录等待阶段和心跳，`jobs status` 显示等待时间；网络恢复后清除等待标记并继续原步骤。
+
+给 `report.txt` 或 `README.txt` 添加的备注不作为验收证据；重新生成时，先保存为 `.user-edited`（重复备注使用编号备份）。若唯一的 `model/` 不见了，恢复从原始归档重新解压并验收；修改过的模型或输入配置不会被覆盖。
 
 官网可能先报告 `done`，但尚未生成归档；第一次下载会触发压缩，状态变成 `compressing`。程序将其显示为 `archive_preparing`，保留原响应和任务 ID，记录至少 120 秒的下载重试间隔。`--wait` 在时限内等待；单轮运行则提示稍后恢复。压缩可能超过官网提示的 1–2 分钟，这不等于模型失败，也不等于已经下载或验收通过。批量任务仍占用活动槽位，不另建替代任务。其他未知文本、HTML 或损坏归档仍会拒绝。
 

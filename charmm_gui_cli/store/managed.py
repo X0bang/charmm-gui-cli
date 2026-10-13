@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import shlex
 import tempfile
 import uuid
 
@@ -144,6 +145,8 @@ def record_recovery(directory, error=None, *, state=None):
     if state is not None:
         event["state"] = state
     if error is not None:
+        if hasattr(error, "for_task"):
+            error.for_task(_job_metadata(directory).get("name") or str(task_root(directory)))
         event["error"] = error.as_dict() if hasattr(error, "as_dict") else {
             "category": "operation_error", "message": str(error), "retryable": False}
         category = event["error"]["category"]
@@ -209,7 +212,14 @@ def inspect_run(target, *, remote_check=False, token_file=None):
         from ..auth import load_token
         from ..workflow import status_summary
         token, _ = load_token(token_file)
-        response = Client(token).status(result["build_job_id"])
+        try:
+            response = Client(token).status(result["build_job_id"])
+        except ToolError as error:
+            error.for_task(result.get("name") or str(task_root(directory)))
+            if error.category in ("api_error", "http_error", "unexpected_response"):
+                # A local snapshot cannot repeat the failing remote GET.
+                error.next_step = "charmm-gui-cli jobs status " + shlex.quote(result.get("name") or str(task_root(directory)))
+            raise
         result.update(server_checked=True, remote_status=status_summary(response)["status"],
                       last_output_file=response.get("lastOutFile"), archive_available=response.get("hasTarFile") is True)
         if result["remote_status"] == "done" and result.get("state") not in ("validated", "validation_failed"):
@@ -224,6 +234,12 @@ def inspect_run(target, *, remote_check=False, token_file=None):
     result["official_links"] = result["presentation"]["official_links"]
     from ..background import metadata
     result["background"] = metadata(directory)
+    wait = directory / "network-wait.json"
+    if wait.is_file() and result["background"].get("running"):
+        saved = _read_json(wait)
+        if saved.get("active") is True:
+            result["network_wait"] = {key: saved[key] for key in
+                                      ("active", "updated_at", "retry_attempt", "retry_in_seconds", "waiting_elapsed_seconds", "next_retry_unix") if key in saved}
     log = log_path(directory)
     result["recent_stages"] = [line for line in log.read_text(encoding="utf-8", errors="replace").splitlines()
                                if re.match(r"\[\d{2}:\d{2}:\d{2}\]", line)][-5:] if log.is_file() else []
@@ -289,7 +305,8 @@ def list_runs():
             continue
         if manifest.get("schema_version") == 2:
             records.append({"directory": str(directory), "remembered_at": record.get("remembered_at", ""),
-                            "state": manifest.get("state", "unknown")})
+                            "state": manifest.get("state", "unknown"),
+                            **{key: manifest[key] for key in ("execution_state", "last_error") if key in manifest}})
     records.sort(key=lambda item: item["remembered_at"], reverse=True)
     unique, seen = [], set()
     for record in records:
@@ -524,9 +541,11 @@ def _archive_binding(manifest, archive, *, create_receipt=False):
         bilayer_id = job_id(bilayer["job_id"])
         bilayer_source = job_id(bilayer["config"]["source_job_id"])
     except (KeyError, TypeError, ValueError):
-        raise ToolError("Archive provenance requires complete source/build job IDs and readable bilayer job lineage.") from None
+        raise ToolError("Archive provenance requires complete source/build job IDs and readable bilayer job lineage.",
+                        details=[{"key": "validation.lineage_changed", "params": {"path": str(bilayer_directory / "run.json")}}]) from None
     if build_id != bilayer_id or source_id != bilayer_source or source_id == build_id:
-        raise ToolError("Archive provenance mismatch between full-build source/build IDs and the bilayer job; do not reuse another job's archive.")
+        raise ToolError("Archive provenance mismatch between full-build source/build IDs and the bilayer job; do not reuse another job's archive.",
+                        details=[{"key": "validation.lineage_changed", "params": {"path": str(bilayer_directory / "run.json")}}])
     provenance = verify_archive_provenance(bilayer_directory, bilayer, create_receipt=create_receipt)
     receipt = bilayer_directory / "download-receipt.json"
     return {"source_job_id": source_id, "build_job_id": build_id,
@@ -557,7 +576,10 @@ def _grompp_artifacts(report):
 
 
 def _cache_reusable(report, evidence):
-    if report.get("fingerprint") != _canonical_hash(evidence) or report.get("validation_complete") is not True:
+    if (not isinstance(report.get("evidence"), dict)
+            or report.get("fingerprint") != _canonical_hash(report["evidence"])
+            or report.get("fingerprint") != _canonical_hash(evidence)
+            or report.get("validation_complete") is not True):
         return False
     if evidence["grompp"]:
         if not evidence["gmx_identity"]["available"]:
@@ -577,11 +599,18 @@ def _final_summary(directory):
     path = directory / "results" / "validation.json"
     if not path.is_file():
         return {}
+    issues = []
+    checked = path
+    archive = full_archive_path(directory)
     try:
         report = _read_json(path)
+        checked = directory / "full-run.json"
         manifest = _read_json(directory / "full-run.json")
+        checked = path
         stored = report["evidence"]
-        archive = full_archive_path(directory)
+        if not archive.is_file():
+            raise FileNotFoundError(2, "Missing archive", str(archive))
+        checked = archive
         evidence = _evidence(manifest, archive, stored["grompp"], stored["gmx"])
         # Reading a historical result preserves its validation version. A fresh
         # finalize still uses the current version and therefore revalidates it.
@@ -596,19 +625,57 @@ def _final_summary(directory):
                     "gromacs_compiled": report.get("checks", {}).get("grompp", {}).get("passed") is True,
                     "compilation_status": ("passed" if _grompp_artifacts(report) else "failed") if stored["grompp"] else "not_run",
                     "archive": str(archive), "report_file": str(path)}
-    except (ToolError, OSError, KeyError, TypeError, ValueError):
-        pass
-    return {"validation_status": "stale_or_unreadable", "report_file": str(path)}
+        if report.get("fingerprint") != _canonical_hash(stored) or report.get("validation_complete") is not True:
+            issues.append({"key": "validation.record_changed", "params": {"path": str(path)}})
+        if stored.get("archive_sha256") != evidence["archive_sha256"]:
+            issues.append({"key": "validation.archive_changed", "params": {"path": str(archive)}})
+        for name in sorted(set(stored.get("inputs_sha256", {})) | set(evidence["inputs_sha256"])):
+            if stored.get("inputs_sha256", {}).get(name) != evidence["inputs_sha256"].get(name):
+                issues.append({"key": "validation.input_changed", "params": {"path": str(manifest["inputs"]["files"].get(name, inputs_path(directory) / name))}})
+        for field, key in (("config_sha256", "validation.config_changed"), ("job_binding", "validation.lineage_changed"),
+                           ("gmx_identity", "validation.compiler_changed")):
+            if stored.get(field) != evidence.get(field):
+                issues.append({"key": key, "params": {"path": str(directory / "full-run.json" if field == "config_sha256" else
+                                                                      directory / "bilayer/download-receipt.json" if field == "job_binding" else stored.get("gmx") or "gmx")}})
+        if stored.get("grompp") and not issues:
+            check = report.get("checks", {}).get("grompp", {})
+            issues.append({"key": "validation.compilation_changed", "params": {"path": str(check.get("output_dir") or check.get("log") or path)}})
+    except FileNotFoundError as error:
+        issues.append({"key": "validation.archive_missing" if Path(error.filename or checked) == archive else "validation.file_missing",
+                       "params": {"path": str(error.filename or checked)}})
+    except ToolError as error:
+        if error.details:
+            issues.extend(error.details)
+        else:
+            key = ("validation.model_changed" if error.key == "delivery.model_changed" else
+                   "validation.model_path" if error.key == "preview.invalid_model_path" else
+                   "validation.lineage_changed" if error.category == "archive_provenance" or error.key == "api.invalid_jobid" else "validation.metadata_unreadable")
+            issues.append({"key": key, "params": {"path": str(task_root(directory) / "model" if key.startswith("validation.model") else checked)}})
+    except (OSError, KeyError, TypeError, ValueError, AttributeError):
+        issues.append({"key": "validation.metadata_unreadable", "params": {"path": str(checked)}})
+    return {"validation_status": "stale_or_unreadable", "report_file": str(path),
+            "validation_issues": issues or [{"key": "validation.record_changed", "params": {"path": str(path)}}]}
+
+
+def _cached_model_missing(directory, report):
+    """Only a missing owned tree is recoverable; edited/redirected trees are not."""
+    try:
+        model = Path(report["extracted_directory"])
+    except (KeyError, TypeError):
+        raise ToolError(key="preview.invalid_model_path") from None
+    if modern(directory) and (model.is_symlink() or model.resolve() != task_root(directory) / "model"):
+        raise ToolError(key="preview.invalid_model_path")
+    if not model.resolve().is_relative_to(task_root(directory)):
+        raise ToolError(key="preview.invalid_model_path")
+    return not model.exists()
 
 
 def _verify_cached_model(directory, archive, report):
     """Bind cached conclusions to model bytes, not just their source tarball."""
     from ..delivery import verify_model
+    if _cached_model_missing(directory, report):
+        raise FileNotFoundError(2, "Missing extracted model", report["extracted_directory"])
     model = Path(report["extracted_directory"])
-    if modern(directory) and (model.is_symlink() or model.resolve() != task_root(directory) / "model"):
-        raise ToolError(key="preview.invalid_model_path")
-    if not model.resolve().is_relative_to(task_root(directory)):
-        raise ToolError(key="preview.invalid_model_path")
     verify_model(archive, model)
 
 
@@ -635,7 +702,7 @@ def finalize_managed_build(directory, *, grompp=False, gmx="gmx"):
         report_path = results / "validation.json"
         if report_path.is_file():
             previous = _read_json(report_path)
-            if _cache_reusable(previous, evidence):
+            if _cache_reusable(previous, evidence) and not _cached_model_missing(directory, previous):
                 _verify_cached_model(directory, archive, previous)
                 return previous
         results.mkdir(exist_ok=True)

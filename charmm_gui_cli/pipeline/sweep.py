@@ -186,10 +186,14 @@ def preparation_identity(directory, manifest=None):
                 or manifest.get("inputs", {}).get("components") or manifest.get("inputs", {}).get("chemistry_groups")):
             raise ToolError("Preparation reuse currently supports one ligand chemistry only; multi-component builds remain supported without sweep reuse.")
         mapping(config, ("version", "protein", "ligand", "ligand_resname", "ligand_hydrogens", "preparation", "membrane", "ions"), "sealed preparation configuration")
-        preparation = mapping(config["preparation"], ("orientation", "n_terminal", "c_terminal"), "preparation identity")
+        from .build_config import validate_preparation
+        preparation = validate_preparation(config["preparation"])
         settings = {key: preparation[key] for key in ("orientation", "n_terminal", "c_terminal")}
         settings.update(ligand_resname=config["ligand_resname"], hydrogens=config["ligand_hydrogens"])
         settings = batch._options(settings, directory)
+        if preparation.get("terminals"):
+            settings["terminals"] = {chain: dict(sorted(patches.items()))
+                                     for chain, patches in sorted(preparation["terminals"].items())}
         files = {name: _file(directory, manifest["inputs"]["files"][name], "inputs/" + name) for name in INPUT_FILES}
         ligand = read_ligand(files["ligand.sdf"])
     except (ValueError, TypeError, KeyError, AttributeError):
@@ -411,7 +415,14 @@ def bind_ready_sources(batch_directory, manifest):
                     or (directory / "bilayer").exists()):
                 continue
             if source is not None:
-                bind_source(directory, source)
+                try:
+                    bind_source(directory, source)
+                except ToolError as error:
+                    if error.category != "lock_busy":
+                        raise
+                    row.update(state="waiting_preparation", reuse_waiting=True)
+                    waiting += 1
+                    continue
                 row.update(state="prepared_reused", source_job_id=certify_source(source)["source_job_id"], started=False)
                 bound += 1
             elif row is not leader:

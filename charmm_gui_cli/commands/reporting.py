@@ -11,7 +11,7 @@ import tarfile
 
 from ..auth import ToolError
 from ..progress import official_links
-from ..i18n import get_language, t
+from ..i18n import MESSAGES, get_language, t
 
 
 def _hash(path):
@@ -76,17 +76,24 @@ def verified_images(directory, report):
 def display_result(summary, context, manifest, report):
     """A fixed-schema display model, excluding credentials and raw server data."""
     config = manifest.get("config", {})
+    source = context.get("source_job_id") or manifest.get("source_job_id")
+    build = context.get("build_job_id") or manifest.get("build_job_id")
+    compilation = context.get("compilation_status")
+    if compilation is None:
+        recorded = report.get("compilation", {}).get("status")
+        compilation = {"checked": "passed", "not_run": "not_run", "failed": "failed"}.get(recorded, "unknown")
+        if recorded is None and report.get("evidence", {}).get("grompp") is False:
+            compilation = "not_run"
     return {**summary, "directory": context.get("directory"),
-            "source_job_id": context.get("source_job_id"), "build_job_id": context.get("build_job_id"),
+            "source_job_id": source, "build_job_id": build,
             "parameters": {"membrane": config.get("membrane"), "ions": config.get("ions"),
                            "orientation": config.get("preparation", {}).get("orientation")},
-            "compilation_status": context.get("compilation_status", "unknown"),
+            "compilation_status": compilation,
             "atom_counts": report.get("checks", {}).get("total_atom_count"),
             "residue_counts": report.get("coordinate_residue_counts"),
             "warnings": report.get("review_warnings", []),
             "archive": context.get("archive"),
-            "official_links": official_links(source_job_id=context.get("source_job_id"),
-                                             build_job_id=context.get("build_job_id")),
+            "official_links": official_links(source_job_id=source, build_job_id=build),
             "simulation_note": "结构验收和 GROMACS 输入编译不代表已执行平衡或生产 MD，也不证明充分最小化。"}
 
 
@@ -97,6 +104,13 @@ def _value(value):
         return t("output.passed")
     if value is False:
         return t("output.failed")
+    if isinstance(value, float):
+        return f"{value:.4g}"
+    if isinstance(value, dict):
+        return "; ".join(f"{t('report.count.' + key) if 'report.count.' + key in MESSAGES else key}: {_value(number)}"
+                         for key, number in sorted(value.items()))
+    if isinstance(value, list):
+        return "; ".join(_value(item) for item in value)
     return json.dumps(value, ensure_ascii=False, sort_keys=True) if isinstance(value, (dict, list)) else str(value)
 
 
@@ -162,7 +176,7 @@ def render_html(result, images=(), preview_note=""):
             'max-width:1100px;margin:2rem auto;padding:0 1rem;color:#20303d}pre{white-space:pre-wrap;'
             'overflow-wrap:anywhere;background:#f4f7fa;padding:1rem}img{width:100%;height:auto}'
             'figure{margin:1rem 0}figcaption{font-weight:600}a{color:#156781}</style>'
-            '<h1>' + escape(t("report.title")) + '</h1><pre>' + escape(render_text(result)) + '</pre>'
+            '<h1>' + escape(t("report.title")) + '</h1><pre>' + escape(render_text(result).split("\n", 1)[1]) + '</pre>'
             '<h2>' + escape(t("report.previews")) + '</h2><p>' + escape(preview_note) + '</p>' + figures +
             '<h2>' + escape(t("report.links")) + '</h2><ul>' + links + '</ul></html>')
 

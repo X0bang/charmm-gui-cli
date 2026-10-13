@@ -21,7 +21,9 @@ def execute(args):
     directory = managed.resolve_run(args.target)
     result = managed.inspect_run(directory)
     if result.get("validation_status") == "stale_or_unreadable":
-        raise ToolError(key="cli.stale_report")
+        import shlex
+        raise ToolError(key="cli.stale_report", details=result.get("validation_issues"),
+                        next_step="charmm-gui-cli jobs resume " + shlex.quote(result.get("name") or str(args.target)))
     path = directory / "results" / "validation.json"
     if not path.is_file():
         raise ToolError(key="cli.no_report")
