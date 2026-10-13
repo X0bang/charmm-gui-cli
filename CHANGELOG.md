@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.1
 
 - Fix single-directory previews and verify extracted model bytes before reusing cached validation or showing a pass. Read historical reports with their original validation version.
 - Extract into an owned temporary tree and atomically publish the complete model; interruptions no longer leave an unrecoverable partial `model/`.
