@@ -289,7 +289,8 @@ def list_runs():
             continue
         if manifest.get("schema_version") == 2:
             records.append({"directory": str(directory), "remembered_at": record.get("remembered_at", ""),
-                            "state": manifest.get("state", "unknown")})
+                            "state": manifest.get("state", "unknown"),
+                            **{key: manifest[key] for key in ("execution_state", "last_error") if key in manifest}})
     records.sort(key=lambda item: item["remembered_at"], reverse=True)
     unique, seen = [], set()
     for record in records:

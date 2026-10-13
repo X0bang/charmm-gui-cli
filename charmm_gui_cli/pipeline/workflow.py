@@ -37,7 +37,8 @@ def run_lock(directory):
         try:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise ToolError("Another process is operating on this run.") from None
+            raise ToolError(key="run.lock_busy", category="lock_busy", retryable=True,
+                            retry_after_seconds=10, next_step="charmm-gui-cli jobs list") from None
         try:
             yield
         finally:

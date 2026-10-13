@@ -399,7 +399,8 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(result["jobs"][0]["next_retry_unix"], 1120)
         self.assertEqual(result["failed"], 0)
         self.assertEqual(result["validated"], 0)
-        self.assertIn("压缩归档", result["next_step"])
+        from charmm_gui_cli.i18n import t
+        self.assertEqual(result["next_step"], t("batch.next.archive", resume="charmm-gui-cli batch-resume " + str(self.directory)))
         with patch("charmm_gui_cli.build_command.execute") as execute, patch("charmm_gui_cli.batch.time.time", return_value=1100):
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
         execute.assert_not_called()

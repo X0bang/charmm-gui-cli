@@ -46,7 +46,7 @@ def execute(args):
         if sys.stderr is not original_stderr:
             sys.stderr.log.write(t("cli.error", message=exc.localized()) + "\n")
             sys.stderr.log.write(t("cli.next", action=exc.next_step) + "\n")
-        if exc.key != "background.running" and holder and (holder[0] / "full-run.json").is_file():
+        if exc.key != "background.running" and exc.category != "lock_busy" and holder and (holder[0] / "full-run.json").is_file():
             try:
                 managed.record_recovery(holder[0], exc)
             except (ToolError, OSError):

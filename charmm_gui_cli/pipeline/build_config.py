@@ -30,7 +30,8 @@ def validate_preparation(raw):
                 previous[end] = pair[1]
             result[end] = "NTER" if end == "n_terminal" else "CTER"
         elif not isinstance(value, str) or value not in choices:
-            raise ToolError(key="terminal.mapping_invalid", next_step="charmm-gui-cli build -h")
+            raise ToolError(key="terminal.patch_invalid", params={"end": "N" if end == "n_terminal" else "C",
+                            "choices": ", ".join(choices)}, next_step="charmm-gui-cli build -h")
     for chain, patches in chains.items():
         if (not isinstance(chain, str) or not re.fullmatch(r"[A-Za-z0-9_]{1,4}", chain)
                 or not isinstance(patches, dict) or not patches or set(patches) - {"n_terminal", "c_terminal"}
@@ -70,7 +71,7 @@ def validate_terminal_residues(preparation, predictions):
             raise ToolError(key="terminal.residue_mismatch", params={"chain": chain, "residue": residue, "patch": patch},
                             next_step="charmm-gui-cli build -h")
     if predictions and set(terminals) - matched:
-        raise ToolError(key="terminal.chain_missing", params={"chains": ", ".join(sorted(set(terminals) - matched))},
+        raise ToolError(key="terminal.chain_missing_local", params={"chains": ", ".join(sorted(set(terminals) - matched))},
                         next_step="charmm-gui-cli build -h")
 
 

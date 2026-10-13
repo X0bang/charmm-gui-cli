@@ -268,8 +268,8 @@ def parser():
     model.add_argument("--water-padding", type=float, help=t('help.text.51'))
     model.add_argument("--orientation", choices=("ppm", "prepared"), help=t('help.text.52'))
     from .pdb_normalization import N_TERMINALS, C_TERMINALS
-    model.add_argument("--n-terminal", help=t('help.terminal_mapping'))
-    model.add_argument("--c-terminal", help=t('help.terminal_mapping'))
+    model.add_argument("--n-terminal", help=t('help.n_terminal_mapping'))
+    model.add_argument("--c-terminal", help=t('help.c_terminal_mapping'))
     build.add_argument("--out", type=Path, help=t('help.text.55'))
     build.add_argument("--name", help=t('help.text.56'))
     build.add_argument("--dry-run", action="store_true", help=t('help.text.57'))
@@ -420,7 +420,13 @@ def main(argv=None):
         print(t("cli.error", message=t("cli.filesystem")), file=sys.stderr)
         print(t("cli.next", action="charmm-gui-cli -h"), file=sys.stderr)
         return 2
-    except (KeyboardInterrupt, EOFError):
+    except EOFError:
+        if args.command in ("login", "web-login"):
+            print(t("login.input_cancelled"), file=sys.stderr)
+        else:
+            print(t("cli.interrupted"), file=sys.stderr)
+        return 130
+    except KeyboardInterrupt:
         from .auth import recovery_guidance
         print(t("update.interrupted") if args.command == "update" else t("cli.interrupted") + recovery_guidance("interrupted"), file=sys.stderr)
         return 130

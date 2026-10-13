@@ -20,6 +20,7 @@ from ..config import UniqueLoader, mapping, composition, number
 from ..workflow import run_lock, now
 from ..pdb_normalization import N_TERMINALS, C_TERMINALS
 from ..layout import inputs_path
+from ..locales.i18n import t
 
 
 FIELDS = ("protein", "ligand", "complex", "ligand_resname", "ligand_smiles",
@@ -229,7 +230,13 @@ def _local(job):
     from .. import managed
     directory = Path(job["directory"])
     if job["state"] == "local_failed":
-        return
+        # Recover only the historical lock-conflict failure, not arbitrary local
+        # preparation failures or unknown submissions.
+        if job.get("error_category") == "lock_busy" or job.get("error") == "Another process is operating on this run.":
+            job["state"] = "waiting_lock"
+            job["error_category"] = "lock_busy"
+        else:
+            return
     unknown = job.get("error_category") == "submission_unknown"
     if unknown:
         # API attach records a verified existing ID. Merely editing the outer
@@ -295,7 +302,8 @@ def _local(job):
             or job["state"] not in ("pending", "preparing_local", "inputs_ready", "prepared_reused", "waiting_preparation")):
         job["started"] = True
     if job["state"] not in TERMINAL and time.time() < job.get("next_retry_unix", 0):
-        job["state"] = "archive_preparing" if job.get("error_category") == "archive_preparing" else "waiting_network"
+        job["state"] = ("waiting_lock" if job.get("error_category") == "lock_busy" else
+                        "archive_preparing" if job.get("error_category") == "archive_preparing" else "waiting_network")
     elif job["state"] not in TERMINAL and job.get("error_category") == "transport_error":
         job["state"] = "paused_network"
 
@@ -310,20 +318,28 @@ def _summary(directory, manifest):
         job["named_job"] = _named_job(directory, job["name"])
         counts[job["state"]] = counts.get(job["state"], 0) + 1
     resume = "charmm-gui-cli batch-resume " + shlex.quote(str(directory))
+    sweep_path = directory.parent / "sweep.json"
+    if sweep_path.is_file():
+        try:
+            saved = json.loads(sweep_path.read_text())
+            if Path(saved["batch_directory"]).resolve() == directory.resolve():
+                resume = "charmm-gui-cli sweep-resume " + shlex.quote(str(directory.parent))
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
     state = manifest["state"]
     unknown = any(job.get("error_category") == "submission_unknown" for job in jobs)
     if unknown:
-        guidance = recovery_guidance("submission_unknown", cause_category="authentication" if state == "paused_auth" else None) + " 核对并恢复后继续批次：" + resume
+        guidance = recovery_guidance("submission_unknown", cause_category="authentication" if state == "paused_auth" else None) + t("batch.next.inspection", resume=resume)
     elif state == "paused_auth":
-        guidance = "先运行 charmm-gui-cli login，然后恢复同一批次：" + resume
+        guidance = t("batch.next.authentication", resume=resume)
     elif state == "paused_network":
-        guidance = "检查网络、代理与 TLS 证书，不要禁用证书验证；修复后恢复同一批次：" + resume
+        guidance = t("batch.next.network", resume=resume)
     elif state == "waiting_network":
-        guidance = "等待网络/限流恢复及 next_retry_unix 指定时间后，恢复同一批次：" + resume
+        guidance = t("batch.next.waiting", resume=resume)
     elif state == "archive_preparing":
-        guidance = "官网正在压缩归档，尚未下载验收；等待 next_retry_unix 后，仅下载原任务归档：" + resume
+        guidance = t("batch.next.archive", resume=resume)
     elif state == "interrupted":
-        guidance = "已保留原任务和提交意图；恢复时不会自动重发未知 POST：" + resume
+        guidance = t("batch.next.interrupted", resume=resume)
     else:
         guidance = resume
     return {"directory": str(directory), "state": state, "counts": counts, "jobs": jobs,
@@ -405,7 +421,8 @@ def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=
                 if job.get("reuse_waiting"):
                     continue
                 if time.time() < job.get("next_retry_unix", 0):
-                    job["state"] = "archive_preparing" if job.get("error_category") == "archive_preparing" else "waiting_network"
+                    job["state"] = ("waiting_lock" if job.get("error_category") == "lock_busy" else
+                                    "archive_preparing" if job.get("error_category") == "archive_preparing" else "waiting_network")
                     network_waiting = True
                     continue
                 if not job.get("started"):
@@ -436,6 +453,13 @@ def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=
                     if code and job["state"] not in TERMINAL:
                         job.update(state="blocked", error="Build needs manual inspection before continuing.")
                 except (ToolError, OSError) as error:
+                    if getattr(error, "category", None) == "lock_busy" or getattr(error, "key", None) == "background.running":
+                        # Lock contention says nothing about the remote result.
+                        # Keep the child's pipeline state and slot; retry later.
+                        job.update(state="waiting_lock", error=str(error), error_category="lock_busy",
+                                   next_retry_unix=time.time() + max(10, getattr(error, "retry_after_seconds", None) or 10))
+                        _save(directory, manifest)
+                        continue
                     _local(job)
                     job["error"] = str(error) if isinstance(error, ToolError) else "Local file operation failed."
                     job["error_category"] = getattr(error, "category", "local_io")

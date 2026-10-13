@@ -94,16 +94,36 @@ class SingleDirectoryTests(unittest.TestCase):
         self.assertEqual(result["validation_tool_version"], "0.6.1")
 
     def test_generated_files_edits_are_preserved_on_republish(self):
-        for name in ("report.txt", "README.txt", "inputs/system-config.json"):
+        for name in ("report.txt", "README.txt"):
             delivery.auto_export(self.run)
             path = self.root / name
-            original = path.read_bytes()
             path.write_text("user edit")
-            with self.assertRaises(ToolError) as caught:
-                delivery.auto_export(self.run)
-            self.assertEqual(caught.exception.key, "delivery.modified")
-            self.assertEqual(path.read_text(), "user edit")
-            path.write_bytes(original)
+            self.assertTrue(managed.inspect_run("receptor-a")["passed"])
+            delivery.auto_export(self.run)
+            self.assertEqual(path.with_name(path.name + ".user-edited").read_text(), "user edit")
+            self.assertNotEqual(path.read_text(), "user edit")
+            path.write_text("second user edit")
+            delivery.auto_export(self.run)
+            self.assertEqual(path.with_name(path.name + ".user-edited.1").read_text(), "second user edit")
+        self.assertTrue(delivery.export_run(self.run, to=self.fixture.root / "edited-report-export")["passed"])
+
+    def test_edited_input_configuration_remains_protected(self):
+        delivery.auto_export(self.run)
+        path = self.root / "inputs/system-config.json"
+        path.write_text("user edit")
+        with self.assertRaises(ToolError) as caught:
+            delivery.auto_export(self.run)
+        self.assertEqual(caught.exception.key, "delivery.modified")
+        self.assertEqual(path.read_text(), "user edit")
+
+    def test_written_report_has_confirmed_job_ids_and_no_grompp_state(self):
+        from charmm_gui_cli.i18n import set_language
+        set_language("en")
+        delivery.auto_export(self.run)
+        content = (self.root / "report.txt").read_text()
+        self.assertIn("Source job: 100", content)
+        self.assertIn("bilayer job: 200", content)
+        self.assertIn("not run", content)
 
     def test_explicit_export_also_includes_visible_report(self):
         result = delivery.export_run(self.run, to=self.fixture.root / "export")

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Restore `doctor` command dispatch and test all registered command handlers.
+- Include per-chain terminal overrides in preparation seals; verify two-chain upload and source certification with mocked website/API calls.
+- Defer busy task/source locks instead of permanently failing a sweep condition; recover historical lock-only failures and preserve verified preparation reuse.
+- Preserve edited `report.txt` and `README.txt` as exclusive `.user-edited` backups when regenerating summaries. Model and input-settings edits remain protected.
+- Populate written reports with confirmed source/build IDs and compilation status; round displayed values and remove repeated HTML headings.
+- Show terminal job outcomes and H:MM:SS elapsed time; omit outdated remote stages after download/validation. Localize batch/sweep recovery guidance and use the original sweep command.
+- Correct C-terminal help, distinguish absent local chains from server-form failures, and use login-specific EOF guidance.
+
 ## 0.7.1
 
 - Fix single-directory previews and verify extracted model bytes before reusing cached validation or showing a pass. Read historical reports with their original validation version.
