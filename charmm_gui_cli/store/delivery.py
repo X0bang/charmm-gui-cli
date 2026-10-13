@@ -229,7 +229,11 @@ def _verify_report(directory, manifest, report):
         if not managed._cache_reusable(report, current):
             raise ValueError("stale evidence")
     except (ToolError, KeyError, TypeError, ValueError, OSError):
-        raise ToolError(key="cli.stale_report") from None
+        value = managed._final_summary(directory)
+        target = managed._job_metadata(directory).get("name") or str(task_root(directory))
+        import shlex
+        raise ToolError(key="cli.stale_report", details=value.get("validation_issues"),
+                        next_step="charmm-gui-cli jobs resume " + shlex.quote(target)) from None
 
 
 def _export(directory, *, to=None):

@@ -1,7 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.7.2
 
+- Preserve bounded, credential-redacted structured API diagnostics across uncertain submissions, recovery records, logs and terminal summaries. Remote-check failures recommend a concrete local query rather than repeating the failed GET.
+- Model-building GET requests use observable, command-scoped exponential backoff for up to 20 minutes; respect Retry-After, preserve short standalone queries and never replay POSTs or bypass authentication/TLS failures.
+- Explain stale validation by the specific missing/changed archive, input, model, configuration, lineage or compilation evidence. Require stored evidence to match its own fingerprint; restore a missing owned model from its original archive without overwriting edited models or losing report annotations.
 - Restore `doctor` command dispatch and test all registered command handlers.
 - Include per-chain terminal overrides in preparation seals; verify two-chain upload and source certification with mocked website/API calls.
 - Defer busy task/source locks instead of permanently failing a sweep condition; recover historical lock-only failures and preserve verified preparation reuse.
@@ -9,6 +12,10 @@
 - Populate written reports with confirmed source/build IDs and compilation status; round displayed values and remove repeated HTML headings.
 - Show terminal job outcomes and H:MM:SS elapsed time; omit outdated remote stages after download/validation. Localize batch/sweep recovery guidance and use the original sweep command.
 - Correct C-terminal help, distinguish absent local chains from server-form failures, and use login-specific EOF guidance.
+
+### Validation scope
+
+Regression tests cover local provenance, locking, reports, mocked server diagnostics and simulated network outages. This release does not claim a new live CHARMM-GUI modeling run or completion of all audit remediation items.
 
 ## 0.7.1
 

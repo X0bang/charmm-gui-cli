@@ -64,7 +64,7 @@ charmm-gui-cli --foreground build system.yaml --name receptor-b
 charmm-gui-cli --foreground jobs resume receptor-b  # 脚本/Slurm：等待并返回最终退出码
 ```
 
-网页建模 POST 默认读取超时 900 秒，等待期间每 30 秒记录心跳；可用 `--post-timeout 1800` 调整。只读 GET 保持原超时，结果不明的 POST 不自动重发。
+网页建模 POST 默认读取超时 900 秒，等待期间每 30 秒记录心跳；可用 `--post-timeout 1800` 调整。GET 单次超时不变，建模期间短暂断网会退避重试，默认最长 20 分钟；`jobs status` 可查看网络等待。可用 `CHARMM_GUI_GET_RETRY_SECONDS=600` 调为 10 分钟（范围 0–1800，0 使用短重试）。独立查询仍使用短重试，结果不明的 POST 不自动重发。
 
 ```bash
 charmm-gui-cli jobs reconcile receptor-a  # 仅 GET 核对提交结果

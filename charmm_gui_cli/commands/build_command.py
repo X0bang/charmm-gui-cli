@@ -7,6 +7,7 @@ import shutil
 import sys
 import math
 import os
+import time
 
 from ..api import Client
 from ..auth import ToolError, load_token, resolve_cookie_path
@@ -43,7 +44,19 @@ def execute(args):
             sys.stderr.log.write(format_build(result) + "\n")
         return result, execution_code
     except ToolError as exc:
+        if holder and (holder[0] / "full-run.json").is_file():
+            exc.for_task(managed._job_metadata(holder[0]).get("name") or str(task_root(holder[0])))
         if sys.stderr is not original_stderr:
+            if holder:
+                try:
+                    saved = managed._read_json(holder[0] / "full-run.json")
+                    from ..progress import describe_progress
+                    stage = describe_progress({"state": saved.get("state")}, localized=True)["label"]
+                    ids = {key: value for key, value in saved.items() if key in ("source_job_id", "build_job_id")
+                           and isinstance(value, str) and value.isdecimal() and len(value) <= 32}
+                    sys.stderr.log.write(t("error.context", stage=stage, source=ids.get("source_job_id", "—"), build=ids.get("build_job_id", "—")) + "\n")
+                except (ToolError, OSError):
+                    pass
             sys.stderr.log.write(t("cli.error", message=exc.localized()) + "\n")
             sys.stderr.log.write(t("cli.next", action=exc.next_step) + "\n")
         if exc.key != "background.running" and exc.category != "lock_busy" and holder and (holder[0] / "full-run.json").is_file():
@@ -98,6 +111,12 @@ def _execute(args, holder):
     timeout = getattr(args, "post_timeout", 900)
     if not math.isfinite(timeout) or timeout <= 0:
         raise ToolError(key="web.timeout_invalid", next_step="charmm-gui-cli build -h")
+    try:
+        retry_window = float(os.environ.get("CHARMM_GUI_GET_RETRY_SECONDS", "1200"))
+        if not math.isfinite(retry_window) or not 0 <= retry_window <= 1800:
+            raise ValueError
+    except ValueError:
+        raise ToolError(key="network.retry_invalid", next_step="unset CHARMM_GUI_GET_RETRY_SECONDS") from None
     if args.interval < 10 or args.max_wait <= 0:
         raise ToolError("--interval must be >=10 seconds and --max-wait must be positive.")
     if args.grompp and not shutil.which(args.gmx):
@@ -218,8 +237,20 @@ def _execute(args, holder):
     else:
         if (directory / "full-run.json").is_file():
             managed.record_recovery(directory, state="running")
-        result = advance(directory, None if api_only else WebClient(cookies, post_timeout=getattr(args, "post_timeout", 900)), Client(token), wait=args.wait,
-                         interval=args.interval, max_wait=args.max_wait, progress=reporter)
+        from ..remote.http_retry import long_get_retries
+        def waiting(event):
+            from ..store.auth import atomic_json
+            from ..workflow import now
+            if event["event"] == "waiting":
+                atomic_json(directory / "network-wait.json", {**event, "active": True, "updated_at": now(),
+                            "next_retry_unix": time.time() + event["retry_in_seconds"]})
+                reporter(event)
+            else:
+                atomic_json(directory / "network-wait.json", {"active": False, "updated_at": now()})
+                reporter({"state": managed._read_json(directory / "full-run.json").get("state", "running")})
+        with long_get_retries(retry_window, on_wait=waiting):
+            result = advance(directory, None if api_only else WebClient(cookies, post_timeout=getattr(args, "post_timeout", 900)), Client(token), wait=args.wait,
+                             interval=args.interval, max_wait=args.max_wait, progress=reporter)
     summary = {"directory": str(directory), **{key: result[key] for key in
                ("state", "source_job_id", "build_job_id") if key in result}}
     summary.update(managed._job_metadata(directory))

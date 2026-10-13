@@ -1,4 +1,4 @@
-"""Allowlisted terminal summaries; never render credentials or server bodies."""
+"""Allowlisted terminal summaries; exclude credentials and full responses."""
 
 from pathlib import Path
 import os
@@ -12,8 +12,14 @@ def _text(value):
 
 
 def _error_text(error):
-    return _text(t(error["message_key"], **error.get("message_params", {}))
-                 if error.get("message_key") else error.get("message", ""))
+    message = t(error["message_key"], **error.get("message_params", {})) if error.get("message_key") else error.get("message", "")
+    if error.get("server_message") and error["server_message"] not in message:
+        message += " " + t("error.server", message=error["server_message"])
+    for detail in error.get("details", []):
+        from ..i18n import MESSAGES
+        if isinstance(detail, dict) and detail.get("key") in MESSAGES:
+            message += " " + t(detail["key"], **detail.get("params", {}))
+    return _text(message)
 
 
 def _path(value):
@@ -61,7 +67,7 @@ def format_build(value, **context):
     execution = value.get("execution_state")
     if execution in ("failed_remote", "failed_local", "interrupted"):
         lines[1] = t("output.state", state=t("execution." + execution))
-    if value.get("remote_status") is not None and state not in ("validated", "validation_failed", "downloaded_unverified", "ligands_present"):
+    if value.get("remote_status") is not None and not value.get("validation_status") and state not in ("validated", "validation_failed", "downloaded_unverified", "ligands_present"):
         remote = value["remote_status"]
         remote_label = t("stage.done") if remote == "done" else describe_progress({"state": remote}, localized=True)["label"]
         lines.append(t("output.remote_state", state=remote_label))
@@ -89,7 +95,15 @@ def format_build(value, **context):
     elif passed is False or state == "validation_failed":
         lines[1] = t("output.state", state=t("output.failed"))
     if value.get("validation_status") == "stale_or_unreadable":
+        lines[1] = t("output.state", state=t("validation.stale_label"))
         lines.append(t("output.stale"))
+        for detail in value.get("validation_issues", []):
+            from ..i18n import MESSAGES
+            if detail.get("key") in MESSAGES:
+                params = dict(detail.get("params", {}))
+                if "path" in params:
+                    params["path"] = _path(params["path"])
+                lines.append(t(detail["key"], **params))
     compilation = value.get("compilation_status", "unknown")
     if value.get("gromacs_compiled") is True:
         compilation = "passed"
@@ -109,7 +123,7 @@ def format_build(value, **context):
     guidance = recovery_guidance(category, cause_category=error.get("cause_category"))
     name = value.get("name")
     if isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", name):
-        action = "charmm-gui-cli jobs report " + name if state == "validated" and passed is True else "charmm-gui-cli jobs resume " + name
+        action = "charmm-gui-cli jobs report " + name if state == "validated" and passed is True and not value.get("validation_status") else "charmm-gui-cli jobs resume " + name
     else:
         action = "charmm-gui-cli jobs / charmm-gui-cli build-resume"
     if category in ("authentication", "auth_required", "paused_auth"):
@@ -194,6 +208,8 @@ def _job_outcome(job):
     background = job.get("background") or {}
     if background.get("running"):
         return "running"
+    if job.get("validation_status") == "stale_or_unreadable":
+        return "failed_local"
     if (job.get("execution_state") == "interrupted" or state == "interrupted"
             or background.get("pid") and not background.get("finished_at")):
         return "interrupted"
@@ -211,6 +227,10 @@ def format_job_status(value, **context):
     background = value.get("background", {})
     result += "\n" + t("jobs.running" if background.get("running") else "jobs.stopped")
     result += " | " + t("progress.elapsed", elapsed=_elapsed(background.get('elapsed_seconds', 0)))
+    if value.get("network_wait", {}).get("active"):
+        wait = value["network_wait"]
+        result += "\n" + t("network.waiting", attempt=wait.get("retry_attempt", "—"),
+                           elapsed=_elapsed(wait.get("waiting_elapsed_seconds", 0)))
     if background.get("running"):
         lines = result.splitlines()
         if lines:

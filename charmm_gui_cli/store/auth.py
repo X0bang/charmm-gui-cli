@@ -4,6 +4,8 @@ import base64
 import json
 import math
 import os
+import re
+import shlex
 from pathlib import Path
 import tempfile
 import time
@@ -25,14 +27,14 @@ def recovery_guidance(category, *, cause_category=None):
     if key is None:
         return None
     message = t("recovery." + key)
-    return message + t("recovery.resume") if key in ("transport_error", "transient") else message
+    return message.rstrip() + " " + t("recovery.resume").lstrip() if key in ("transport_error", "transient") else message
 
 
 class ToolError(Exception):
-    """A user-facing error that never includes credentials or response bodies."""
+    """Structured errors; remote diagnostics are sanitized at the HTTP boundary."""
 
     def __init__(self, message=None, *, key=None, params=None, category="operation_error", next_step=None, retryable=False,
-                 retry_after_seconds=None, cause_category=None, server_message=None):
+                 retry_after_seconds=None, cause_category=None, server_message=None, details=None):
         self.key = key
         self.params = dict(params or {})
         # Keep str(error) and stored error messages stable for old consumers.
@@ -46,9 +48,16 @@ class ToolError(Exception):
         self.retry_after_seconds = retry_after_seconds
         self.cause_category = cause_category
         self.server_message = server_message
+        self.details = list(details or [])
 
     def localized(self):
-        return t(self.key, **self.params) if self.key else str(self)
+        message = t(self.key, **self.params) if self.key else str(self)
+        if self.server_message and self.server_message not in message:
+            message += " " + t("error.server", message=self.server_message)
+        for detail in self.details:
+            if isinstance(detail, dict) and detail.get("key") in MESSAGES:
+                message += "\n" + t(detail["key"], **detail.get("params", {}))
+        return message
 
     def as_dict(self):
         result = {"message": str(self), "category": self.category,
@@ -59,10 +68,17 @@ class ToolError(Exception):
             result["cause_category"] = self.cause_category
         if self.server_message is not None:
             result["server_message"] = self.server_message
+        if self.details:
+            result["details"] = self.details
         if self.key:
             result["message_key"] = self.key
             result["message_params"] = self.params
         return result
+
+    def for_task(self, target):
+        """Bind existing guidance without changing submission/retry semantics."""
+        self.next_step = re.sub(r"\bNAME\b", lambda match: shlex.quote(str(target)), self.next_step)
+        return self
 
 
 def default_token_path():

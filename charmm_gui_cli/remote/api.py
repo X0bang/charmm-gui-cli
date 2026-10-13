@@ -11,6 +11,7 @@ from ..auth import ToolError, normalize_token, token_info, recovery_guidance
 from ..i18n import t
 from ..archive_transport import normalize_download
 from ..http_retry import request as request_with_retry, retry_delay, transient_exception, RETRY_STATUSES
+from .diagnostics import diagnostic, secret_values
 
 API_BASE = "https://charmm-gui.org/api"
 ARCHIVE_PREPARING_MESSAGE = b"Start compressing now, please download after 1-2 minutes"
@@ -44,6 +45,14 @@ class Client:
     def __init__(self, token=None, session=None):
         self.token = token
         self.session = session or requests.Session()
+
+    def _secrets(self):
+        values = [self.token] if isinstance(self.token, str) else []
+        try:
+            values.extend(value for value in self.session.cookies.values() if isinstance(value, str))
+        except (AttributeError, TypeError):
+            pass
+        return values
 
     def validate_auth(self):
         """Local preflight; run before recording a new submission intent."""
@@ -84,17 +93,26 @@ class Client:
                             category="authentication" if code == 401 else "access_denied",
                             next_step=recovery_guidance("authentication" if code == 401 else "access_denied"))
         if code >= 400:
+            summary = None
+            if authenticated:
+                try:
+                    body = response.json()
+                    if isinstance(body, dict) and body.get("error"):
+                        summary = diagnostic(body, secrets=self._secrets() + secret_values(body))
+                except ValueError:
+                    pass
             response.close()
             raise ToolError(key="api.http", params={"code": code},
                             category="rate_limited" if code == 429 else ("transient_http" if code in RETRY_STATUSES else "http_error"),
                             retryable=method.upper() == "GET" and code in RETRY_STATUSES,
                             retry_after_seconds=(retry_delay(response.headers["Retry-After"], 0)
                                                  if "Retry-After" in response.headers and code in RETRY_STATUSES else None),
-                            next_step=recovery_guidance("transient_http") if code in RETRY_STATUSES else t("api.http_next"))
+                            server_message=summary,
+                            next_step=recovery_guidance("transient_http") if code in RETRY_STATUSES else "charmm-gui-cli build -h")
         return response
 
     @staticmethod
-    def _json(response):
+    def _json(response, *, secrets=(), diagnostics=True):
         try:
             data = response.json()
         except ValueError:
@@ -105,26 +123,27 @@ class Client:
         if not isinstance(data, dict):
             raise ToolError(key="api.response_shape", category="unexpected_response")
         if data.get("error"):
-            # Only recognized, structured validation diagnostics are exposed;
-            # arbitrary response strings can contain credentials or page bodies.
             error = data["error"]
             match = re.fullmatch(r"Invalid lipid name ([A-Za-z0-9_+-]{1,20})[.!]?", error, re.I) if isinstance(error, str) else None
-            if match:
+            if match and diagnostics:
                 message = "Invalid lipid name " + match.group(1)
-                raise ToolError(key="api.invalid_lipid", params={"lipid": match.group(1)},
-                                category="api_error", server_message=message,
-                                next_step="charmm-gui-cli build -h")
+                if diagnostic(message, secrets=list(secrets) + secret_values(data)) == message:
+                    raise ToolError(key="api.invalid_lipid", params={"lipid": match.group(1)},
+                                    category="api_error", server_message=message,
+                                    next_step="charmm-gui-cli build -h")
             if isinstance(error, str) and error.strip().lower() in (
                     "invalid token", "token expired", "unauthorized", "authentication required"):
                 raise AuthError(key="api.token_invalid")
-            raise ToolError(key="api.reported_error", category="api_error",
-                            next_step="charmm-gui-cli jobs status NAME --remote-check")
+            summary = diagnostic(data, secrets=list(secrets) + secret_values(data)) if diagnostics else None
+            raise ToolError(key="api.rejected" if summary else "api.reported_error", category="api_error",
+                            server_message=summary,
+                            next_step="charmm-gui-cli build -h")
         return data
 
     def login(self, email, password):
         response = self._request("POST", "/login", authenticated=False,
                                  json={"email": email, "password": password})
-        data = self._json(response)
+        data = self._json(response, diagnostics=False)
         token = data.get("token")
         if not isinstance(token, str):
             raise AuthError(key="api.no_token")
@@ -139,14 +158,14 @@ class Client:
         if jobid is None:
             raise ToolError(key="api.status_jobid")
         params = {"jobid": job_id(jobid)}
-        return self._json(self._request("GET", "/check_status", params=params))
+        return self._json(self._request("GET", "/check_status", params=params), secrets=self._secrets())
 
     def submit(self, payload):
         # Once a POST has been attempted, a bad/missing response cannot prove
         # that no job was created. Callers must retain the submission intent.
         self.validate_auth()
         try:
-            data = self._json(self._request("POST", "/quick_bilayer", data=payload))
+            data = self._json(self._request("POST", "/quick_bilayer", data=payload), secrets=self._secrets())
             if data.get("submitted") not in (True, "true"):
                 raise ToolError(key="api.not_acknowledged")
             identifier = job_id(data.get("jobid"))
@@ -154,6 +173,7 @@ class Client:
             raise SubmissionUnknown(
                 key="api.no_resubmit", params={"message": exc.localized()},
                 cause_category=exc.cause_category or exc.category,
+                server_message=exc.server_message,
                 retry_after_seconds=exc.retry_after_seconds,
                 next_step=recovery_guidance("submission_unknown", cause_category=exc.cause_category or exc.category)
             ) from None
