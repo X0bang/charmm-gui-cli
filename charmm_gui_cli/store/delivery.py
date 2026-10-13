@@ -129,7 +129,12 @@ def _system_configuration(directory, manifest):
             terminals = {key: value for key, value in submitted.get("fields", []) if key.startswith("terminal[")}
     certificate = manifest.get("reused_preparation", {}).get("certificate", {})
     if not terminals and certificate:
-        intent = Path(certificate.get("source_directory", "")) / "preparation/parameterization.intent.json"
+        from .discovery import source_directory
+        try:
+            source = source_directory(certificate)
+        except ToolError:
+            source = Path(certificate.get("source_directory", ""))
+        intent = source / "preparation/parameterization.intent.json"
         expected = certificate.get("evidence_sha256", {}).get("preparation/parameterization.intent.json")
         if expected and intent.is_file() and not intent.is_symlink() and _digest(intent) == expected:
             source = managed._read_json(intent)
@@ -252,6 +257,10 @@ def _export(directory, *, to=None):
         context = manifest.get("delivery_context")
         if not isinstance(context, dict) or not context.get("task_id"):
             context = creation_context()  # Old runs: explicit export uses today's directory.
+            from .discovery import task_id
+            identifier = task_id(directory)
+            if identifier:
+                context["task_id"] = identifier
             manifest["delivery_context"] = context
             atomic_json(directory / "full-run.json", manifest)
         if not isinstance(context.get("creation_directory"), str) or not Path(context["creation_directory"]).is_absolute():
@@ -319,7 +328,8 @@ def _export(directory, *, to=None):
                 previous = json.loads(marker_path.read_text())
             except (OSError, ValueError):
                 raise _error("delivery.foreign", target) from None
-            if not isinstance(previous, dict) or previous.get("task_id") != context["task_id"] or previous.get("run_directory") != str(directory):
+            if (not isinstance(previous, dict) or previous.get("task_id") != context["task_id"]
+                    or not modern(directory) and previous.get("run_directory") != str(directory)):
                 raise _error("delivery.foreign", target)
             if previous.get("complete") is not True:
                 raise _error("delivery.partial", target)

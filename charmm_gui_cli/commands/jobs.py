@@ -6,6 +6,7 @@ def execute(args):
     handlers = {
         'list': 'jobs_list',
         'export': 'jobs_export',
+        'relink': 'jobs_relink',
         'watch': 'jobs_watch',
         'reconcile': 'jobs_reconcile',
         'status': 'jobs_status',

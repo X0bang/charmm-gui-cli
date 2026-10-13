@@ -45,6 +45,8 @@ def local_initialization(directory):
     try:
         if modern(directory):
             directory.mkdir(mode=0o700)
+            from .auth import atomic_json
+            atomic_json(directory / "path-mode.json", {"version": 1})
         yield directory
     except BaseException:
         # A rename/replacement by another process is not ours to remove.

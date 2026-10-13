@@ -10,7 +10,23 @@ charmm-gui-cli jobs resume receptor-a
 charmm-gui-cli jobs report receptor-a
 ```
 
-任务名为 1–128 个 ASCII 字母、数字、点、下划线或连字符，首字符为字母或数字。同名只能指向同一个任务；创建同名新任务会被拒绝并提示恢复原任务。目录路径和旧 `build-resume` 仍可用。名称记录保存在全局用户配置目录，换工作目录后可直接恢复。
+任务名为 1–128 个 ASCII 字母、数字、点、下划线或连字符，首字符为字母或数字。同名只能指向同一个任务；创建同名新任务会被拒绝并提示恢复原任务。目录路径和旧 `build-resume` 仍可用。名称索引保存在 XDG 数据目录，登录会话单独保存；换工作目录后可直接恢复。
+
+## 移动任务目录
+
+保留整个单目录任务，包括归档、`model/`、`inputs/` 和隐藏的 `.charmm-gui/`；不要在 worker 运行时移动目录。新任务的内部文件路径相对于任务根目录保存，状态查询时解析为当前位置。旧单目录记录中的绝对路径按原始嵌入位置兼容读取，不重写原始下载回执、输入哈希或验收凭据。
+
+按名字找不到原目录时，程序会在当前目录及子目录按 `task_id` 查找；没有 UUID 的旧名称索引必须同时匹配原始名称、路径和注册时间，不靠名称猜测。查找不进入模型、输入、虚拟环境、隐藏目录或符号链接；达到查找上限或找到多个副本时，要求明确指定目录。只读查询不会修改索引。
+
+```bash
+charmm-gui-cli jobs status ./new-location/receptor-a
+charmm-gui-cli jobs relink receptor-a /new/location/receptor-a
+charmm-gui-cli jobs report receptor-a
+charmm-gui-cli jobs export receptor-a --to ./exported
+charmm-gui-cli --foreground jobs resume receptor-a
+```
+
+`relink` 只修改任务索引，不搬运模型或重发提交；拒绝身份不符、正在运行的任务，以及原目录仍存在的副本。前处理复用源也按 UUID 重新查找，继续核对原始快照、提交意图和输入哈希；任何证据变动仍会阻止复用。完成任务的本地恢复使用已有归档与模型，不需要再次建模。
 
 `jobs status` 默认只读本地记录，显示阶段、错误分类、下一步和最终结果位置。`--remote-check` 仅读取已有建膜 job 的最新远端状态。远端拒绝时显示脱敏后的错误摘要，下一步指向同一任务的本地状态查询，不重复失败的远端查询。`jobs report` 按名称读取可信的最终报告，`--full` 输出完整 JSON。证据失效会列出缺失或改变的归档、输入、模型、参数或编译产物，再提示恢复同一任务重新检查。
 

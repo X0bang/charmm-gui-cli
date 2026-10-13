@@ -343,6 +343,9 @@ def _write_outputs(output_dir, files):
     if existing:
         raise ToolError("Refusing to overwrite existing input-preparation output: " + ", ".join(existing))
     for name, content in files.items():
+        if name.endswith(".json"):
+            from ..store.paths import encode
+            content = json.dumps(encode(directory / name, json.loads(content)), indent=2) + "\n"
         with (directory / name).open("x", encoding="utf-8") as handle:
             handle.write(content)
     return {name: str((directory / name).resolve()) for name in files}

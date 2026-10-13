@@ -305,7 +305,8 @@ def validate_components(system_dir, input_manifest, reference_pdb, run_grompp=Fa
     report = {"passed": False, "scientific_correctness_verified": False, "checks": {}, "components": {}, "errors": [],
               "scope": "Exact component counts, heavy-atom chemistry retention and protein-frame relative poses; optional single grompp"}
     try:
-        manifest = input_manifest if isinstance(input_manifest, dict) else json.loads(Path(input_manifest).read_text())
+        from ..store.paths import read_value
+        manifest = input_manifest if isinstance(input_manifest, dict) else read_value(input_manifest)
         groups, instances = manifest["chemistry_groups"], manifest["components"]
         by_id = {entry["id"]: entry for entry in instances}
         if not groups or len(by_id) != len(instances):

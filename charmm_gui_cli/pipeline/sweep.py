@@ -5,6 +5,7 @@ import hashlib
 import itertools
 import json
 from pathlib import Path
+from ..store.paths import read_value, portable, root_for
 from urllib.parse import parse_qs, urlparse
 
 import yaml
@@ -36,7 +37,7 @@ def _digest(path):
 
 def _json(path):
     try:
-        value = json.loads(Path(path).read_text(encoding="utf-8"))
+        value = read_value(path)
     except (OSError, ValueError):
         raise ToolError("Cannot read preparation/sweep metadata.") from None
     if not isinstance(value, dict):
@@ -289,7 +290,13 @@ def certify_source(directory):
                                   _preparation_fields(selected, manifest["config"]), (f"sdf_cgenff[{identity['settings']['ligand_resname']}]",)))
     certificate = {"version": 1, "source_directory": str(directory), "source_job_id": identifier,
                    "identity": identity, "evidence_sha256": {str(path.relative_to(directory)): _digest(path) for path in evidence}}
-    return {**certificate, "fingerprint": batch._canonical(certificate)}
+    if portable(root_for(directory / "full-run.json")):
+        from ..store.discovery import task_id
+        identifier = task_id(directory)
+        if identifier:
+            certificate["source_task_id"] = identifier
+    from ..store.paths import identity as path_identity
+    return {**certificate, "fingerprint": batch._canonical(path_identity(certificate, directory))}
 
 
 def bind_source(directory, source_directory):
@@ -306,8 +313,9 @@ def bind_source(directory, source_directory):
         if identity != source["identity"]:
             raise ToolError("Reuse refused: protein/coordinates/ligand chemistry/preparation settings differ.")
         if manifest.get("reused_preparation"):
+            from ..store.discovery import source_directory as source_location
             if (validate_reuse(directory, manifest) != source["source_job_id"]
-                    or manifest["reused_preparation"]["certificate"]["source_directory"] != str(source_directory)):
+                    or source_location(manifest["reused_preparation"]["certificate"]) != source_directory):
                 raise ToolError("Child is already bound to another source.")
             return manifest["reused_preparation"]
         if (manifest.get("state") != "inputs_ready" or (directory / "preparation").exists()
@@ -315,6 +323,13 @@ def bind_source(directory, source_directory):
             raise ToolError("Reuse binding requires an untouched inputs_ready child; no existing job will be replaced.")
         record = {"version": 1, "certificate": source, "identity_fingerprint": batch._canonical(identity)}
         manifest.update(reused_preparation=record, source_job_id=source["source_job_id"], state="prepared_reused")
+        # The completed child must retain its applied settings independently of
+        # whether its preparation source remains mounted after final validation.
+        source_manifest = _json(source_directory / "full-run.json")
+        if isinstance(source_manifest.get("applied_terminals"), dict):
+            manifest["applied_terminals"] = dict(source_manifest["applied_terminals"])
+        if isinstance(source_manifest.get("terminal_adjustments"), list):
+            manifest["terminal_adjustments"] = list(source_manifest["terminal_adjustments"])
         atomic_json(directory / "full-run.json", manifest)
         return record
 
@@ -332,7 +347,10 @@ def validate_reuse(directory, manifest=None):
         if record.get("version") != 1:
             raise ValueError
         stored = record["certificate"]
-        current = certify_source(stored["source_directory"])
+        from ..store.discovery import source_directory
+        source = source_directory(stored)
+        current = certify_source(source)
+        stored = {**stored, "source_directory": str(source)}
         identity = preparation_identity(directory, manifest)
         if (stored != current or identity != current["identity"]
                 or record["identity_fingerprint"] != batch._canonical(identity)
@@ -399,7 +417,8 @@ def bind_ready_sources(batch_directory, manifest):
             current = _json(Path(row["directory"]) / "full-run.json")
             if current.get("reused_preparation"):
                 validate_reuse(row["directory"], current)
-                source = current["reused_preparation"]["certificate"]["source_directory"]
+                from ..store.discovery import source_directory
+                source = str(source_directory(current["reused_preparation"]["certificate"]))
                 break
             if current.get("source_job_id") and current.get("preparation_page_state") == "ready":
                 certify_source(row["directory"])

@@ -29,7 +29,8 @@ def verified_images(directory, report):
     if not cache.is_file():
         return [], t("report.no_preview")
     try:
-        saved = json.loads(cache.read_text(encoding="utf-8"))
+        from ..store.paths import read_value
+        saved = read_value(cache)
         identity = saved["identity"]
         if not report.get("fingerprint") or identity["validation_fingerprint"] != report["fingerprint"]:
             raise ValueError("stale preview")

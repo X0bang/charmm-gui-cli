@@ -26,7 +26,8 @@ def validate_charmm_source(pdb, psf, rtf, prm, manifest):
     assembly, not completeness/suitability of the final force-field parameters.
     """
     if not isinstance(manifest, dict):
-        manifest = json.loads(Path(manifest).read_text())
+        from ..store.paths import read_value
+        manifest = read_value(manifest)
     expected = manifest["ligand"]
     name = expected["resname"]
     coordinates = inspect_coordinates(pdb)
@@ -424,7 +425,8 @@ def validate_system(system_dir, manifest, *, topology=None, coordinates=None, md
     """
     root = Path(system_dir).resolve()
     if not isinstance(manifest, dict):
-        manifest = json.loads(Path(manifest).read_text())
+        from ..store.paths import read_value
+        manifest = read_value(manifest)
     expected = manifest["ligand"]
     resname = ligand_resname or expected["resname"]
     checks, errors = {}, []

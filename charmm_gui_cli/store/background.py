@@ -14,6 +14,7 @@ import sys
 import time
 import math
 import shutil
+from .paths import read_value
 
 from ..auth import ToolError, atomic_json, load_token, resolve_cookie_path
 from ..i18n import set_language, t
@@ -34,7 +35,7 @@ def claim(directory):
 def metadata(directory):
     path = Path(directory) / "run.lock"
     try:
-        value = json.loads(path.read_text())
+        value = read_value(path)
         if not isinstance(value, dict):
             value = {}
     except (OSError, ValueError):
@@ -179,7 +180,7 @@ def worker(directory, fd):
     from ..build_command import execute
     from ..terminal_output import format_build
     directory = Path(directory)
-    values = json.loads((directory / "worker-options.json").read_text())
+    values = read_value(directory / "worker-options.json")
     for key in ("directory", "token_file", "cookies", "out", "config"):
         if values.get(key):
             values[key] = Path(values[key])

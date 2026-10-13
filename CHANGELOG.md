@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Store new task-local metadata paths relative to the task root; resolve historical single-directory absolute paths without rewriting or resealing evidence.
+- Discover moved named tasks by UUID, add identity-checked `jobs relink`, and reject ambiguous copies, mismatched identities and active workers.
+- Preserve validation and compiled-artifact checks after relocation, including moved preparation sources/children and existing owned exports. Uncertain POSTs are never replayed.
+
 ## 0.7.2
 
 - Preserve bounded, credential-redacted structured API diagnostics across uncertain submissions, recovery records, logs and terminal summaries. Remote-check failures recommend a concrete local query rather than repeating the failed GET.
