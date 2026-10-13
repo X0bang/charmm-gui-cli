@@ -4,6 +4,19 @@ import os
 
 
 MESSAGES = {
+    "paths.invalid": {"zh": "任务相对路径记录无效或越出任务目录：{path}", "en": "Invalid task-relative path metadata or a path outside the task: {path}"},
+    "jobs.identity_invalid": {"zh": "任务身份记录不一致，拒绝关联：{path}", "en": "Task identity is inconsistent; refusing association: {path}"},
+    "jobs.directory_missing": {"zh": "找不到任务 {name} 的目录：{path}；请关联移动后的目录。", "en": "Directory for task {name} is unavailable: {path}; relink the moved task."},
+    "jobs.discovery_limit": {"zh": "当前目录下的任务查找达到安全上限，请指定目录重新关联。", "en": "Task discovery reached its safe search limit; relink an explicit directory."},
+    "jobs.discovery_ambiguous": {"zh": "找到多个任务 {name} 的副本，拒绝自动选择：{paths}", "en": "Multiple copies of task {name} were found; refusing to choose automatically: {paths}"},
+    "jobs.relink_mismatch": {"zh": "目录 {path} 的任务身份与 {name} 不符，未修改索引。", "en": "Task identity at {path} does not match {name}; the index was not changed."},
+    "jobs.original_present": {"zh": "原任务目录仍存在，不能把副本关联为同一任务：{path}", "en": "The original task still exists; a copy cannot replace it: {path}"},
+    "jobs.unknown": {"zh": "没有记录名为 {name} 的任务；请查看任务列表或提供任务目录。", "en": "Unknown job {name}; list tasks or supply a task directory."},
+    "help.relink": {"zh": "按任务身份重新关联已移动的任务目录", "en": "Relink a moved task directory after verifying its identity"},
+    "help.relink_name": {"zh": "本机索引中已有的任务名称", "en": "Existing task name in this machine's index"},
+    "help.relink_path": {"zh": "移动后的任务目录（含 .charmm-gui/）", "en": "Moved task directory containing .charmm-gui/"},
+    "jobs.relinked": {"zh": "已关联任务 {name}：{path}", "en": "Relinked task {name}: {path}"},
+    "jobs.discovery_unreadable": {"zh": "无法完整查找任务，目录不可读取：{path}；请显式关联任务目录。", "en": "Task discovery is incomplete because a directory is unreadable: {path}; relink an explicit task directory."},
     "api.rejected": {"zh": "API 拒绝请求，请核对服务器错误摘要及建模参数。", "en": "API rejected the request; review the server error summary and modeling parameters."},
     "validation.stale_label": {"zh": "验收证据需复核", "en": "Validation evidence needs review"},
     "validation.archive_missing": {"zh": "官网归档文件缺失：{path}", "en": "The official archive is missing: {path}"},

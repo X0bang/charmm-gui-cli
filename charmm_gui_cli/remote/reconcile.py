@@ -11,20 +11,21 @@ from ..progress import official_links
 from ..web import soup_for
 from ..web_state import parse_page_state
 from ..workflow import run_lock
+from ..store.paths import read_value
 
 
 def reconcile(directory, web, *, confirm_not_submitted=False, source_job_id=None):
     directory = Path(directory).resolve()
     preparation = directory / "preparation"
     with run_lock(directory):
-        manifest = json.loads((directory / "full-run.json").read_text())
+        manifest = read_value(directory / "full-run.json")
         candidates = [(preparation / "web-run.json", preparation / "upload-response.html", preparation / "upload-form.html"),
                       (preparation / "selection.intent.json", preparation / "selection.html", preparation / "upload-response.html"),
                       (preparation / "parameterization.intent.json", preparation / "parameterization.html", preparation / "selection.html")]
         selected = None
         for intent_path, output, previous in candidates:
             if intent_path.is_file() and not output.is_file():
-                intent = json.loads(intent_path.read_text())
+                intent = read_value(intent_path)
                 if intent.get("state") in ("submission_unknown", "submitting", "upload_submitting"):
                     selected = intent_path, output, previous, intent
                     break

@@ -167,6 +167,8 @@ def load_token(path=None):
 
 
 def atomic_json(path, value):
+    from .paths import encode
+    value = encode(path, value)
     atomic_write(path, json.dumps(value, indent=2, ensure_ascii=False) + "\n")
 
 

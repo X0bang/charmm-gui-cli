@@ -154,7 +154,8 @@ def validate_bound_pose(system_dir, input_manifest, reference_pdb, *, atom_name_
             raise ToolError("Multiple step5_assembly.pdb files were found; choose a system directory containing exactly one assembly.")
         final = candidates[0]
         report["assembly_pdb"] = str(final)
-        manifest = input_manifest if isinstance(input_manifest, dict) else json.loads(Path(input_manifest).read_text())
+        from ..store.paths import read_value
+        manifest = input_manifest if isinstance(input_manifest, dict) else read_value(input_manifest)
         ligand = manifest["ligand"]
         resname = ligand["resname"]
         if not isinstance(resname, str) or not re.fullmatch(r"[A-Za-z0-9]{1,4}", resname):

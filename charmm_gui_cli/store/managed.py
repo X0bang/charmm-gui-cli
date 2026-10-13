@@ -20,11 +20,12 @@ from ..validation import extract_for_validation, inspect_environment, validate_s
 from ..workflow import run_lock
 from ..multicomponent import prepare_build_components, validate_components
 from ..layout import modern, task_root, inputs_path, log_path, full_archive_path
+from .paths import read_value, encode, identity
 
 
 def _read_json(path):
     try:
-        value = json.loads(Path(path).read_text(encoding="utf-8"))
+        value = read_value(path)
     except (OSError, ValueError):
         raise ToolError(f"Cannot read local run metadata: {Path(path).name}.") from None
     if not isinstance(value, dict):
@@ -35,6 +36,7 @@ def _read_json(path):
 def _new_json(path, value):
     """Publish a private JSON file atomically, without replacing another file."""
     path = Path(path)
+    value = encode(path, value)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, name = tempfile.mkstemp(prefix=".managed-", dir=path.parent)
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -92,9 +94,16 @@ def assign_name(directory, name):
         existing = directory / "job.json"
         if existing.exists() and _read_json(existing).get("name") != name:
             raise ToolError("This job already has a different name; existing names are retained.")
-        record = {"name": name, "directory": str(directory), "created_at": datetime.now(timezone.utc).isoformat()}
+        from .discovery import task_id
+        identifier = task_id(directory) or uuid.uuid4().hex
+        record = {"name": name, "directory": str(directory), "task_id": identifier,
+                  "created_at": datetime.now(timezone.utc).isoformat()}
         if not existing.exists():
             _new_json(existing, record)
+        else:
+            record = {**_read_json(existing), "directory": str(directory), "task_id": identifier}
+            if "task_id" not in _read_json(existing):
+                atomic_json(existing, record)
         destination = names / (name + ".json")
         if not destination.exists():
             _new_json(destination, record)
@@ -120,14 +129,12 @@ def resolve_run(target):
             return (path / ".charmm-gui").resolve()
         if (path / "full-run.json").is_file():
             return path.resolve()
-        raise ToolError(f"Unknown job {target}. Use charmm-gui-cli jobs, or supply its directory.")
+        raise ToolError(key="jobs.unknown", params={"name": target}, next_step="charmm-gui-cli jobs list")
     record = _read_json(record_path)
     if not isinstance(record.get("directory"), str) or not record["directory"]:
         raise ToolError("Named job has unreadable directory metadata; inspect its local name record.")
-    directory = Path(record["directory"])
-    if not (directory / "full-run.json").is_file():
-        raise ToolError("The named job directory is unavailable; restore its original directory or supply a readable path.")
-    return directory.resolve()
+    from .discovery import locate
+    return locate(record)
 
 
 def _job_metadata(directory):
@@ -280,6 +287,10 @@ def remember_run(directory):
         raise ToolError("Only full builds can be remembered.")
     record = {"directory": str(directory), "remembered_at": datetime.now(timezone.utc).isoformat(),
               "state": manifest.get("state", "unknown"), **_job_metadata(directory)}
+    from .discovery import task_id
+    identifier = task_id(directory)
+    if identifier:
+        record["task_id"] = identifier
     registry = _registry()
     _new_json(registry / "run-history" / f"{uuid.uuid4().hex}.json", record)
     atomic_json(registry / "latest-run.json", record)
@@ -297,7 +308,8 @@ def list_runs():
     for path in files:
         try:
             record = _read_json(path)
-            directory = Path(record["directory"]).expanduser().resolve()
+            from .discovery import locate
+            directory = locate(record)
             manifest = _read_json(directory / "full-run.json")
         except (ToolError, KeyError, TypeError):
             # A history entry can outlive a mounted/moved directory. It does
@@ -560,7 +572,7 @@ def _evidence(manifest, archive, grompp, gmx, *, create_receipt=False):
             **({"component_validation_revision": 2} if manifest.get("config", {}).get("components_mode") else {}),
             "job_binding": binding,
             "inputs_sha256": {name: _digest(path) for name, path in sorted(manifest["inputs"]["files"].items())},
-            "config_sha256": _canonical_hash(manifest["config"]), "grompp": bool(grompp),
+            "config_sha256": _canonical_hash(identity(manifest["config"], archive.parent / ".charmm-gui")), "grompp": bool(grompp),
             "gmx": str(gmx) if grompp else None,
             "gmx_identity": _compiler_identity(gmx) if grompp else None}
 

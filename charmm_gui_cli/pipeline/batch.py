@@ -189,7 +189,8 @@ def _prepare(directory, manifest):
         # that conversion over existing files or infer that partial inputs passed.
         if job["state"] == "preparing_local" and (output.exists() or (output.parent / ("." + output.name + ".sources")).exists()):
             try:
-                complete = json.loads((output / "full-run.json").read_text(encoding="utf-8"))
+                from ..store.paths import read_value
+                complete = read_value(output / "full-run.json")
                 files = complete["inputs"]["files"]
                 required = ("protein.pdb", "ligand.pdb", "ligand.sdf", "complex.pdb", "input-manifest.json")
                 if (complete.get("schema_version") != 2 or complete.get("state") != "inputs_ready"
@@ -242,7 +243,8 @@ def _local(job):
         # API attach records a verified existing ID. Merely editing the outer
         # full-build state must never unblock an ambiguous submission.
         try:
-            attached = json.loads((directory / "bilayer" / "run.json").read_text())
+            from ..store.paths import read_value
+            attached = read_value(directory / "bilayer" / "run.json")
             recovered = (isinstance(attached, dict) and isinstance(attached.get("job_id"), str)
                          and re.fullmatch(r"[0-9]{1,32}", attached["job_id"])
                          and attached.get("state") in ("submitted", "pending", "running", "done", "remote_error",
@@ -261,7 +263,8 @@ def _local(job):
         if not path.is_file():
             continue
         try:
-            value = json.loads(path.read_text(encoding="utf-8"))
+            from ..store.paths import read_value
+            value = read_value(path)
             if path.name == "full-run.json":
                 reused_source = bool(value.get("reused_preparation"))
             # Final validation is accepted only after evidence is checked below.
@@ -367,7 +370,8 @@ def _record_interruption(directory, manifest):
             for path in [preparation / "web-run.json", *preparation.glob("*.intent.json")]:
                 if path.is_file():
                     try:
-                        value = json.loads(path.read_text(encoding="utf-8"))
+                        from ..store.paths import read_value
+                        value = read_value(path)
                         uncertain = uncertain or value.get("state") in ("submission_unknown", "submitting", "upload_submitting")
                     except (OSError, ValueError, AttributeError):
                         # An unreadable existing submission record cannot prove

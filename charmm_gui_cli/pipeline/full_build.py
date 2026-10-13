@@ -18,6 +18,7 @@ from ..pdb_normalization import finding
 from ..web_state import parse_page_state
 from ..workflow import now, tracked_run, start as start_api, resume as resume_api
 from ..layout import modern, task_root, inputs_path
+from ..store.paths import read_value
 
 
 def _save(directory, manifest):
@@ -48,7 +49,7 @@ def initialize(config_path, directory, *, _reserved=False):
 
 def _read(directory):
     try:
-        manifest = json.loads((Path(directory) / "full-run.json").read_text(encoding="utf-8"))
+        manifest = read_value(Path(directory) / "full-run.json")
     except (ValueError, OSError):
         raise ToolError("Cannot read full-run.json.") from None
     if not isinstance(manifest, dict) or type(manifest.get("schema_version")) is not int or manifest["schema_version"] != 2:

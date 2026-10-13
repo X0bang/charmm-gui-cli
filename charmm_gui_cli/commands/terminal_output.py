@@ -252,6 +252,10 @@ def format_update(value, **context):
     return "\n".join(lines)
 
 
+def format_relink(value, **context):
+    return t("jobs.relinked", name=_text(value["name"]), path=_path(value["directory"])) + "\n" + t("cli.next", action=value["next_step"])
+
+
 FORMATTERS = {"update": format_update, "login": format_login, "build": format_build, "build-resume": format_build,
               "status": format_build, "jobs.status": format_job_status, "jobs.resume": format_build,
-              "check": format_check, "jobs.list": format_jobs}
+              "check": format_check, "jobs.list": format_jobs, "jobs.relink": format_relink}

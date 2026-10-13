@@ -64,6 +64,14 @@ charmm-gui-cli --foreground build system.yaml --name receptor-b
 charmm-gui-cli --foreground jobs resume receptor-b  # 脚本/Slurm：等待并返回最终退出码
 ```
 
+移动任务时保留整个目录（包括隐藏的 `.charmm-gui/`）。找不到原位置时，程序按任务身份在当前目录及其子目录查找；其他位置可显式关联：
+
+```bash
+charmm-gui-cli jobs relink receptor-a /new/path/receptor-a
+```
+
+新任务内部保存相对路径；旧记录兼容读取，不自动迁移。多个副本不会自动选择，关联也不会重新提交任务。
+
 网页建模 POST 默认读取超时 900 秒，等待期间每 30 秒记录心跳；可用 `--post-timeout 1800` 调整。GET 单次超时不变，建模期间短暂断网会退避重试，默认最长 20 分钟；`jobs status` 可查看网络等待。可用 `CHARMM_GUI_GET_RETRY_SECONDS=600` 调为 10 分钟（范围 0–1800，0 使用短重试）。独立查询仍使用短重试，结果不明的 POST 不自动重发。
 
 ```bash

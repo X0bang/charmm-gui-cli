@@ -22,6 +22,7 @@ from ..api import SubmissionUnknown, job_id
 from ..artifacts import inspect_archive
 from ..auth import ToolError, atomic_json
 from ..config import plan, validate_config
+from ..store.paths import read_value
 
 
 def now():
@@ -77,7 +78,7 @@ def tracked_run(directory, loader, saver=save):
 
 def read(directory):
     try:
-        manifest = json.loads((Path(directory) / "run.json").read_text(encoding="utf-8"))
+        manifest = read_value(Path(directory) / "run.json")
     except (OSError, ValueError):
         raise ToolError("Cannot read run.json in the run directory.") from None
     if not isinstance(manifest, dict) or manifest.get("schema_version") != 1:

@@ -79,7 +79,8 @@ def load_build_config(path):
     path = Path(path).expanduser()
     context = {"path": str(path), "cwd": str(Path.cwd())}
     try:
-        raw = yaml.load(path.read_text(encoding="utf-8"), Loader=UniqueLoader)
+        from ..store.paths import decode
+        raw = decode(path, yaml.load(path.read_text(encoding="utf-8"), Loader=UniqueLoader))
     except (yaml.YAMLError, UnicodeError):
         raise ToolError("Invalid build YAML.") from None
     except FileNotFoundError:
