@@ -16,6 +16,7 @@ from charmm_gui_cli.chem.input_sources import prepare_sources
 from charmm_gui_cli.chem.inputs import _pdb, inspect_ligand, prepare_inputs, read_ligand
 from charmm_gui_cli.chem.pdb_normalization import normalize_lines
 from .residues import BACKBONE as _BACKBONE, SIDECHAINS as _SIDECHAINS, ALIASES as _ALIASES, MODIFIED, validate_input_options
+from ..locales.i18n import t
 
 
 def _file_evidence(value):
@@ -38,10 +39,13 @@ def inspect_protein(path, *, excluded_resnames=(), lines=None):
     or missing-residue reconstruction is attempted. TER boundaries, chains and
     segments are kept separate; insertion codes are retained in residue IDs.
     """
+    from .pdb_layout import validate_layout, FIELD_LABELS
+    lines = list(lines) if lines is not None else Path(path).read_text(encoding="utf-8").splitlines()
+    validate_layout(lines)
     groups, chains, altlocs = {}, defaultdict(list), []
     model, model_count, block, atom_count = 0, 0, 0, 0
     sequence_records = False
-    for line in lines if lines is not None else Path(path).read_text(encoding="utf-8").splitlines():
+    for line_number, line in enumerate(lines, 1):
         record = line[:6].strip()
         if record == "MODEL":
             model_count += 1
@@ -57,7 +61,8 @@ def inspect_protein(path, *, excluded_resnames=(), lines=None):
         try:
             residue_number = int(line[22:26])
         except ValueError:
-            raise ToolError("Malformed PDB residue numbering prevents structural inspection.") from None
+            raise ToolError(key="input.pdb_columns", params={"line": line_number, "field": FIELD_LABELS["residue"]},
+                            next_step=t("input.pdb_columns_next")) from None
         identity = {"model": model if model_count else 1, "chain": line[21:22].strip(),
                     "residue_number": residue_number, "insertion_code": line[26:27].strip(),
                     "segment": line[72:76].strip(), "resname": line[17:21].strip()}
@@ -310,10 +315,16 @@ def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_res
         coordinate_source = complex_pdb or protein
         if coordinate_source is not None:
             excluded = [item.get("resname") for item in component_config["components"]] if components is not None else [ligand_resname]
-            inventory = inspect_protein(coordinate_source, excluded_resnames=excluded)
-            report["protein_inventory"] = inventory
-            report["original_protein_inventory"] = inventory
-            report["review_required"] = inventory["review_required"]
+            try:
+                inventory = inspect_protein(coordinate_source, excluded_resnames=excluded)
+            except ToolError as inventory_error:
+                # Explicit model selection can exclude malformed other models.
+                # Shared normalization remains the authoritative blocking path.
+                report["original_inventory_error"] = inventory_error.as_dict()
+            else:
+                report["protein_inventory"] = inventory
+                report["original_protein_inventory"] = inventory
+                report["review_required"] = inventory["review_required"]
             normalization = {"repairs": []}
             report["input_normalization"] = normalization
             report["automatic_repairs"] = normalization["repairs"]
@@ -380,6 +391,11 @@ def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_res
                              ligand_resname=ligand_resname, input_options=report.get("input_options", {}))
             if exc.key == "input.protein_hetero":
                 report["heterogen_inventory"] = [detail for detail in exc.details if detail.get("kind")]
+                candidates = [{"resname": detail["resname"], "chain": detail["chain"], "resid": detail["resid"],
+                               "icode": detail["icode"], "segment": detail["segment"], **detail["matching_ligand_coordinates"]}
+                              for detail in report["heterogen_inventory"] if detail.get("matching_ligand_coordinates")]
+                if candidates:
+                    report["duplicate_ligand_candidates"] = candidates
                 try:
                     draft = retention_draft(directory, source=complex_pdb or protein, ligand=ligand,
                                             ligand_resname=ligand_resname, input_options=report.get("input_options", {}), findings=exc.details)

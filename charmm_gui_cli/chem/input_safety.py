@@ -25,7 +25,7 @@ def heterogen_inventory(atoms):
         first = group[0]
         line, name = first.line, first.line[17:21].strip()
         identity = {"resname": name, "chain": line[21:22].strip(), "resid": int(line[22:26]),
-                    "icode": line[26:27].strip(), "segment": line[72:76].strip()}
+                    "icode": line[26:27].strip(), "segment": line[72:76].strip(), "polymer_block": first.polymer_block}
         kind = "modified" if name in MODIFIED else "metal" if len(group) == 1 and first.element in METALS | {"Cl"} else \
             "additive" if name in ADDITIVES else "detergent" if name in DETERGENTS else "water" if name in WATERS else "cofactor"
         label = " ".join((name, identity["chain"] or identity["segment"] or "-", str(identity["resid"]) + identity["icode"]))

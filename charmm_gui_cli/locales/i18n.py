@@ -4,6 +4,20 @@ import os
 
 
 MESSAGES = {
+    "input.pdb_no_atoms": {"zh": "输入中没有可识别的 ATOM/HETATM 坐标行；请选择含原子坐标的 PDB 结构文件。", "en": "The input contains no recognizable ATOM/HETATM coordinate records; provide a PDB structure containing atom coordinates."},
+    "input.duplicate_drop_scope": {"zh": "--drop-hetero {name} 会删除全部 {total} 份同名残基，但仅 {matched} 份与所给配体坐标吻合；不能据此删除其他结合位点的配体。", "en": "--drop-hetero {name} removes all {total} same-named residues, but only {matched} match the supplied ligand coordinates; other binding-site copies must not be removed on this evidence."},
+    "input.duplicate_partial_next": {"zh": "先在结构编辑器中按链和残基号明确拆分要保留的结合位点，不要按残基名批量删除；然后运行：{command}", "en": "First use a structure editor to separate the intended binding-site copies by chain/residue ID, without name-wide deletion; then run: {command}"},
+    "input.duplicate_ligand_pose": {"zh": "{residue} 与独立配体的 {count} 个重原子坐标可一一对应，未拟合 RMSD={rmsd} Å：可能重复包含同一结合姿势。仅比对元素与坐标，尚未证明键级、电荷或化学身份相同；没有自动删除。", "en": "{residue} matches the separate ligand's {count} heavy-atom coordinates without fitting (RMSD={rmsd} Å): the bound pose may be duplicated. Elements/coordinates alone do not verify bond orders, charge or chemical identity; nothing was removed automatically."},
+    "input.duplicate_scan_limited": {"zh": "重复配体坐标诊断达到计算上限，剩余组分未判定；非蛋白组分仍需明确处理。", "en": "Duplicate-pose diagnostics reached the work limit; remaining components are unclassified and still require explicit handling."},
+    "input.duplicate_complex_route": {"zh": "也可保留复合物后使用：{command}；SDF 须以显式 PDB_ATOM_NAMES 与复合物原子对应，且仍需通过原有化学及连接检查。", "en": "Alternatively retain the complex and use: {command}; the SDF needs explicit matching PDB_ATOM_NAMES, and all existing chemistry/connectivity checks still apply."},
+    "input.pdb_recheck": {"zh": "从结构编辑器重新导出固定列 PDB，保留坐标、链、残基号及插入码；随后运行：{command}", "en": "Re-export a fixed-column PDB from the structure editor, retaining coordinates, chains, residue IDs and insertion codes; then run: {command}"},
+    "input.pdb_large_recheck": {"zh": "明确拆分或重编号到传统 PDB 的表示范围，保留编号对应及 LINK/SSBOND/CONECT，不要截断字段；随后运行：{command}", "en": "Explicitly split or renumber within traditional PDB limits, keeping the ID mapping and LINK/SSBOND/CONECT records; do not truncate fields. Then run: {command}"},
+    "input.pdb_columns": {"zh": "PDB 第 {line} 行列未对齐或字段无效（{field}）；不能按空白分词猜测修复。", "en": "PDB line {line} has misaligned columns or an invalid field ({field}); whitespace-token repair would be ambiguous."},
+    "input.pdb_columns_next": {"zh": "从结构编辑器重新导出固定列 PDB（保留原坐标、链、残基编号和插入码），然后用原文件参数重新运行 charmm-gui-cli check。", "en": "Re-export a fixed-column PDB from the structure editor, preserving coordinates, chains, residue IDs and insertion codes; then rerun charmm-gui-cli check with those input files."},
+    "input.pdb_hybrid36": {"zh": "PDB 第 {line} 行使用非十进制或 hybrid-36 编号（{field}）；当前上传格式不支持，不能截断或猜测重编号。", "en": "PDB line {line} uses non-decimal or hybrid-36 numbering ({field}); the current upload format cannot preserve it by truncation or guessed renumbering."},
+    "input.pdb_residue_width": {"zh": "PDB 第 {line} 行残基编号超过 4 列或与数字插入码歧义；请明确区分 resSeq 与 iCode。", "en": "PDB line {line} has a residue number exceeding four columns or an ambiguous numeric insertion code; separate resSeq and iCode explicitly."},
+    "input.pdb_large_next": {"zh": "用结构编辑器拆分或明确重编号为传统 PDB 可表示的体系（原子序号≤99999，残基编号占 4 列），保留编号对应及 LINK/SSBOND/CONECT 信息后再运行 charmm-gui-cli check。", "en": "Use a structure editor to split or explicitly renumber within traditional PDB limits (atom serials ≤99999 and four-column residue numbers), retaining the ID mapping and LINK/SSBOND/CONECT information; then run charmm-gui-cli check."},
+    "input.pdb_coordinates": {"zh": "PDB 第 {line} 行坐标必须是有限数值，不能含 NaN 或 Inf。", "en": "PDB coordinates on line {line} must be finite values, not NaN or Inf."},
     "download.bytes": {"zh": "已接收 {received} / {total}", "en": "Received {received} / {total}"},
     "download.bytes_unknown": {"zh": "已接收 {received}（总量未知）", "en": "Received {received} (total unknown)"},
     "download.retry_invalid": {"zh": "归档轮询次数记录无效，请检查已保存任务状态。", "en": "Invalid saved archive polling count; inspect the recorded task state."},

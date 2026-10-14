@@ -113,7 +113,9 @@ def _pdb(path, *, report=None, input_options=None, role="generic"):
                 for target, order in Counter(ids[1:]).items():
                     key = (ids[0], target)
                     directed[key] = order + directed.get(key, 0)
-    if not atoms or len({a.serial for a in atoms}) != len(atoms):
+    if not atoms:
+        raise ToolError(key="input.pdb_no_atoms", next_step=t("input.pdb_columns_next"))
+    if len({a.serial for a in atoms}) != len(atoms):
         raise ToolError("PDB must contain atoms with unique serial numbers.")
     serials = {a.serial for a in atoms}
     for (a, b), order in directed.items():
@@ -423,6 +425,9 @@ def _validate_protein(atoms, **context):
         validate_protein(atoms)
     except ToolError as exc:
         if context:
+            if not context.get("complex_pdb"):
+                from .duplicate_ligand import enrich_duplicate_diagnostics
+                enrich_duplicate_diagnostics(exc, atoms, context.get("ligand"), input_options=context.get("input_options"))
             from .input_diagnostics import bind_input_error
             bind_input_error(exc, **context)
         raise

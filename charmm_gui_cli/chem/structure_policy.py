@@ -15,7 +15,7 @@ def label(identity):
     return " ".join((identity[5], identity[1] or identity[2] or "-", identity[3] + identity[4]))
 
 
-def select_model(lines, number, repairs):
+def select_model(lines, number, repairs, *, line_numbers=None):
     from .pdb_normalization import finding
     starts = [index for index, line in enumerate(lines) if line[:6].strip() == "MODEL"]
     count = len(starts) or 1
@@ -27,8 +27,8 @@ def select_model(lines, number, repairs):
         raise ToolError(key="input.model_range", params={"count": count, "number": number}, next_step="charmm-gui-cli check -h")
     if not starts:
         return lines
-    selected, current, active = [], 0, False
-    for line in lines:
+    selected, selected_numbers, current, active = [], [], 0, False
+    for index, line in enumerate(lines):
         record = line[:6].strip()
         if record == "MODEL":
             current += 1
@@ -37,6 +37,10 @@ def select_model(lines, number, repairs):
             active = False
         elif active and current == number or not active and record not in ("ATOM", "HETATM", "TER"):
             selected.append(line)
+            if line_numbers is not None:
+                selected_numbers.append(line_numbers[index])
+    if line_numbers is not None:
+        line_numbers[:] = selected_numbers
     repairs.append(finding("input.model_selected", number=number, count=count))
     return selected
 
