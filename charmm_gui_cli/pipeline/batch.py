@@ -21,11 +21,12 @@ from ..workflow import run_lock, now
 from ..pdb_normalization import N_TERMINALS, C_TERMINALS
 from ..layout import inputs_path
 from ..locales.i18n import t
+from ..chem.residues import INPUT_FIELDS as INPUT_SELECTION, validate_input_options
 
 
 FIELDS = ("protein", "ligand", "complex", "ligand_resname", "ligand_smiles",
           "accept_conect_bond_orders", "hydrogens", "upper", "lower", "salt",
-          "salt_concentration", "margin", "water_padding", "orientation", "n_terminal", "c_terminal")
+          "salt_concentration", "margin", "water_padding", "orientation", "n_terminal", "c_terminal") + INPUT_SELECTION
 TERMINAL = {"validated", "validation_failed", "preparation_failed", "remote_error", "local_failed"}
 DEFAULTS = {"ligand_resname": "LIG", "accept_conect_bond_orders": False, "hydrogens": "add_missing",
             "upper": "POPC=1", "lower": "POPC=1", "salt": "KCl", "salt_concentration": 0.15,
@@ -46,7 +47,11 @@ def _named_job(directory, name):
 
 def _options(raw, base):
     result = dict(raw)
+    selected = {key: value for key, value in raw.items() if key in INPUT_SELECTION}
+    validate_input_options(selected)
     for key, value in result.items():
+        if key in INPUT_SELECTION:
+            continue
         if key == "accept_conect_bond_orders":
             if type(value) is not bool:
                 raise ToolError("accept_conect_bond_orders must be boolean.")

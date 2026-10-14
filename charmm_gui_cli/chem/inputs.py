@@ -27,6 +27,7 @@ class Atom:
     xyz: tuple
     charge: int = 0
     line: str = ""
+    polymer_block: int = 0
 
 
 @dataclass
@@ -37,7 +38,7 @@ class Ligand:
     name: str = "LIG"
 
 
-def _protein_pdb_lines(path, atoms, serial_map=None):
+def _protein_pdb_lines(path, atoms, serial_map=None, *, input_options=None, role="protein"):
     """Retain explicit polymer breaks while optionally renumbering atoms.
 
     TER has no serial here so it cannot collide with unchanged atom/CONECT
@@ -46,7 +47,7 @@ def _protein_pdb_lines(path, atoms, serial_map=None):
     """
     selected = {atom.serial: atom for atom in atoms}
     lines, previous, boundary = [], None, False
-    for line in normalize_lines(path):
+    for line in normalize_lines(path, options=input_options, role=role):
         record = line[:6].strip()
         if record == "TER":
             if lines and lines[-1] != "TER":
@@ -77,12 +78,13 @@ def _xyz(values):
         raise ToolError("Coordinates must be three finite numbers.") from None
 
 
-def _pdb(path, *, report=None):
-    lines = normalize_lines(path, report)
+def _pdb(path, *, report=None, input_options=None, role="generic"):
+    lines = normalize_lines(path, report, options=input_options, role=role)
     atoms, bonds, directed = [], {}, {}
-    if sum(line.startswith("MODEL ") for line in lines) > 1:
-        raise ToolError("Select one PDB model before input preparation.")
+    block = 0
     for line in lines:
+        if line[:6].strip() == "TER":
+            block += 1
         if line.startswith(("ATOM  ", "HETATM")):
             if line[16:17].strip():
                 raise ToolError(key="input.altloc", next_step=t("input.altloc_next"))
@@ -100,7 +102,7 @@ def _pdb(path, *, report=None):
             except ValueError:
                 raise ToolError("Malformed PDB atom serial, residue number, or charge.") from None
             atoms.append(Atom(serial, line[12:16].strip(), element,
-                              _xyz(line[i:i + 8] for i in (30, 38, 46)), charge, line))
+                              _xyz(line[i:i + 8] for i in (30, 38, 46)), charge, line, block))
         elif line.startswith("CONECT"):
             try:
                 ids = [int(line[i:i + 5]) for i in range(6, len(line), 5) if line[i:i + 5].strip()]
@@ -395,11 +397,15 @@ def _hash(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def _validate_protein(atoms):
-    if not atoms or not any(a.line[12:16].strip() == "CA" for a in atoms):
-        raise ToolError("Protein input must contain protein ATOM records including alpha carbons.")
-    if any(not a.line.startswith("ATOM  ") for a in atoms):
-        raise ToolError(key="input.protein_hetero", next_step=t("input.protein_hetero_next"))
+def _validate_protein(atoms, **context):
+    from .input_safety import validate_protein
+    try:
+        validate_protein(atoms)
+    except ToolError as exc:
+        if context:
+            from .input_diagnostics import bind_input_error
+            bind_input_error(exc, **context)
+        raise
 
 
 def _conect(bonds):
@@ -414,7 +420,21 @@ def _conect(bonds):
 
 
 def prepare_inputs(protein_pdb, ligand_sdf, output_dir, *, ligand_resname="LIG", ligand_chain=None,
-                   ligand_resid=1, allow_distant_pose=False, hydrogen_policy="preserve"):
+                   ligand_resid=1, allow_distant_pose=False, hydrogen_policy="preserve", input_options=None):
+    try:
+        return _prepare_inputs(protein_pdb, ligand_sdf, output_dir, ligand_resname=ligand_resname,
+                               ligand_chain=ligand_chain, ligand_resid=ligand_resid, allow_distant_pose=allow_distant_pose,
+                               hydrogen_policy=hydrogen_policy, input_options=input_options)
+    except ToolError as exc:
+        if exc.key and exc.key.startswith("input."):
+            from .input_diagnostics import bind_input_error
+            bind_input_error(exc, protein=protein_pdb, ligand=ligand_sdf,
+                             ligand_resname=ligand_resname, input_options=input_options)
+        raise
+
+
+def _prepare_inputs(protein_pdb, ligand_sdf, output_dir, *, ligand_resname="LIG", ligand_chain=None,
+                    ligand_resid=1, allow_distant_pose=False, hydrogen_policy="preserve", input_options=None):
     """Merge a protein PDB and chemically defined ligand SDF in their current frame.
 
     Outputs include a mapping between SDF atom index, ligand PDB names and complex
@@ -426,9 +446,15 @@ def prepare_inputs(protein_pdb, ligand_sdf, output_dir, *, ligand_resname="LIG",
     if type(ligand_resid) is not int or not 1 <= ligand_resid <= 9999:
         raise ToolError("ligand_resid must be an integer between 1 and 9999.")
     normalization = {}
-    protein, protein_bonds = _pdb(protein_pdb, report=normalization)
-    _validate_protein(protein)
+    from .residues import validate_input_options
+    from .input_safety import validate_cgenff, validate_contact, validate_ligand_name, validate_link_records
+    options = validate_input_options(input_options)
+    validate_ligand_name(ligand_resname)
+    protein, protein_bonds = _pdb(protein_pdb, report=normalization, input_options=options, role="protein")
+    _validate_protein(protein, protein=protein_pdb, ligand=ligand_sdf, ligand_resname=ligand_resname, input_options=options)
+    validate_link_records(protein_pdb)
     ligand = _apply_hydrogen_policy(read_ligand(ligand_sdf), hydrogen_policy)
+    validate_cgenff(ligand)
     report = _validate_ligand(ligand)
     chains = {a.line[21:22] for a in protein}
     if ligand_chain is None:
@@ -443,14 +469,12 @@ def prepare_inputs(protein_pdb, ligand_sdf, output_dir, *, ligand_resname="LIG",
     heavy_ligand = [a for a in ligand.atoms if a.element not in ("H", "D")]
     if not heavy_protein or not heavy_ligand:
         raise ToolError("Protein and ligand must both have heavy atoms.")
-    distance = min(math.dist(a.xyz, b.xyz) for a in heavy_protein for b in heavy_ligand)
-    if distance < 0.8:
-        raise ToolError("Protein/ligand heavy atoms overlap (<0.8 A); verify coordinate frame and binding pose.")
+    distance = validate_contact(protein, ligand.atoms)
     if distance > 6 and not allow_distant_pose:
         raise ToolError(key="input.distant_pose", next_step=t("input.distant_pose_next"))
     protein_map = {a.serial: i + 1 for i, a in enumerate(protein)}
     metadata = [line for line in Path(protein_pdb).read_text().splitlines() if line.startswith("SSBOND")]
-    protein_lines = metadata + _protein_pdb_lines(protein_pdb, protein, protein_map)
+    protein_lines = metadata + _protein_pdb_lines(protein_pdb, protein, protein_map, input_options=options)
     ligand_lines, atom_map = [], []
     for i, atom in enumerate(ligand.atoms):
         serial = len(protein) + i + 1
@@ -484,6 +508,8 @@ def prepare_inputs(protein_pdb, ligand_sdf, output_dir, *, ligand_resname="LIG",
                 "ligand_input": {"path": str(Path(ligand_sdf).resolve()), "sha256": _hash(ligand_sdf)},
                 "ligand": report, "coordinate_transform": "none", "force_field_parameters_generated": False}
     manifest["input_normalization"] = normalization
+    manifest["automatic_repairs"] = normalization["repairs"]
+    manifest["input_options"] = options
     files = {"protein.pdb": "\n".join(protein_lines) + "\n" + _conect(mapped_protein) + "END\n",
              "ligand.pdb": "\n".join(ligand_lines) + "\n" + _conect(mapped_ligand) + "END\n",
              "ligand.sdf": ligand.sdf,

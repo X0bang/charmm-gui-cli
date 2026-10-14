@@ -186,7 +186,7 @@ def preparation_identity(directory, manifest=None):
                 or manifest.get("components") or manifest.get("chemistry_groups")
                 or manifest.get("inputs", {}).get("components") or manifest.get("inputs", {}).get("chemistry_groups")):
             raise ToolError("Preparation reuse currently supports one ligand chemistry only; multi-component builds remain supported without sweep reuse.")
-        mapping(config, ("version", "protein", "ligand", "ligand_resname", "ligand_hydrogens", "preparation", "membrane", "ions"), "sealed preparation configuration")
+        mapping(config, ("version", "protein", "ligand", "ligand_resname", "ligand_hydrogens", "preparation", "membrane", "ions", "input_options"), "sealed preparation configuration")
         from .build_config import validate_preparation
         preparation = validate_preparation(config["preparation"])
         settings = {key: preparation[key] for key in ("orientation", "n_terminal", "c_terminal")}

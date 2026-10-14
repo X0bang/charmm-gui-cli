@@ -116,6 +116,16 @@ charmm-gui-cli jobs export receptor-a --to ./my-model
 
 输入准备自动修复可安全重编号的蛋白原子序号、可推断的元素列、空链 ID；记录写入 `check.json` 和准备报告，不修改原始输入。涉及歧义 CONECT 的重复序号仍报错。Gly/Pro 末端支持 `GLYP`/`PROP`，默认 `NTER` 不可用时依据官网选项调整并记录。
 
+结晶水默认删除；MSE 默认转换为 MET（Se→S，坐标不变）；altloc 按残基选择占有率最高的完整构象，保留共有原子。修复记录写入 `check.json` 和实际准备的 `inputs/input-manifest.json`，`check`、`build`、batch 和 sweep 使用同一套规则。
+
+```bash
+charmm-gui-cli check --protein protein.pdb --ligand bound-ligand.sdf --altloc B
+charmm-gui-cli check --protein protein.pdb --ligand bound-ligand.sdf --drop-hetero ZN
+charmm-gui-cli build --protein protein.pdb --ligand bound-ligand.sdf --model 2 --drop-additives --name receptor-a
+```
+
+`--drop-hetero` 只能逐个指定残基名，不支持通配删除。金属/辅因子仍需明确处理：失败预检会列出位置、配位原子或最近距离，并在检查目录生成 `retained-components/` 草稿；须补全可靠 SDF、电荷及参数，草稿本身不能直接提交。`--keep-mse` 保留硒，但普通远端流程会拒绝；其他修饰残基不自动转换。跨残基 altloc 独立选择，请核对关联构象。主链 C–N 距离超过 2.0 Å、未知残基、不支持的 CGenFF 元素、配体保留名称冲突及小于 2.2 Å 的蛋白–配体接触均在本地拦截；LINK 连接/配位需要专用流程。
+
 也可复制 [默认配置模板](examples/default-build.yaml)，修改输入路径、脂质比例和其他参数：
 
 ```bash

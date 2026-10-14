@@ -21,16 +21,30 @@ def finding(key, **params):
     return {"key": key, "params": params, "message": MESSAGES[key]["en"].format(**params)}
 
 
-def normalize_lines(path, report=None):
+def normalize_lines(path, report=None, *, options=None, role="generic"):
     if Path(path).suffix.lower() in (".cif", ".mmcif"):
         raise ToolError(key="input.mmcif", next_step=t("input.convert_pdb_next"))
     lines = Path(path).read_text().splitlines()
-    indexes = [i for i, line in enumerate(lines) if line.startswith(("ATOM  ", "HETATM"))]
+    from .residues import validate_input_options, WATERS
+    from .structure_policy import select_model, apply_policy
+    policy = validate_input_options(options) if options is not None else None
+    def polymer(line):
+        return line.startswith("ATOM  ") or (policy is not None and role in ("protein", "complex", "components")
+                                             and line[17:21].strip() == "MSE" and not policy["keep_mse"])
+    def removed_water(line):
+        return policy is not None and role in ("protein", "complex") and line.startswith("HETATM") and line[17:21].strip() in WATERS
+    def removed_record(line):
+        from .residues import ADDITIVES
+        return removed_water(line) or (policy is not None and role in ("protein", "complex", "components")
+                                      and line.startswith("HETATM") and (line[17:21].strip() in policy["drop_hetero"]
+                                      or policy["drop_additives"] and line[17:21].strip() in ADDITIVES))
     repairs = []
+    lines = select_model(lines, policy.get("model") if policy else None, repairs)
+    indexes = [i for i, line in enumerate(lines) if line.startswith(("ATOM  ", "HETATM"))]
     serials = []
     overflow = 0
     for i in indexes:
-        if lines[i][6:11] == "*****" and lines[i].startswith("ATOM  "):
+        if lines[i][6:11] == "*****" and polymer(lines[i]):
             serials.append(None)
             overflow += 1
             continue
@@ -56,15 +70,16 @@ def normalize_lines(path, report=None):
                 except ValueError:
                     raise ToolError(key="input.conect_invalid", next_step=t("input.inspect")) from None
         unsafe = duplicated & conect_ids
-        hetero_counts = Counter(serial for i, serial in zip(indexes, serials) if lines[i].startswith("HETATM"))
+        hetero_counts = Counter(serial for i, serial in zip(indexes, serials)
+                               if lines[i].startswith("HETATM") and not polymer(lines[i]) and not removed_water(lines[i]))
         unsafe.update(serial for serial, count in hetero_counts.items() if count > 1)
         if unsafe:
-            raise ToolError(key="input.duplicate_conect", params={"serials": ", ".join(map(str, sorted(unsafe)))},
+            raise ToolError(key="input.duplicate_conect", params={"serials": ", ".join(map(str, sorted(unsafe)[:10])) + (" …" if len(unsafe) > 10 else "")},
                             next_step=t("input.fix_serials"))
-        occupied = {serial for i, serial in zip(indexes, serials) if lines[i].startswith("HETATM")}
+        occupied = {serial for i, serial in zip(indexes, serials) if not polymer(lines[i])}
         serial_map, next_serial, count = {}, 1, 0
         for i, old in zip(indexes, serials):
-            if not lines[i].startswith("ATOM  "):
+            if not polymer(lines[i]):
                 serial_map[old] = old
                 continue
             while next_serial in occupied:
@@ -81,10 +96,11 @@ def normalize_lines(path, report=None):
                 values = [int(line[j:j + 5]) for j in range(6, len(line), 5) if line[j:j + 5].strip()]
                 lines[i] = "CONECT" + "".join(f"{serial_map.get(value, value):5d}" for value in values)
         repairs.append(finding("input.overflow_renumbered", count=count) if overflow else
-                       finding("input.renumbered", count=count, serials=", ".join(map(str, sorted(duplicated)))))
+                       finding("input.renumbered", count=count, serials=", ".join(map(str, sorted(duplicated)[:10])) + (" …" if len(duplicated) > 10 else ""), duplicate_count=len(duplicated)))
 
-    occupied = {lines[i][21:22] for i in indexes if lines[i][21:22].strip()}
-    groups = list(dict.fromkeys(lines[i][72:76].strip() for i in indexes if not lines[i][21:22].strip()))
+    retained_indexes = [i for i in indexes if not removed_record(lines[i])]
+    occupied = {lines[i][21:22] for i in retained_indexes if lines[i][21:22].strip()}
+    groups = list(dict.fromkeys(lines[i][72:76].strip() for i in retained_indexes if not lines[i][21:22].strip()))
     preferred = {segment: segment[-1:] if segment else "A" for segment in groups}
     conflicts = len(set(preferred.values())) != len(preferred)
     mapping = {}
@@ -104,7 +120,7 @@ def normalize_lines(path, report=None):
     elements = 0
     chain_counts = Counter()
     residue_atoms = Counter((lines[i][17:27], lines[i][72:76]) for i in indexes)
-    for i in indexes:
+    for i in retained_indexes:
         line = lines[i].ljust(80)
         if not line[76:78].strip():
             name = line[12:16].strip()
@@ -114,6 +130,12 @@ def normalize_lines(path, report=None):
                     element = None
             else:
                 element = _IONS.get(line[17:21].strip().upper()) if residue_atoms[(lines[i][17:27], lines[i][72:76])] == 1 else None
+                if line[17:21].strip() in WATERS and name[:1].upper() in ("O", "H", "D"):
+                    element = name[:1].upper()
+                elif line[17:21].strip() == "MSE":
+                    element = "Se" if name.upper() == "SE" else re.sub(r"[0-9]", "", name)[:1].upper()
+                    if element not in ("C", "N", "O", "S", "H", "Se"):
+                        element = None
             if element is None:
                 raise ToolError(key="input.element_unknown", params={"line": i + 1, "atom": name}, next_step=t("input.inspect"))
             line = line[:76] + f"{element:>2}" + line[78:]
@@ -128,12 +150,36 @@ def normalize_lines(path, report=None):
         repairs.append(finding("input.elements_added", count=elements))
     for segment, count in chain_counts.items():
         repairs.append(finding("input.chains_added", segment=segment or "-", chain=mapping[segment], count=count))
-    if report is not None:
-        report.setdefault("repairs", []).extend(repairs)
-        report.setdefault("warnings", []).extend(item["message"] for item in repairs)
-        report["terminal_predictions"] = terminal_predictions(lines)
-        report["hetatm_present"] = any(line.startswith("HETATM") for line in lines)
+    try:
+        if policy is not None:
+            lines = apply_policy(lines, policy, role, repairs)
+    finally:
+        if report is not None:
+            report.setdefault("repairs", []).extend(repairs)
+            report.setdefault("warnings", []).extend(item["message"] for item in repairs)
+            report["automatic_repairs"] = report["repairs"]
+            report["terminal_predictions"] = terminal_predictions(lines)
+            report["hetatm_present"] = any(line.startswith("HETATM") for line in lines)
     return lines
+
+
+def attach_source_normalization(prepared, source_report):
+    """Preserve original-input repair evidence after a normalized staging pass."""
+    from ..store.auth import atomic_json
+    manifest = prepared["manifest"]
+    normalization = manifest.setdefault("input_normalization", {})
+    source = source_report.get("input_normalization", {})
+    entries = list(source.get("repairs", []))
+    for entry in normalization.get("repairs", []):
+        if entry not in entries:
+            entries.append(entry)
+    normalization.update(repairs=entries, automatic_repairs=entries,
+                         warnings=[entry["message"] for entry in entries])
+    manifest["automatic_repairs"] = entries
+    manifest["source_inputs"] = source_report.get("source_inputs", {})
+    manifest["source_evidence"] = source_report.get("source_evidence", {})
+    manifest["input_options"] = source_report.get("input_options", manifest.get("input_options", {}))
+    atomic_json(prepared["files"]["input-manifest.json"], manifest)
 
 
 def terminal_predictions(lines):

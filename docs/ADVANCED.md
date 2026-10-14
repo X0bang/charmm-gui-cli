@@ -52,6 +52,19 @@ ions:
   concentration_M: 0.10
 ```
 
+可在同一个版本 2 配置中加入输入选择选项；直接 CLI 的对应参数不能与配置文件混用：
+
+```yaml
+input_options:
+  altloc: highest       # 或 A/B；必须是完整构象
+  drop_hetero: [ZN]     # 仅明确不保留时填写，逐个残基名
+  drop_additives: false
+  keep_mse: false       # 默认 MSE→MET；true 需要专用参数流程
+  model: 1             # 仅需选择多模型文件时填写，从 1 开始
+```
+
+上述选项也可直接放入 batch 的 `defaults`/成员，以及 sweep 的 `inputs`。结晶水默认移除，原始文件不改，实际输入和修复记录在任务的 `inputs/` 中。预检遇到金属或辅因子时，检查目录中的 `retained-components/components.yaml` 标出待补全的化学定义；它不是可直接运行的参数文件。金属配位和修饰残基补丁仍需要专用流程，不能仅把草稿的 `trusted` 改为 `true`。
+
 | 字段 | 如何设置 |
 | --- | --- |
 | `protein` / `ligand` | 改为自己的文件路径；相对路径以 YAML 所在目录为基准，也可用绝对路径 |

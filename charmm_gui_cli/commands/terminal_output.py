@@ -49,11 +49,26 @@ def format_login(value, *, email=None):
     return "\n".join(lines)
 
 
+def _repair_lines(entries):
+    lines, alternates = [], []
+    for entry in entries:
+        if entry["key"] == "input.altloc_selected":
+            alternates.append(entry)
+        else:
+            lines.append("• " + t(entry["key"], **entry["params"]))
+    if alternates:
+        from collections import Counter
+        counts = Counter(entry["params"]["altloc"] for entry in alternates)
+        lines.append("• " + t("input.altloc_summary", count=len(alternates), choices=", ".join(f"{key}={count}" for key, count in sorted(counts.items()))))
+    return lines
+
+
 def format_build(value, **context):
     if value.get("background", {}).get("running"):
         background = value["background"]
         name = value.get("name") or _path(value.get("directory", ""))
         return "\n".join([t("output.background", name=_text(name), pid=background.get("pid", "—")),
+                         *_repair_lines(value.get("automatic_repairs", [])),
                          t("output.log", path=_path(background["log"])),
                          t("cli.next", action="charmm-gui-cli jobs watch " + str(name))])
     from ..progress import describe_progress
@@ -64,6 +79,7 @@ def format_build(value, **context):
         label = t("stage." + state)
     lines = [t("output.task", name=_text(value.get("name") or value.get("job_id") or "—")),
              t("output.state", state=label)]
+    lines.extend(_repair_lines(value.get("automatic_repairs", [])))
     execution = value.get("execution_state")
     if execution in ("failed_remote", "failed_local", "interrupted"):
         lines[1] = t("output.state", state=t("execution." + execution))
@@ -156,8 +172,7 @@ def format_check(value, **context):
         lines.append(t("check.ligand", name=component.get("resname", "—"), formula=component.get("molecular_formula", "—"), charge=component.get("net_formal_charge", "—")))
         for warning in component.get("chemistry_warnings", []):
             lines.append("• " + t(warning["key"], **warning["params"]))
-    for entry in value.get("automatic_repairs", []):
-        lines.append("• " + t(entry["key"], **entry["params"]))
+    lines.extend(_repair_lines(value.get("automatic_repairs", [])))
     for prediction in value.get("terminal_predictions", []):
         lines.append(t("check.terminal", chain=prediction["chain"], residue=prediction["first_resname"], patch=prediction["suggested_n_terminal"]))
     if value.get("input_normalization", {}).get("hetatm_present") is False:

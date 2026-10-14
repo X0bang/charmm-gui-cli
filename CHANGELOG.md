@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Share crystallographic-water removal, complete residue-level occupancy-ranked altloc selection, MSE-to-MET conversion, explicit heterogen/additive removal and model selection across check, direct/YAML builds, components, batches and sweeps. Preserve original files, source hashes and detailed repairs in prepared manifests.
+- Report heterogen identities, metal donor atoms within 2.8 Å and nearest cofactor contacts; create intentionally incomplete retained-component drafts with chemical/charge/topology requirements.
+- Block geometric backbone breaks, unknown protein residues, unsupported CGenFF elements, reserved ligand names and protein–ligand contacts below 2.2 Å before upload. Do not bypass LINK coordination/covalent-linkage records.
+- Recognize modified amino acids in structural inventories without inventing missing numbering gaps; bound duplicate-serial diagnostics and show compact bilingual repair summaries.
+
 ## 0.7.3
 
 - Store new task-local metadata paths relative to the task root; resolve historical single-directory absolute paths without rewriting or resealing evidence.

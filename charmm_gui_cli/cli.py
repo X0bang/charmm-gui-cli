@@ -50,7 +50,7 @@ def precheck_summary(report):
             result[key] = report[key]
     if "spatial_review" in report:
         result["spatial_review"] = report["spatial_review"].get("summary", {})
-    result["next_step"] = t("check.next_passed" if report.get("passed") else "check.next_failed")
+    result["next_step"] = report.get("error", {}).get("next_step") or t("check.next_passed" if report.get("passed") else "check.next_failed")
     return result
 
 
@@ -261,6 +261,13 @@ def parser():
     structures.add_argument("--ligand-smiles", help=t('help.text.43'))
     structures.add_argument("--accept-conect-bond-orders", action="store_true", help=t('help.text.44'))
     structures.add_argument("--hydrogens", choices=("add_missing", "preserve"), help=t('help.text.45'))
+    def add_input_selection(command):
+        command.add_argument("--altloc", help=t("help.input_altloc"))
+        command.add_argument("--drop-hetero", help=t("help.input_drop"))
+        command.add_argument("--keep-mse", action="store_true", default=None, help=t("help.input_mse"))
+        command.add_argument("--drop-additives", action="store_true", default=None, help=t("help.input_additives"))
+        command.add_argument("--model", type=int, help=t("help.input_model"))
+    add_input_selection(structures)
     model = build.add_argument_group(t("help.model_group"))
     model.add_argument("--upper", help=t('help.text.46'))
     model.add_argument("--lower", help=t('help.text.47'))
@@ -315,6 +322,7 @@ def parser():
     precheck.add_argument("--ligand-smiles")
     precheck.add_argument("--accept-conect-bond-orders", action="store_true")
     precheck.add_argument("--hydrogens", choices=("preserve", "add_missing"), default="add_missing")
+    add_input_selection(precheck)
     precheck.add_argument("--out", type=Path, help=t('help.text.71'))
     precheck.add_argument("--no-preview", action="store_true")
     precheck.add_argument("--open", action="store_true", help=t("help.open_preview"))

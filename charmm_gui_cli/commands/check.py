@@ -13,10 +13,11 @@ def execute(args):
     )
     from ..precheck import check_inputs
     from ..preview import render_model, new_preview_path
+    from ..chem.residues import options_from_args
     report = check_inputs(out=args.out or new_preview_path("checks"), protein=args.protein,
         ligand=args.ligand, complex_pdb=args.complex_pdb, components=args.components,
         ligand_resname=args.ligand_resname, ligand_smiles=args.ligand_smiles,
-        accept_conect_bond_orders=args.accept_conect_bond_orders, hydrogens=args.hydrogens)
+        accept_conect_bond_orders=args.accept_conect_bond_orders, hydrogens=args.hydrogens, input_options=options_from_args(args))
     if report.get("passed") and not args.no_preview:
         try:
             report["preview"] = render_model(report["prepared_complex"], Path(report["directory"]) / "preview",

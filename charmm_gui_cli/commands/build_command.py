@@ -123,10 +123,11 @@ def _execute(args, holder):
         raise ToolError("--grompp requires GROMACS. Install gmx or supply --gmx /path/to/gmx; no job was submitted.")
     if args.command == "build":
         components = getattr(args, "components", None)
-        source_fields = ("protein", "ligand", "complex_pdb", "ligand_resname", "ligand_smiles", "hydrogens")
+        from ..chem.residues import INPUT_FIELDS
+        source_fields = ("protein", "ligand", "complex_pdb", "ligand_resname", "ligand_smiles", "hydrogens") + INPUT_FIELDS
         model_fields = ("upper", "lower", "salt", "salt_concentration", "margin", "water_padding",
                         "orientation", "n_terminal", "c_terminal", "allow_unknown_lipids")
-        if args.config and (components or any(getattr(args, key) is not None for key in source_fields + model_fields)
+        if args.config and (components or any(getattr(args, key, None) is not None for key in source_fields + model_fields)
                             or args.accept_conect_bond_orders):
             raise ToolError("Choose either a YAML configuration or direct structure/model options, not both. See build -h.")
         if components and (not args.complex_pdb or any(getattr(args, key) is not None for key in
@@ -180,7 +181,8 @@ def _execute(args, holder):
             initialize(args.config, directory)
         else:
             default = lambda value, fallback: fallback if value is None else value
-            common = dict(output=args.out,
+            from ..chem.residues import options_from_args
+            common = dict(output=args.out, input_options=options_from_args(args),
                 membrane={"upper": default(args.upper, "POPC=1"), "lower": default(args.lower, "POPC=1"),
                           "margin_A": default(args.margin, 20), "water_padding_A": default(args.water_padding, 22.5),
                           **({"allow_unknown_lipids": True} if getattr(args, "allow_unknown_lipids", None) else {})},
@@ -216,7 +218,10 @@ def _execute(args, holder):
             from ..delivery import check_destination
             check_destination(directory)
     if dry_run:
+        prepared_manifest = (managed._read_json(directory / "full-run.json").get("inputs", {}).get("manifest", {})
+                             if (directory / "full-run.json").is_file() else {})
         return {"directory": str(directory), "state": "inputs_ready", "server_submitted": False,
+                "automatic_repairs": prepared_manifest.get("automatic_repairs", []),
                 **({"name": args.name} if getattr(args, "name", None) else {}),
                 "next_step": "charmm-gui-cli login; charmm-gui-cli build-resume"}, 0
     if directory.is_dir() and not getattr(args, "_worker", False):

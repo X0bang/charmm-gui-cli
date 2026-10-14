@@ -26,20 +26,24 @@ def _save(directory, manifest):
     atomic_json(Path(directory) / "full-run.json", manifest)
 
 
-def initialize(config_path, directory, *, _reserved=False):
+def initialize(config_path, directory, *, _reserved=False, _source_report=None):
     config = load_build_config(config_path)
     directory = Path(directory).resolve()
     if not _reserved:
         from ..store.local_build import local_initialization
         with local_initialization(directory):
-            return initialize(config_path, directory, _reserved=True)
+            return initialize(config_path, directory, _reserved=True, _source_report=_source_report)
     from ..delivery import creation_context
     manifest = {"schema_version": 2, "created_at": now(), "state": "preparing_inputs", "config": config,
                 "delivery_context": creation_context()}
     _save(directory, manifest)
     prepared = prepare_inputs(config["protein"], config["ligand"], inputs_path(directory),
                               ligand_resname=config["ligand_resname"],
-                              hydrogen_policy=config["ligand_hydrogens"])
+                              hydrogen_policy=config["ligand_hydrogens"],
+                              input_options={} if _source_report is not None else config.get("input_options"))
+    if _source_report is not None:
+        from ..chem.pdb_normalization import attach_source_normalization
+        attach_source_normalization(prepared, _source_report)
     from ..build_config import validate_terminal_residues
     validate_terminal_residues(config["preparation"], prepared.get("manifest", {}).get("input_normalization", {}).get("terminal_predictions", []))
     manifest.update(state="inputs_ready", inputs=prepared)
