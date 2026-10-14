@@ -50,6 +50,12 @@ def heterogen_inventory(atoms):
 
 
 def validate_protein(atoms):
+    from .structure_inventory import NUCLEIC_NAMES
+    nucleic = list(dict.fromkeys(atom_label(atom).rsplit(" ", 1)[0] for atom in atoms
+                                if atom.line[17:21].strip() in NUCLEIC_NAMES))
+    if nucleic:
+        raise ToolError(key="input.nucleic_chains", params={"count": len(nucleic), "residues": ", ".join(nucleic[:20])},
+                        next_step="charmm-gui-cli check --help")
     heterogens = heterogen_inventory(atoms)
     if heterogens:
         raise ToolError(key="input.protein_hetero", details=heterogens, next_step="charmm-gui-cli check -h")
@@ -92,11 +98,16 @@ def validate_cgenff(molecule):
 
 def validate_link_records(path):
     from pathlib import Path
-    links = [line for line in Path(path).read_text().splitlines() if line.startswith("LINK  ")]
+    from .structure_inventory import link_records, endpoint_label
+    links = link_records(Path(path).read_text().splitlines())
     if links:
         # LINK encodes linkage/coordination absent from many CONECT graphs.
         # Removing its other endpoint cannot certify the remaining chemistry.
-        raise ToolError(key="input.linkage", params={"count": len(links)}, next_step="charmm-gui-cli check -h")
+        details = [finding("input.glycan_link" if link["glycan_name_hint"] else "input.link_record",
+                           line=link["line"], left=endpoint_label(link["endpoints"][0]),
+                           right=endpoint_label(link["endpoints"][1])) for link in links[:20]]
+        raise ToolError(key="input.linkage", params={"count": len(links)}, details=details,
+                        next_step="charmm-gui-cli check -h")
 
 
 def validate_ligand_name(name):

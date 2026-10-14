@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add read-only, model/TER/chain/segid-separated residue inventories to prechecks and prepared-input manifests. Bilingual summaries show bounded chain composition and COMPND declarations without identifying domains from names or deleting fusion/antibody chains.
+- Identify unsupported nucleic-acid residues explicitly, keep nucleic-acid/carbohydrate name hints out of peptide residue/gap counts and avoid suggesting peptide terminal patches for them. Show LINK endpoints and possible glycan annotations before removal advice across single/component input preparation.
+- Reject same-named ligand instances and ambiguous component selectors across TER boundaries instead of merging them; report bounded instance labels and explicit selection routes, retaining actual component-configuration arguments. Reinforce ligand formal-charge review without choosing a pH state or changing the defined chemistry.
+
 ## 0.8.2
 
 ### Improvements

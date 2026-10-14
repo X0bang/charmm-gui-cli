@@ -24,9 +24,15 @@ def _path(value, label):
 
 def _one_ligand(atoms, *, resname=None):
     selected = [a for a in atoms if resname is None or a.line[17:21].strip() == resname]
-    residues = {(a.line[17:27], a.line[72:76]) for a in selected}
+    residues = {(a.polymer_block, a.line[17:27], a.line[72:76]) for a in selected}
     if len(residues) != 1 or not selected:
-        raise ToolError("Select exactly one ligand residue; split multiple copies first or specify the correct ligand_resname.")
+        from .input_safety import atom_label
+        representatives = {}
+        for atom in selected:
+            representatives.setdefault((atom.polymer_block, atom.line[17:27], atom.line[72:76]), atom)
+        raise ToolError(key="input.ligand_copies", params={"count": len(residues),
+            "residues": ", ".join(atom_label(atom).rsplit(" ", 1)[0] for atom in list(representatives.values())[:10]) or "—"},
+            next_step="charmm-gui-cli check --help")
     return selected
 
 

@@ -67,6 +67,32 @@ def _repair_lines(entries):
     return lines
 
 
+def _chain_lines(inventory):
+    lines = []
+    chains = inventory.get("chains", [])
+    for chain in chains[:20]:
+        residues = chain.get("residues", [])
+        if not residues:
+            continue
+        counts = ", ".join(t("structure.kind." + kind, count=count) for kind, count in chain.get("kind_counts", {}).items())
+        labels = [str(value["residue_number"]) + value.get("insertion_code", "") for value in (residues[0], residues[-1])]
+        lines.append(t("structure.chain", model=chain["model"], chain=_text(chain["chain"] or "—"),
+            segment=_text(chain["segment"] or "—"), block=chain["polymer_block"], count=chain["residue_count"],
+            first=_text(labels[0]), last=_text(labels[1]), contents=counts))
+        descriptions = []
+        for entity in chain.get("declared_molecules", []):
+            for value in entity.get("molecules", []) + entity.get("fragments", []):
+                if value not in descriptions:
+                    descriptions.append(value)
+        if descriptions:
+            lines.append(t("structure.declared", description=_text("; ".join(descriptions)[:300])))
+    if len(chains) > 20:
+        lines.append(t("structure.more", count=len(chains) - 20))
+    if inventory.get("header_truncated"):
+        lines.append(t("structure.header_truncated"))
+    return lines
+
+
 def format_build(value, **context):
     if value.get("background", {}).get("running"):
         background = value["background"]
@@ -84,6 +110,7 @@ def format_build(value, **context):
     lines = [t("output.task", name=_text(value.get("name") or value.get("job_id") or "—")),
              t("output.state", state=label)]
     lines.extend(_repair_lines(value.get("automatic_repairs", [])))
+    lines.extend(_chain_lines(value.get("structure_inventory", {})))
     for warning in value.get("chemistry_warnings", []):
         lines.append("• " + t(warning["key"], **warning["params"]))
     execution = value.get("execution_state")
@@ -168,6 +195,7 @@ def format_check(value, **context):
         lines.append(t("cli.error", message=_error_text(error)))
     protein = value.get("protein", {})
     inventory = value.get("protein_inventory", {})
+    lines.extend(_chain_lines(value.get("structure_inventory", inventory.get("structure_inventory", {}))))
     missing = protein.get("residues_missing_heavy_atoms", len(inventory.get("missing_heavy_atoms", [])))
     gaps = protein.get("numbering_gaps", len(inventory.get("numbering_gaps", [])))
     if missing or gaps:
@@ -178,6 +206,8 @@ def format_check(value, **context):
         lines.append(t("check.ligand", name=component.get("resname", "—"), formula=component.get("molecular_formula", "—"), charge=component.get("net_formal_charge", "—")))
         for warning in component.get("chemistry_warnings", []):
             lines.append("• " + t(warning["key"], **warning["params"]))
+    if value.get("chemistry"):
+        lines.append(t("structure.charge_review"))
     lines.extend(_repair_lines(value.get("automatic_repairs", [])))
     for prediction in value.get("terminal_predictions", []):
         lines.append(t("check.terminal", chain=prediction["chain"], residue=prediction["first_resname"], patch=prediction["suggested_n_terminal"]))

@@ -163,6 +163,9 @@ def normalize_lines(path, report=None, *, options=None, role="generic"):
             report["automatic_repairs"] = report["repairs"]
             report["terminal_predictions"] = terminal_predictions(lines)
             report["hetatm_present"] = any(line.startswith("HETATM") for line in lines)
+            if policy is not None and role in ("protein", "complex", "components"):
+                from .structure_inventory import inspect_chains
+                report["structure_inventory"] = inspect_chains(lines)
     return lines
 
 
@@ -178,6 +181,8 @@ def attach_source_normalization(prepared, source_report):
             entries.append(entry)
     normalization.update(repairs=entries, automatic_repairs=entries,
                          warnings=[entry["message"] for entry in entries])
+    if source.get("structure_inventory"):
+        normalization["structure_inventory"] = source["structure_inventory"]
     manifest["automatic_repairs"] = entries
     manifest["source_inputs"] = source_report.get("source_inputs", {})
     manifest["source_evidence"] = source_report.get("source_evidence", {})
@@ -193,9 +198,11 @@ def attach_source_normalization(prepared, source_report):
 
 
 def terminal_predictions(lines):
+    from .residues import SIDECHAINS, ALIASES, MODIFIED
+    protein_names = set(SIDECHAINS) | set(ALIASES) | set(MODIFIED)
     chains = {}
     for line in lines:
-        if line.startswith("ATOM  "):
+        if line.startswith("ATOM  ") and line[17:21].strip() in protein_names:
             chain = line[72:76].strip() or line[21:22].strip()
             resname = line[17:21].strip()
             if chain not in chains:

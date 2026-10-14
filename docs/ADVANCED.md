@@ -71,6 +71,12 @@ input_options:
 
 当前不读取 [hybrid-36 编号](https://cci.lbl.gov/hybrid_36/)或 mmCIF，超出传统 PDB 列宽会明确拒绝，不截断成另一个编号。需要用结构编辑器拆分或明确重编号，保留坐标、编号对应与 LINK/SSBOND/CONECT 信息，再运行提示中的实际 `check` 命令。
 
+`check` 按模型、TER 块、链 ID 和 segid 列出残基组成及坐标中的首末编号；首末编号不表示序列连续或完整。JSON 的 `protein_inventory.structure_inventory` 保留全部条目，终端最多显示 20 条。相同清点信息保存在实际准备输入的 `input-manifest.json` 中；`build --dry-run` 也显示链组成。程序不会自动删除融合结构域、抗体或纳米抗体链，也不会根据链长猜测身份。[COMPND](https://www.wwpdb.org/documentation/file-format-content/format33/sect2.html#COMPND) 中的分子/片段名只作为输入文件自述展示，未经序列鉴定。
+
+混入的常见核酸残基会被明确拒绝，不按氨基酸上传或计算肽链缺口。糖类仅按本地残基名表给出候选提示，不是完整的化学组分词典；例如 [NAG](https://files.rcsb.org/ligands/view/NAG.cif) 的名称不能单独证明已正确建模糖基化。若存在 [LINK](https://www.wwpdb.org/documentation/file-format-content/format33/sect6.html#LINK)，会列出连接端点；糖基化、跨组分共价连接及配位需要专用拓扑流程。仅删除糖或 LINK 并不能证明剩余体系适合非共价建模。
+
+单配体输入出现多份同名配体时，会列出前 10 个结合位点身份；TER 隔开的实例不会合并。组分配置若不能区分同一身份在多个 TER 块中的实例，也会拒绝，需另设唯一标识并保留编号对应。当前远端验收仍不支持同名多拷贝配体，需明确选择目标复合物，不能任取第一份。预检摘要显示每个已定义配体的形式电荷，并提示核对预期质子化状态；`add_missing` 保留已定义电荷，只按价态补氢，不选择 pH 或推断蛋白/整个体系的电荷。
+
 | 字段 | 如何设置 |
 | --- | --- |
 | `protein` / `ligand` | 改为自己的文件路径；相对路径以 YAML 所在目录为基准，也可用绝对路径 |

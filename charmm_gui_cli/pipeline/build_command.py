@@ -231,6 +231,7 @@ def _execute(args, holder):
                              if (directory / "full-run.json").is_file() else {})
         return {"directory": str(directory), "state": "inputs_ready", "server_submitted": False,
                 "automatic_repairs": prepared_manifest.get("automatic_repairs", []),
+                "structure_inventory": prepared_manifest.get("input_normalization", {}).get("structure_inventory", {}),
                 "review_required": prepared_manifest.get("ligand_selection", {}).get("conversion", {}).get("review_required", False),
                 "chemistry_warnings": prepared_manifest.get("ligand", {}).get("chemistry_warnings", []),
                 **({"name": args.name} if getattr(args, "name", None) else {}),

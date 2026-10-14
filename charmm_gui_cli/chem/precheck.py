@@ -40,6 +40,8 @@ def inspect_protein(path, *, excluded_resnames=(), lines=None):
     segments are kept separate; insertion codes are retained in residue IDs.
     """
     from .pdb_layout import validate_layout, FIELD_LABELS
+    from .structure_inventory import NUCLEIC_NAMES, GLYCAN_NAMES
+    non_peptide_names = NUCLEIC_NAMES | GLYCAN_NAMES
     lines = list(lines) if lines is not None else Path(path).read_text(encoding="utf-8").splitlines()
     validate_layout(lines)
     groups, chains, altlocs = {}, defaultdict(list), []
@@ -68,6 +70,8 @@ def inspect_protein(path, *, excluded_resnames=(), lines=None):
                     "segment": line[72:76].strip(), "resname": line[17:21].strip()}
         if line[16:17].strip():
             altlocs.append({**identity, "atom": line[12:16].strip(), "altloc": line[16:17]})
+        if identity["resname"] in non_peptide_names:
+            continue  # These are not peptide residues or peptide numbering gaps.
         if record != "ATOM" and identity["resname"] not in MODIFIED:
             continue
         if record == "HETATM" and identity["resname"] in excluded_resnames and identity["resname"] not in MODIFIED:
@@ -103,7 +107,9 @@ def inspect_protein(path, *, excluded_resnames=(), lines=None):
                 gaps.append({"before": groups[left]["identity"], "after": groups[right]["identity"],
                              "unused_integer_numbers": right[4] - left[4] - 1,
                              "missing_residues_inferred": False, "review_required": True})
+    from .structure_inventory import inspect_chains
     return {"path": str(Path(path).resolve()), "models": model_count or (1 if atom_count else 0),
+            "structure_inventory": inspect_chains(lines),
             "explicit_model_records": model_count, "atoms_all_models": atom_count,
             "protein_residues_all_models": len(groups), "alternate_locations": altlocs,
             "missing_heavy_atoms": missing, "unknown_residue_templates": unknown, "numbering_gaps": gaps,
@@ -248,6 +254,11 @@ def _complex_spatial_review(path, specifications, *, input_options=None, role="c
         chosen = [a for a in atoms if a.line[17:21].strip() == spec["resname"] and a.line[21:22].strip() == spec["chain"]
                   and int(a.line[22:26]) == spec["resid"] and ("icode" not in spec or a.line[26:27].strip() == spec["icode"])
                   and ("segment" not in spec or a.line[72:76].strip() == spec["segment"])]
+        blocks = {atom.polymer_block for atom in chosen}
+        if len(blocks) > 1:
+            raise ToolError(key="input.component_ter_ambiguous", params={"residue": " ".join(
+                (spec["resname"], spec["chain"] or "-", str(spec["resid"]))), "count": len(blocks)},
+                next_step="charmm-gui-cli check --help")
         if not chosen or len({(a.line[17:27], a.line[72:76]) for a in chosen}) != 1 or any(a.serial in selected for a in chosen):
             raise ToolError("Spatial review requires unambiguous, non-overlapping component residue selectors.")
         selected.update(a.serial for a in chosen)
@@ -388,7 +399,7 @@ def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_res
         if isinstance(exc, ToolError) and exc.key and exc.key.startswith("input."):
             from .input_diagnostics import bind_input_error, retention_draft
             bind_input_error(exc, protein=protein, ligand=ligand, complex_pdb=complex_pdb,
-                             ligand_resname=ligand_resname, input_options=report.get("input_options", {}))
+                             ligand_resname=ligand_resname, components=components, input_options=report.get("input_options", {}))
             if exc.key == "input.protein_hetero":
                 report["heterogen_inventory"] = [detail for detail in exc.details if detail.get("kind")]
                 candidates = [{"resname": detail["resname"], "chain": detail["chain"], "resid": detail["resid"],

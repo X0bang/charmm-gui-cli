@@ -7,9 +7,9 @@ from ..locales.i18n import t
 from .residues import MODIFIED, INPUT_FIELDS
 
 
-def check_command(*, protein=None, ligand=None, complex_pdb=None, ligand_resname="LIG", input_options=None):
+def check_command(*, protein=None, ligand=None, complex_pdb=None, ligand_resname="LIG", components=None, input_options=None):
     args = ["charmm-gui-cli", "check"]
-    for option, value in (("--protein", protein), ("--ligand", ligand), ("--complex", complex_pdb)):
+    for option, value in (("--protein", protein), ("--ligand", ligand), ("--complex", complex_pdb), ("--components", components)):
         if value is not None:
             args.extend((option, str(value)))
     if ligand_resname != "LIG":
@@ -25,7 +25,7 @@ def check_command(*, protein=None, ligand=None, complex_pdb=None, ligand_resname
     return shlex.join(args)
 
 
-def bind_input_error(error, *, protein=None, ligand=None, complex_pdb=None, ligand_resname="LIG", input_options=None):
+def bind_input_error(error, *, protein=None, ligand=None, complex_pdb=None, ligand_resname="LIG", components=None, input_options=None):
     options = dict(input_options) if isinstance(input_options, dict) else {}
     if isinstance(options.get("drop_hetero"), str):
         options["drop_hetero"] = options["drop_hetero"].split(",")
@@ -48,15 +48,20 @@ def bind_input_error(error, *, protein=None, ligand=None, complex_pdb=None, liga
     if error.key == "input.protein_hetero" and removable:
         options["drop_hetero"] = sorted(set(options.get("drop_hetero", [])) | set(removable))
         error.next_step = check_command(protein=protein, ligand=ligand, complex_pdb=complex_pdb,
-                                        ligand_resname=ligand_resname, input_options=options)
+                                        ligand_resname=ligand_resname, components=components, input_options=options)
         if partial:
             unchanged = check_command(protein=protein, ligand=ligand, complex_pdb=complex_pdb,
-                                      ligand_resname=ligand_resname, input_options=input_options)
+                                      ligand_resname=ligand_resname, components=components, input_options=input_options)
             error.next_step = t("input.duplicate_partial_next", command=unchanged)
     else:
         command = check_command(protein=protein, ligand=ligand, complex_pdb=complex_pdb,
-                                ligand_resname="LIG" if error.key == "input.reserved_name" else ligand_resname, input_options=options)
-        if error.key in ("input.pdb_columns", "input.pdb_coordinates", "input.pdb_no_atoms"):
+                                ligand_resname="LIG" if error.key == "input.reserved_name" else ligand_resname,
+                                components=components, input_options=options)
+        if error.key in ("input.nucleic_chains", "input.linkage", "input.ligand_copies", "input.component_ter_ambiguous"):
+            route = {"input.nucleic_chains": "input.nucleic_next", "input.linkage": "input.linkage_next",
+                     "input.ligand_copies": "input.ligand_copies_next", "input.component_ter_ambiguous": "input.component_ter_next"}[error.key]
+            error.next_step = t(route, command=command)
+        elif error.key in ("input.pdb_columns", "input.pdb_coordinates", "input.pdb_no_atoms"):
             error.next_step = t("input.pdb_recheck", command=command)
         elif error.key in ("input.pdb_hybrid36", "input.pdb_residue_width", "input.serial_limit"):
             error.next_step = t("input.pdb_large_recheck", command=command)
@@ -71,7 +76,7 @@ def bind_input_error(error, *, protein=None, ligand=None, complex_pdb=None, liga
     if error.key == "input.protein_hetero":
         error.details = [detail for detail in error.details if detail.get("key") != "input.retain_via_check"]
         error.details.append({"key": "input.retain_via_check", "params": {"command": check_command(
-            protein=protein, ligand=ligand, complex_pdb=complex_pdb, ligand_resname=ligand_resname, input_options=input_options)}})
+            protein=protein, ligand=ligand, complex_pdb=complex_pdb, ligand_resname=ligand_resname, components=components, input_options=input_options)}})
     return error
 
 

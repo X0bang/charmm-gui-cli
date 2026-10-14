@@ -420,8 +420,11 @@ def _hash(path):
 
 
 def _validate_protein(atoms, **context):
-    from .input_safety import validate_protein
+    from .input_safety import validate_protein, validate_link_records
     try:
+        source = context.get("complex_pdb") or context.get("protein")
+        if source is not None:
+            validate_link_records(source)
         validate_protein(atoms)
     except ToolError as exc:
         if context:
