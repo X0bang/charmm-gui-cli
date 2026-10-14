@@ -243,6 +243,7 @@ def attach(client, directory, identifier):
 def _download_archive(client, directory, manifest, archive, *, wait, deadline, progress):
     """Wait for on-demand compression, respecting a durable GET-only backoff."""
     identifier = manifest["job_id"]
+    from ..remote.transfers import observe, archive_delay
     while not archive.exists():
         retry_at = manifest.get("archive_retry_at_unix", 0)
         if isinstance(retry_at, bool) or not isinstance(retry_at, (int, float)) or not math.isfinite(retry_at):
@@ -261,12 +262,24 @@ def _download_archive(client, directory, manifest, archive, *, wait, deadline, p
             progress({"state": "downloading", "job_id": identifier, "build_job_id": identifier})
         manifest["state"] = "downloading"
         save(directory, manifest)
+        def received(event):
+            record = {**event, "active": not event["transfer_complete"], "updated_at": now(), "job_id": identifier}
+            atomic_json(directory / "download-progress.json", record)
+            if progress:
+                progress({"state": "downloading", "job_id": identifier, "build_job_id": identifier, **event})
         try:
-            client.download(identifier, archive)
+            with observe(received):
+                client.download(identifier, archive)
         except ToolError as error:
+            atomic_json(directory / "download-progress.json", {"active": False, "updated_at": now(), "job_id": identifier})
             if error.category != "archive_preparing":
                 raise
-            manifest.update(state="archive_preparing", archive_retry_at_unix=time.time() + 120)
+            prior = manifest.get("archive_poll_attempts", 0)
+            archive_delay(prior + 1 if type(prior) is int else None)
+            attempt = prior + 1
+            delay = max(archive_delay(attempt), error.retry_after_seconds or 0)
+            manifest.update(state="archive_preparing", archive_poll_attempts=attempt, archive_retry_at_unix=time.time() + delay)
+            error.retry_after_seconds = delay
             save(directory, manifest)
             if progress:
                 progress({"state": "archive_preparing", "job_id": identifier, "build_job_id": identifier})
@@ -274,6 +287,17 @@ def _download_archive(client, directory, manifest, archive, *, wait, deadline, p
                 raise
         else:
             manifest.pop("archive_retry_at_unix", None)
+        finally:
+            # Viewer metadata must stop after TLS/filesystem failures or Ctrl-C;
+            # retaining its byte counters is not evidence of a completed archive.
+            path = directory / "download-progress.json"
+            try:
+                if path.is_file():
+                    value = json.loads(path.read_text())
+                    if isinstance(value, dict) and value.get("active"):
+                        atomic_json(path, {**value, "active": False, "updated_at": now()})
+            except (OSError, ValueError):
+                pass  # Never mask the original transport/recovery exception.
 
 
 def resume(client, directory, *, wait=False, interval=30, max_wait=21600, pdb_member=None, progress=None):
@@ -313,7 +337,11 @@ def resume(client, directory, *, wait=False, interval=30, max_wait=21600, pdb_me
                 if status == "done":
                     break
                 if status == "archive_preparing":
-                    manifest["archive_retry_at_unix"] = time.time() + 120
+                    from ..remote.transfers import archive_delay
+                    prior = manifest.get("archive_poll_attempts", 0)
+                    archive_delay(prior + 1 if type(prior) is int else None)
+                    attempt = prior + 1
+                    manifest.update(archive_poll_attempts=attempt, archive_retry_at_unix=time.time() + archive_delay(attempt))
                     save(directory, manifest)
                     break
                 if not wait:

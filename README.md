@@ -50,6 +50,8 @@ charmm-gui-cli build --complex complex.pdb \
 
 自动完成输入准备、上传、参数化、建膜、下载和验证；登录会话及中间文件由程序管理。
 
+批量清单支持与 build 一致的 v2 分节参数，旧 v1 保持兼容；`batch --name series-a`、`sweep --name scan-a` 为容器命名。CLI dry-run 不登记全局任务列表，实际 resume 时才登记。TTY 的 batch/sweep/status/preview 显示摘要；管道和 `--json` 保持机器输出。修正未提交的本地输入失败后，可用 `batch-resume DIR --retry-failed-local`；已有部分目录或提交证据时不重建。详见 [批量流程](docs/BATCH.md)。
+
 配体支持 SDF V2000，以及可无损保留化学图和明确立体定义的 V3000/mol2（规范化为 V2000，记录坐标表示舍入）。多记录文件须显式选择，例如 `--ligand-pose 2`；编号从 1 开始，不按对接分数自动选择。YAML 写作 `input_options: {ligand_pose: 2}`。mol2 部分电荷不等于形式电荷，预检会提示审阅；PDBQT 暂不能直接输入。原始文件不改写，选择、转换、原子名对应和哈希写入输入证据。
 
 脂质比例可写为 `--upper POPC:POPE=7:3`。名称先通过本地常用脂质目录检查；目录不含所有官网脂质，特殊名称核对后可使用 `--allow-unknown-lipids`（YAML：`membrane.allow_unknown_lipids: true`）。常用名称参考[官网脂质库](https://www.charmm-gui.org/?doc=archive&lib=lipid)，不代表每个 API 模块都支持全部名称。
@@ -79,6 +81,8 @@ charmm-gui-cli jobs relink receptor-a /new/path/receptor-a
 新任务内部保存相对路径；旧记录兼容读取，不自动迁移。多个副本不会自动选择，关联也不会重新提交任务。
 
 网页建模 POST 默认读取超时 900 秒，等待期间每 30 秒记录心跳；可用 `--post-timeout 1800` 调整。GET 单次超时不变，建模期间短暂断网会退避重试，默认最长 20 分钟；`jobs status` 可查看网络等待。可用 `CHARMM_GUI_GET_RETRY_SECONDS=600` 调为 10 分钟（范围 0–1800，0 使用短重试）。独立查询仍使用短重试，结果不明的 POST 不自动重发。
+
+官网压缩归档时先以 20–30 秒间隔查询，再逐步退避，遵守更长的服务器等待时间。终端和 `jobs watch` 显示下载字节进度；失败响应留在 `.charmm-gui/downloads/`，不会散落在任务根目录。转换提速仍处于[等价性验证](docs/CONVERSION.md)阶段，常规建模未关闭官网转换。
 
 ```bash
 charmm-gui-cli jobs reconcile receptor-a  # 仅 GET 核对提交结果

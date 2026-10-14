@@ -186,6 +186,9 @@ def format_progress(event, **context):
         fields.append(t("progress.build", jobid=detail["build_job_id"]))
     if detail.get("last_output_label"):
         fields.append(detail["last_output_label"])
+    from ..locales.transfers import transfer_text
+    if (transfer := transfer_text(event)):
+        fields.append(transfer)
     return " | ".join(fields)
 
 
@@ -247,10 +250,13 @@ class ProgressReporter:
         elapsed = int(time.monotonic() - self.started)
         text = format_progress(event, source_job_id=self.source_job_id, build_job_id=self.build_job_id)
         self._current_text = text.split(" | ", 1)[0].removeprefix("[charmm-gui-cli] ")
+        from ..locales.transfers import transfer_text
+        if (transfer := transfer_text(event)):
+            self._current_text += " | " + transfer
         self._current_job = (t("progress.build", jobid=self.build_job_id) if self.build_job_id else
                              t("progress.source", jobid=self.source_job_id) if self.source_job_id else None)
         text += " | " + t("progress.elapsed", elapsed=f"{elapsed // 60}:{elapsed % 60:02d}")
-        if phase != self.last_phase or time.monotonic() - self.last_record >= 300:
+        if phase != self.last_phase or time.monotonic() - self.last_record >= 300 or event.get("transfer_complete") is True:
             if stream.isatty() and self.last_phase is not None:
                 print(clear_line(), end="", file=stream)
             print(datetime.now().strftime("[%H:%M:%S] ") + text, file=stream, flush=True)

@@ -88,7 +88,7 @@ def expand(path):
             "batch": {"version": 1, "reuse_preparation": True, "defaults": {**inputs, **defaults}, "jobs": jobs}}
 
 
-def prepare(path, directory):
+def prepare(path, directory, *, register=True, progress=None):
     """Create all local child inputs and seals; no credentials/network required."""
     expanded = expand(path)
     directory = Path(directory).expanduser().resolve()
@@ -103,7 +103,7 @@ def prepare(path, directory):
                     "fingerprint": batch._canonical(expanded), "state": "preparing_local",
                     "batch_directory": str(directory / "batch")}
         atomic_json(directory / "sweep.json", metadata)
-        summary = batch.initialize(expanded_path, directory / "batch")
+        summary = batch.initialize(expanded_path, directory / "batch", register=register, progress=progress, name=directory.name)
         for row in summary["jobs"]:
             if row["state"] == "inputs_ready":
                 seal_preparation(row["directory"])
@@ -442,7 +442,7 @@ def bind_ready_sources(batch_directory, manifest):
                     row.update(state="waiting_preparation", reuse_waiting=True)
                     waiting += 1
                     continue
-                row.update(state="prepared_reused", source_job_id=certify_source(source)["source_job_id"], started=False)
+                row.update(state="prepared_reused", source_job_id=certify_source(source)["source_job_id"], started=False, preparation_reused=True)
                 bound += 1
             elif row is not leader:
                 row.update(state="waiting_preparation", reuse_waiting=True)

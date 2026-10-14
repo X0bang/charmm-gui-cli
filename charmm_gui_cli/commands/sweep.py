@@ -10,13 +10,41 @@ def execute(args):
     )
     from .. import sweep, batch as batching, managed
     if args.command == "sweep":
-        directory = args.out or managed.new_batch_path()
-        prepared = sweep.prepare(args.config, directory)
-        if args.dry_run:
-            emit(prepared)
-            return 2 if prepared.get("failed") else 0
+        if args.name is not None:
+            managed.validate_name(args.name)
+        directory = args.out or managed.new_batch_path(args.name, kind="sweep", source=args.config)
     else:
         directory = args.directory
+    from ..pipeline.batch_progress import BatchReporter
+    reporter = None if args.command == "sweep-status" else BatchReporter(Path(directory) / "batch")
+    try:
+        if args.command == "sweep":
+            prepared = sweep.prepare(args.config, directory, register=False, progress=reporter)
+            reporter.update(prepared["batch"])
+            if args.dry_run:
+                reporter.close()
+                emit(prepared, command=args.command, dry_run=True)
+                return 2 if prepared.get("failed") else 0
+        return _advance(args, directory, reporter)
+    except KeyboardInterrupt:
+        import shlex
+        from ..locales.i18n import t
+        if reporter:
+            reporter._line(t("batch.interrupted", resume="charmm-gui-cli sweep-resume " + shlex.quote(str(directory))))
+        else:
+            import sys
+            print(t("batch.interrupted", resume="charmm-gui-cli sweep-status " + shlex.quote(str(directory))), file=sys.stderr)
+        return 130
+    finally:
+        if reporter:
+            reporter.close()
+
+
+def _advance(args, directory, reporter):
+    from pathlib import Path
+    from ..cli import emit
+    from ..store.auth import atomic_write
+    from ..pipeline import sweep, batch as batching
     saved = sweep.read(directory)
     batch_directory = Path(saved["batch_directory"])
     if args.command == "sweep-status":
@@ -24,11 +52,14 @@ def execute(args):
         if args.csv:
             atomic_write(args.csv, batching.export_csv(report))
             report["csv"] = str(args.csv.resolve())
-        emit({"sweep_directory": str(Path(directory).resolve()), **report})
+        emit({"sweep_directory": str(Path(directory).resolve()), **report}, command=args.command)
         return 0
+    reporter.update(batching.status(batch_directory))
     report, code = batching.advance(batch_directory, max_active=args.max_active,
         submit_interval=args.submit_interval, wait=args.wait, interval=args.interval,
         max_wait=args.max_wait, token_file=args.token_file, cookies=args.cookies,
-        grompp=args.grompp, no_grompp=args.no_grompp, gmx=args.gmx, no_preview=args.no_preview, post_timeout=args.post_timeout)
-    emit({"sweep_directory": str(Path(directory).resolve()), **report})
+        grompp=args.grompp, no_grompp=args.no_grompp, gmx=args.gmx, no_preview=args.no_preview, post_timeout=args.post_timeout,
+        progress=reporter, retry_failed_local=getattr(args, "retry_failed_local", False))
+    reporter.close()
+    emit({"sweep_directory": str(Path(directory).resolve()), **report}, command=args.command)
     return code

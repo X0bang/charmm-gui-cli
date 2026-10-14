@@ -37,7 +37,7 @@ class ArchivePreparingTests(unittest.TestCase):
                 Client(token(), self.session).download("234", directory / "charmm-gui.tgz")
             self.assertEqual(caught.exception.category, "archive_preparing")
             self.assertTrue(caught.exception.retryable)
-            self.assertEqual(caught.exception.retry_after_seconds, 120)
+            self.assertEqual(caught.exception.retry_after_seconds, 20)
             self.assertIn("GET", caught.exception.next_step)
             self.assertFalse((directory / "charmm-gui.tgz").exists())
             retained = list(directory.glob(".download-*"))

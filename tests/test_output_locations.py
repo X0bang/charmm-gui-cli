@@ -18,7 +18,10 @@ class OutputLocationTests(unittest.TestCase):
             self.assertEqual(new_run_path("crtw-bcar"), root / "crtw-bcar" / ".charmm-gui")
             self.assertEqual(new_preview_path("checks").parent, root / "charmm-gui-checks")
             self.assertEqual(new_preview_path().parent, root / "charmm-gui-previews")
-            self.assertEqual(new_batch_path().parent, root / "charmm-gui-runs")
+            self.assertEqual(new_batch_path().parent, root)
+            self.assertTrue(new_batch_path(source="salt-series.yaml").name.startswith("batch-salt-series-"))
+            self.assertTrue(new_batch_path(kind="sweep", source="salt-series.yaml").name.startswith("sweep-salt-series-"))
+            self.assertEqual(new_batch_path("named-batch"), root / "named-batch")
 
     def test_task_names_cannot_be_structure_filenames(self):
         for name in ("a/b", "ligand.sdf", "x.PDB", "x.yaml", "x.yml", "x.mol2", "x.cif"):
