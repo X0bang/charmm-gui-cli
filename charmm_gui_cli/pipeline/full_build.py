@@ -42,6 +42,7 @@ def initialize(config_path, directory, *, _reserved=False, _source_report=None):
     prepared = prepare_inputs(config["protein"], config["ligand"], inputs_path(directory),
                               ligand_resname=config["ligand_resname"],
                               hydrogen_policy=config["ligand_hydrogens"],
+                              **({"ligand_smiles": config["ligand_smiles"]} if "ligand_smiles" in config else {}),
                               input_options={} if _source_report is not None else config.get("input_options"))
     if _source_report is not None:
         from ..chem.pdb_normalization import attach_source_normalization
@@ -134,7 +135,7 @@ def _remote_groups(manifest, *, check_files=True):
     return resolved
 
 
-def _preparation_fields(snapshot, config, groups=None, adjustments=None):
+def _preparation_fields(snapshot, config, groups=None, adjustments=None, *, state_intent=None, reference_pdb=None, state_mapping=None):
     soup = soup_for(Path(snapshot).read_text(encoding="utf-8"))
     if groups is not None:
         forms = [form for form in soup.find_all("form") if form.select_one('input[name="jobid"]')]
@@ -191,13 +192,18 @@ def _preparation_fields(snapshot, config, groups=None, adjustments=None):
     if missing:
         raise ToolError(key="terminal.chain_missing", params={"chains": ", ".join(sorted(chain + ":" + key for chain, key in missing))},
                         next_step=t("terminal.next"))
+    if state_intent:
+        from ..remote.protein_states import state_fields
+        extra, mapping = state_fields(snapshot, reference_pdb, state_intent)
+        overrides.update(extra)
+        if state_mapping is not None:
+            state_mapping.update(mapping)
     return overrides
 
 
 def require_protein_state_support(directory, manifest):
     """Shared foreground/worker gate; preserve uncertain-POST priority."""
-    from ..chem.protein_states import intent_for, require_remote_state_verification
-    import shlex
+    from ..chem.protein_states import intent_for, validate_intent
     directory = Path(directory)
     if intent_for(manifest.get("inputs", {}).get("manifest", {})):
         preparation = directory / "preparation"
@@ -215,8 +221,7 @@ def require_protein_state_support(directory, manifest):
                 unknown = True
         if unknown:
             raise SubmissionUnknown("A previous modeling POST has an unresolved submission intent; inspect/recover it before continuing. No repeated POST was sent.")
-    require_remote_state_verification(manifest.get("inputs", {}).get("manifest", {}),
-        next_command="charmm-gui-cli jobs status " + shlex.quote(str(task_root(directory))))
+    validate_intent(intent_for(manifest.get("inputs", {}).get("manifest", {})))
 
 
 def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, progress=None):
@@ -249,6 +254,8 @@ def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, pro
             if groups is None:
                 from charmm_gui_cli.pipeline.sweep import seal_preparation
                 seal_preparation(directory)
+            from .protein_states import seal_request
+            seal_request(directory, manifest, create=True)
             manifest["state"] = "uploading"
             _save(directory, manifest)
             if progress:
@@ -265,7 +272,15 @@ def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, pro
         uploads = ({f"sdf_cgenff[{group['resname']}]": group["sdf"] for group in groups} if groups is not None else
                    {f"sdf_cgenff[{config['ligand_resname']}]": manifest["inputs"]["files"]["ligand.sdf"]})
         adjustments = manifest.setdefault("terminal_adjustments", [])
-        fields = _preparation_fields(selected, config, groups, adjustments)
+        from ..chem.protein_states import intent_for
+        plan = intent_for(manifest["inputs"].get("manifest", {}))
+        if plan and _source_id(selected) != identifier:
+            raise snapshot_error(selected, "state.form_missing")
+        mapping = {}
+        fields = _preparation_fields(selected, config, groups, adjustments,
+            state_intent=plan, reference_pdb=manifest["inputs"]["files"]["complex.pdb"], state_mapping=mapping)
+        if plan:
+            manifest["protein_state_mapping"] = mapping
         manifest["applied_terminals"] = {key: value for key, value in fields.items() if key.startswith("terminal[")}
         _save(directory, manifest)
         _submit(web, selected, parameterized, fields, uploads)
@@ -274,6 +289,11 @@ def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, pro
         _await_preparation(web, directory, manifest, parameterized, wait, interval, max_wait, progress)
         if manifest["state"] != "prepared":
             return manifest
+        if plan:
+            from .protein_states import ensure_prepared
+            receipt = ensure_prepared(directory, manifest, web)
+            manifest["protein_state_proof_fingerprint"] = receipt["fingerprint"]
+            _save(directory, manifest)
         prepared_config = api_config(config, identifier, existing=True)
         if groups is not None:
             prepared_config["expected_ligands"] = [group["resname"] for group in groups]
@@ -283,6 +303,14 @@ def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, pro
 
 def _start_prepared_bilayer(directory, manifest, api, prepared_config, wait, interval, max_wait, progress):
     """Common API clone path for original and evidence-verified reused sources."""
+    from ..chem.protein_states import intent_for
+    if intent_for(manifest["inputs"].get("manifest", {})):
+        if manifest.get("reused_preparation"):
+            from .sweep import validate_reuse
+            validate_reuse(directory, manifest)
+        else:
+            from .protein_states import check_prepared
+            check_prepared(directory, manifest)
     build_directory = directory / "bilayer"
     atomic_json(directory / "api-config.json", prepared_config)
     manifest["state"] = "submitting_bilayer"

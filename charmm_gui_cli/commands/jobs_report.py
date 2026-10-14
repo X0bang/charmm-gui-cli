@@ -24,6 +24,8 @@ def execute(args):
         raise ToolError(key="cli.no_report")
     report = _task_store._read_json(path)
     summary = report_summary(report, result.get("name"), path)
+    if 'parameter_summary' in result:
+        summary['parameter_summary'] = result['parameter_summary']
     if args.format == "json":
         payload = report if args.full else summary
         if args.out:

@@ -7,13 +7,23 @@ from ..locales.i18n import t
 from .residues import MODIFIED, INPUT_FIELDS
 
 
-def check_command(*, protein=None, ligand=None, complex_pdb=None, ligand_resname="LIG", components=None, input_options=None):
+def check_command(*, protein=None, ligand=None, complex_pdb=None, ligand_resname="LIG", components=None, input_options=None, ligand_smiles=None):
     args = ["charmm-gui-cli", "check"]
     for option, value in (("--protein", protein), ("--ligand", ligand), ("--complex", complex_pdb), ("--components", components)):
         if value is not None:
             args.extend((option, str(value)))
     if ligand_resname != "LIG":
         args.extend(("--ligand-resname", ligand_resname))
+    if ligand_smiles is not None:
+        # Never echo an unparsed SMILES/name suffix into an error command.
+        from .pdbqt import _template
+        from .ligand_formats import _rdkit
+        try:
+            molecule = _template(ligand_smiles, keep_h=True)
+            Chem, _ = _rdkit()
+            args.extend(('--ligand-smiles', Chem.MolToSmiles(molecule, isomericSmiles=True)))
+        except Exception:
+            pass  # The original input error remains authoritative.
     for key, value in (input_options or {}).items():
         if key not in INPUT_FIELDS:
             continue
@@ -25,7 +35,9 @@ def check_command(*, protein=None, ligand=None, complex_pdb=None, ligand_resname
     return shlex.join(args)
 
 
-def bind_input_error(error, *, protein=None, ligand=None, complex_pdb=None, ligand_resname="LIG", components=None, input_options=None):
+def bind_input_error(error, *, protein=None, ligand=None, complex_pdb=None, ligand_resname="LIG", components=None, input_options=None, ligand_smiles=None):
+    if error.key and error.key.startswith('input.pdbqt_'):
+        return
     options = dict(input_options) if isinstance(input_options, dict) else {}
     if isinstance(options.get("drop_hetero"), str):
         options["drop_hetero"] = options["drop_hetero"].split(",")
@@ -56,7 +68,8 @@ def bind_input_error(error, *, protein=None, ligand=None, complex_pdb=None, liga
     else:
         command = check_command(protein=protein, ligand=ligand, complex_pdb=complex_pdb,
                                 ligand_resname="LIG" if error.key == "input.reserved_name" else ligand_resname,
-                                components=components, input_options=options)
+                                components=components, input_options=options,
+                                ligand_smiles=None if error.key == 'input.ligand_competing_definition' else ligand_smiles)
         if error.key in ("input.nucleic_chains", "input.linkage", "input.ligand_copies", "input.component_ter_ambiguous"):
             route = {"input.nucleic_chains": "input.nucleic_next", "input.linkage": "input.linkage_next",
                      "input.ligand_copies": "input.ligand_copies_next", "input.component_ter_ambiguous": "input.component_ter_next"}[error.key]

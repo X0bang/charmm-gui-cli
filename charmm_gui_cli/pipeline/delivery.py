@@ -56,7 +56,7 @@ def publish_in_place(directory):
         _result_files.verify_model(full_archive_path(directory), root / "model")
         name = _task_store._job_metadata(directory).get("name", root.name)
         report_text = render_text(display_result(
-            report_summary(report, name, report_path), {"name": name, "archive": str(full_archive_path(directory))},
+            report_summary(report, name, report_path), {"name": name, "directory": str(directory), "archive": str(full_archive_path(directory))},
             manifest, report))
         generated = {"report.txt": report_text,
                      "inputs/system-config.json": json.dumps(_result_files._system_configuration(directory, manifest), indent=2, ensure_ascii=False) + "\n",
@@ -132,7 +132,7 @@ def _export(directory, *, to=None):
         from charmm_gui_cli.presentation.reporting import display_result, render_text
         text_report = directory / "results" / "delivery-report.txt"
         atomic_write(text_report, render_text(display_result(report_summary(report, name, "reports/validation.json"),
-                     {"name": name, "archive": "charmm-gui.tgz",
+                     {"name": name, "directory": str(directory), "archive": "charmm-gui.tgz",
                       "compilation_status": "passed" if managed._grompp_artifacts(report) else
                                             "failed" if report["evidence"]["grompp"] else "not_run",
                       "source_job_id": manifest.get("source_job_id"), "build_job_id": manifest.get("build_job_id")}, manifest, report)))

@@ -144,7 +144,7 @@ class ProteinStateIntentTests(unittest.TestCase):
         normalize_lines(self.protein, report, options={}, role="protein")
         self.assertNotIn("protein_state_intent", report)
 
-    def test_local_build_dryrun_preserves_original_state_and_live_advance_is_guarded(self):
+    def test_local_build_dryrun_preserves_original_state_and_validates_request_before_upload(self):
         self.rename("ASH")
         out = self.root / "dry-run"
         code, output, error = self.fixture.call(["build", "--protein", str(self.protein), "--ligand", str(self.ligand),
@@ -154,13 +154,10 @@ class ProteinStateIntentTests(unittest.TestCase):
         manifest = read_value(directory / "full-run.json")
         plan = intent_for(manifest["inputs"]["manifest"])
         self.assertEqual(plan["residues"][0]["state"], "ASPP")
-        web, api = Mock(), Mock()
-        with self.assertRaises(ToolError) as error:
-            full_build.advance(directory, web, api)
-        self.assertEqual(error.exception.key, "state.pipeline_pending")
-        web.upload_structure.assert_not_called()
-        web.submit_snapshot.assert_not_called()
-        api.submit.assert_not_called()
+        full_build.require_protein_state_support(directory, manifest)
+        self.assertEqual(manifest["state"], "inputs_ready")
+        self.assertFalse((directory / "preparation").exists())
+        self.assertFalse(plan["remote_verified"])
 
     def test_sealed_identity_distinguishes_same_base_coordinates_with_different_state_intent(self):
         paths = []
@@ -192,12 +189,13 @@ class ProteinStateIntentTests(unittest.TestCase):
         from charmm_gui_cli.chem.validation import validate_system, validate_charmm_source
         self.rename("ASH")
         _, plan = self.normalize()
-        manifest = {"input_normalization": {"protein_state_intent": plan}}
-        for operation in (lambda: validate_system(self.root, manifest),
-                          lambda: validate_charmm_source("unused", "unused", "unused", "unused", manifest)):
-            with self.assertRaises(ToolError) as error:
-                operation()
-            self.assertEqual(error.exception.key, "state.pipeline_pending")
+        manifest = {"input_normalization": {"protein_state_intent": plan}, "ligand": {"resname": "LIG"}}
+        report = validate_system(self.root, manifest)
+        self.assertFalse(report["passed"])
+        self.assertTrue(report["errors"])
+        with self.assertRaises(ToolError) as error:
+            validate_charmm_source("unused", "unused", "unused", "unused", manifest)
+        self.assertEqual(error.exception.key, "state.proof_invalid")
 
     def test_existing_unknown_submission_keeps_priority_over_the_temporary_state_gate(self):
         from charmm_gui_cli.remote.api import SubmissionUnknown
@@ -229,16 +227,16 @@ class ProteinStateIntentTests(unittest.TestCase):
         directory = Path(json.loads(output)["directory"])
         with self.assertRaises(ToolError) as error:
             sweep.certify_source(directory)
-        self.assertEqual(error.exception.key, "state.pipeline_pending")
+        self.assertIn("seal", str(error.exception).lower())
 
-    def test_background_preflight_reports_pending_support_without_starting_a_worker(self):
+    def test_background_preflight_still_requires_authentication_for_explicit_states(self):
         self.rename("ASH")
         out = self.root / "background"
         with patch("charmm_gui_cli.pipeline.background.subprocess.Popen") as spawn:
             code, output, errors = self.fixture.call(["build", "--protein", str(self.protein), "--ligand", str(self.ligand),
                 "--out", str(out), "--no-preview", "--json"])
         self.assertEqual(code, 2)
-        self.assertIn("remote PDB/PSF", errors)
+        self.assertIn("login", errors)
         spawn.assert_not_called()
         self.assertFalse((out / ".charmm-gui/worker-options.json").exists())
 
@@ -248,7 +246,8 @@ class ProteinStateIntentTests(unittest.TestCase):
             "--out", str(self.root / "native-hsd"), "--dry-run", "--no-preview"], tty=True)
         self.assertEqual(code, 0, errors)
         self.assertIn("Protein states: explicit intent count 1", output)
-        self.assertIn("does not prove remote patch application", output)
+        self.assertIn("will verify the actual source PDB/PSF", output)
+        self.assertNotIn("State: Passed", output)
 
     def test_explicit_model_and_altloc_selection_precede_state_interpretation(self):
         bad = [line[:17] + "CYX " + line[21:] for line in self.fixture.lines]

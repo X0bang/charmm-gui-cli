@@ -2,6 +2,31 @@
 
 常规使用只需 `login` 和 `build --protein ... --ligand ...`，见 [README](../README.md)。本页面向需要保留 YAML、官方 token 或已有 job ID 的用户。
 
+## 请求设置与提交记录
+
+建模参数可在终端、`jobs report NAME --format text`（或 `--format html --out report.html`）及根目录 `report.txt` 中查看。脂质比例显示各组分份额；末端设置按链展示请求值和记录值，自动调整显示为 `NTER → GLYP`。界面分别标注有回应的提交、结果未知、仅本地记录、仅调整记录和缺失/冲突记录；这些标签不触发重新提交。建膜参数来自保存的 API 请求计划，并核对源任务与建膜任务身份；坐标中的实际计数仍在报告的体系统计部分。
+
+机器接口保持原有 requested/applied 和原始表单字段不变。新增 `inputs/system-config.json.parameter_summary`（schema_version 1）使用 `requested`、`submission.preparation.chains`、`submission.membrane` 等稳定英文键和状态值，不随显示语言变化。历史子任务若只剩复制的末端值而没有可访问回执，会显示“记录的末端设置”，不会冒充已核验的服务器回应；这不改变其模型验收结论。
+
+## PDBQT 化学定义与结合姿势
+
+可直接输入 [Meeko](https://meeko.readthedocs.io/en/develop/export_usage.html) 保留了 `REMARK SMILES`、`REMARK SMILES IDX` 和已有氢的 `REMARK H PARENT` 的配体 PDBQT：
+
+```bash
+charmm-gui-cli check --protein protein.pdb --ligand docked.pdbqt --ligand-pose 2
+charmm-gui-cli build --protein protein.pdb --ligand docked.pdbqt --ligand-pose 2 --name receptor-a
+```
+
+只有一个姿势时不必写 `--ligand-pose`；多个 MODEL 必须明确选择，分数只用于展示。原文件、原有氢和重原子的坐标不改。转换临时恢复出的缺失氢不会直接写入结果；最终由 `--hydrogens preserve/add_missing` 决定是否按已定义价态补氢。电荷和手性/E/Z 来自 SMILES，不从部分电荷、距离或对接分数推断。显式声明通过带原子索引的 SDF 化学定义保存在中间文件中，并在再次读取和补氢时验证。
+
+没有 Meeko 元数据的 PDBQT 可以用带原子映射的 SMILES：映射号对应 PDBQT ATOM/HETATM 的 serial，必须覆盖每个已有坐标的原子（包括已有氢）。例如只含 serial 1、2 两个重原子的甲醇使用 `'[CH3:1][OH:2]'`；若 serial 3 还有羟基氢，则使用 `'[CH3:1][O:2][H:3]'`。这些只是格式示例，实际必须提供自己配体的化学定义。普通无映射 SMILES 仅在文件有完整 CONECT、重原子图对应唯一、已有氢的父原子明确时可用；对称映射不会任取一个。
+
+若显式手性中心的坐标镜像、E/Z 与声明相反，或移除非极性氢后剩余几何接近平面、无法可靠核验，会拒绝转换。手性错误会指出原始 PDBQT serial；应核对原始结构及化学定义，不能仅改标签来让检查通过。
+
+版本 2 YAML 可写 `ligand: docked.pdbqt` 和 `ligand_smiles: '实际带映射的SMILES'`，姿势选择仍放在 `input_options: {ligand_pose: 2}`；batch/sweep 也使用同一套规则。配体多组分、柔性受体、金属/伪原子、错误映射或不兼容的显式立体声明会被拒绝。化学定义与坐标不符时不会转换成另一种微观状态继续。
+
+标准安装器会安装化学依赖（含 Meeko 0.8、gemmi、scipy）；手工最小安装若缺少依赖，会显示针对当前程序 Python 环境的安装命令。转换证据记录后端版本、部分电荷、原子 serial/名字映射、原文件/所选姿势哈希及坐标舍入。
+
 ## 用 YAML 配置文件建模
 
 把结构路径、膜组成、盐浓度等参数写在 `system.yaml` 中，每次修改配置后传给 `build`。不需要手写 token、job ID 或中间文件；从本地蛋白和配体开始请用 `version: 2`。
@@ -79,7 +104,11 @@ input_options:
 
 本地蛋白状态处理会记录输入已声明的状态，而不预测 pH：[官网 FAQ](https://www.charmm-gui.org/?doc=faq) 要求 Amber 的 HID/HIE/HIP 使用 CHARMM 的 HSD/HSE/HSP 名称。[蛋白拓扑](https://www.charmm-gui.org/?doc=open_toppar&filename=top_all36_prot.rtf) 中 ASPP、GLUP、LSN 是补丁，不是独立残基模板。因此 ASH/GLH/LYN 的上传基础残基写成 ASP/GLU/LYS，目标补丁另记在 `input_normalization.protein_state_intent`。原始文件和坐标不改；LYN 的显式氢若需要改名，会逐项记录，不静默增删氢。显式氢与声明状态冲突时拒绝。
 
-CYX 只在 SG–SG 距离 1.8–2.3 Å 且配对唯一时记录 DISU 候选；普通 CYS 不会仅因靠近就被改为二硫键。缺 SG、元素不符、多配对或与 SSBOND 冲突时拒绝。状态请求会参与前处理复用身份，避免将坐标相同的 ASP 与 ASH 混用。远端实际 PDB/PSF 的状态验证尚未接通，因此 `check`/`--dry-run` 能记录请求，但 `build` 不提交这些状态配方，也不把本地改名或归档存在视为状态已实现。此限制同样适用于输入已使用 HSD/HSE/HSP 等显式状态名称的情况。
+CYX 只在 SG–SG 距离 1.8–2.3 Å 且配对唯一时记录 DISU 候选；普通 CYS 不会仅因靠近就被改为二硫键。缺 SG、元素不符、多配对或与 SSBOND 冲突时拒绝。状态请求会参与前处理复用身份，避免将坐标相同的 ASP 与 ASH 混用。
+
+构建从已保存的 PDB Reader 表单及字面量 JSON 目录核对链、残基编号和可用补丁，不执行网页 JavaScript，不猜测重编号关系。已勾选且可验证的默认质子化/二硫键行会保留；冲突或动态默认值无法确定时拒绝。实际提交的重复字段逐项记录在 intent 中。HSD/HSE/HSP、ASPP、GLUP、LSN、CYM 及显式 DISU 均须通过相应状态的实际原子类型、电荷、氢连接检查；只看残基名或总电荷不够，末端补丁可能改变残基总电荷。
+
+在提交建膜前，仅用 GET 获取同一个源任务的 `step1_pdbreader.pdb/.psf` 并核验，将输入封印、页面、POST 回执和实际文件哈希绑定到 `.charmm-gui/preparation/protein-state-proof.json`。GET 中断可继续，已完成的 POST 不重发；缺少封印的历史上传不能事后补证。下载后还须检查归档中的源结构和 `step5_assembly.pdb/.psf`。前处理复用必须包含证据；子任务完成验收后保留自己的状态验证，不依赖源任务一直挂载。该远端路径已接入构建流程并覆盖本地/模拟 HTTP 回归，新官网任务的实测验收尚待完成；无法验证时停止，不将请求记录视为状态已应用。
 
 | 字段 | 如何设置 |
 | --- | --- |

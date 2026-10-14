@@ -25,11 +25,20 @@ def validate_charmm_source(pdb, psf, rtf, prm, manifest):
     This validates the selected ligand's retention and naming before membrane
     assembly, not completeness/suitability of the final force-field parameters.
     """
+    manifest_path = Path(manifest) if not isinstance(manifest, dict) else None
     if not isinstance(manifest, dict):
         from ..store.paths import read_value
         manifest = read_value(manifest)
-    from .protein_states import require_remote_state_verification
-    require_remote_state_verification(manifest)
+    from .protein_states import intent_for
+    state_proof = None
+    if intent_for(manifest):
+        from .protein_state_proof import verify_states, derive_mapping
+        reference = manifest_path.parent / "complex.pdb" if manifest_path else manifest.get("protein", {}).get("path")
+        if reference is None or not Path(reference).is_file():
+            from .protein_state_proof import failure
+            raise failure()
+        plan = intent_for(manifest)
+        state_proof = verify_states(plan, derive_mapping(plan, reference, pdb), pdb, psf, reference=reference)
     expected = manifest["ligand"]
     name = expected["resname"]
     coordinates = inspect_coordinates(pdb)
@@ -92,6 +101,8 @@ def validate_charmm_source(pdb, psf, rtf, prm, manifest):
                  "individual_parameter_max": max(individual) if individual else None,
                  "individual_parameter_terms": len(individual),
                  "interpretation": "CGenFF header: <10 fair analogy, 10-50 basic validation advised, >50 extensive validation/optimization required."}
+    if state_proof:
+        checks["protein_states"] = state_proof
     return {"passed": all(c["passed"] for c in checks.values()), "scientific_correctness_verified": False,
             "scope": "Prepared CHARMM source PDB/PSF/RTF consistency and reported CGenFF penalties; no membrane validation yet",
             "checks": checks, "cgenff_penalties": penalties,
@@ -419,18 +430,17 @@ def element_from_natural_mass(mass):
 
 def validate_system(system_dir, manifest, *, topology=None, coordinates=None, mdp=None,
                     ligand_resname=None, run_grompp=False, gmx=None, index=None,
-                    output_parent=None, atom_name_map=None):
+                    output_parent=None, atom_name_map=None, protein_state_mapping=None, protein_state_reference=None):
     """Return readable checks; a passing result is never scientific certification.
 
     manifest is the prepare_inputs return's manifest, or its JSON file path.
     ligand_resname explicitly maps a server-renamed residue if needed.
     """
     root = Path(system_dir).resolve()
+    manifest_path = Path(manifest) if not isinstance(manifest, dict) else None
     if not isinstance(manifest, dict):
         from ..store.paths import read_value
         manifest = read_value(manifest)
-    from .protein_states import require_remote_state_verification
-    require_remote_state_verification(manifest)
     expected = manifest["ligand"]
     resname = ligand_resname or expected["resname"]
     checks, errors = {}, []
@@ -440,6 +450,15 @@ def validate_system(system_dir, manifest, *, topology=None, coordinates=None, md
                               "CGenFF parameter penalties and missing chemistry require separate review."],
               "checks": checks, "errors": errors, "expected_ligand_resname": resname}
     try:
+        from .protein_states import intent_for
+        if intent_for(manifest):
+            from .protein_state_proof import verify_archive_states
+            reference = protein_state_reference or (manifest_path.parent / "complex.pdb" if manifest_path else
+                                                    manifest.get("protein", {}).get("path"))
+            if reference is None:
+                from .protein_state_proof import failure
+                raise failure()
+            checks["protein_states"] = verify_archive_states(root, manifest, reference=reference, mapping=protein_state_mapping)
         name_map = validate_atom_name_map(expected, atom_name_map) if atom_name_map is not None else None
         top = _choose(root, topology, ["topol.top", "*.top"], "GROMACS topology")
         coord = _choose(root if coordinates else top.parent, coordinates, ["step5_input.gro", "step5_input.pdb", "*.gro", "*.pdb"], "GROMACS coordinates")

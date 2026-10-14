@@ -77,6 +77,7 @@ def verified_images(directory, report):
 def display_result(summary, context, manifest, report):
     """A fixed-schema display model, excluding credentials and raw server data."""
     config = manifest.get("config", {})
+    from ..store.settings import parameter_summary
     source = context.get("source_job_id") or manifest.get("source_job_id")
     build = context.get("build_job_id") or manifest.get("build_job_id")
     compilation = context.get("compilation_status")
@@ -89,10 +90,12 @@ def display_result(summary, context, manifest, report):
             "source_job_id": source, "build_job_id": build,
             "parameters": {"membrane": config.get("membrane"), "ions": config.get("ions"),
                            "orientation": config.get("preparation", {}).get("orientation")},
+            "parameter_summary": parameter_summary(manifest, context.get('directory')),
             "compilation_status": compilation,
             "atom_counts": report.get("checks", {}).get("total_atom_count"),
             "residue_counts": report.get("coordinate_residue_counts"),
             "warnings": report.get("review_warnings", []),
+            **({"protein_state_validation": report["protein_state_validation"]} if "protein_state_validation" in report else {}),
             "archive": context.get("archive"),
             "official_links": official_links(source_job_id=source, build_job_id=build),
             "simulation_note": "结构验收和 GROMACS 输入编译不代表已执行平衡或生产 MD，也不证明充分最小化。"}
@@ -129,17 +132,22 @@ def render_text(result):
              t("report.validation", state=state),
              t("output.compilation", state=compilation.get(result.get("compilation_status"), t("output.unconfirmed"))),
              t("report.ids", source=_value(result.get("source_job_id")), build=_value(result.get("build_job_id"))),
-             "", t("report.parameters"),
+             ""]
+    if result.get('parameter_summary'):
+        from .parameters import parameter_lines
+        lines.extend(parameter_lines(result['parameter_summary']))
+    else:
+        lines.extend([t("report.parameters"),
              t("report.leaflets", upper=_value(membrane.get("upper")), lower=_value(membrane.get("lower"))),
              t("report.salt", salt=_value(ions.get("type")), concentration=_value(ions.get("concentration_M")), orientation=_value(parameters.get("orientation"))),
-             t("report.padding", margin=_value(membrane.get("margin_A")), water=_value(membrane.get("water_padding_A"))),
-             "", t("report.system"),
+             t("report.padding", margin=_value(membrane.get("margin_A")), water=_value(membrane.get("water_padding_A")))])
+    lines.extend(["", t("report.system"),
              t("report.atoms", coordinates=_value(atoms.get("coordinates")), topology=_value(atoms.get("topology"))),
              t("report.solvent", lipids=_value(environment.get("lipids")), waters=_value(environment.get("water_molecules"))),
              t("report.lipids", upper=_value(leaflets.get("upper", {}).get("lipid_counts")), lower=_value(leaflets.get("lower", {}).get("lipid_counts"))),
              t("report.ions", ions=_value(environment.get("ions"))),
              t("report.concentration", state=_value(environment.get("concentration_verified"))),
-             "", t("report.pose")]
+             "", t("report.pose")])
     if result.get("components"):
         for name, component in result["components"].items():
             copies, penalty = component.get("copies") or {}, component.get("cgenff") or {}
@@ -151,6 +159,9 @@ def render_text(result):
     else:
         lines.extend([t("report.ligand_rmsd", rmsd=_value(pose.get("ligand_rmsd_after_protein_fit_A"))),
                       t("report.ligand_max", maximum=_value(pose.get("ligand_max_displacement_A")))])
+    state_proof = result.get("protein_state_validation", {})
+    if state_proof.get("passed") and state_proof.get("assembly", {}).get("passed"):
+        lines.extend(["", t("state.verified", count=len(state_proof["assembly"].get("residues", [])))])
     lines.extend(["", t("report.warnings")])
     warnings = result.get("warnings", [])
     lines.extend("- " + _value(item) for item in warnings)

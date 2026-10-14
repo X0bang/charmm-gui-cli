@@ -52,15 +52,17 @@ charmm-gui-cli build --complex complex.pdb \
 
 批量清单支持与 build 一致的 v2 分节参数，旧 v1 保持兼容；`batch --name series-a`、`sweep --name scan-a` 为容器命名。CLI dry-run 不登记全局任务列表，实际 resume 时才登记。TTY 的 batch/sweep/status/preview 显示摘要；管道和 `--json` 保持机器输出。修正未提交的本地输入失败后，可用 `batch-resume DIR --retry-failed-local`；已有部分目录或提交证据时不重建。详见 [批量流程](docs/BATCH.md)。
 
-配体支持 SDF V2000，以及可无损保留化学图和明确立体定义的 V3000/mol2（规范化为 V2000，记录坐标表示舍入）。多记录文件须显式选择，例如 `--ligand-pose 2`；编号从 1 开始，不按对接分数自动选择。YAML 写作 `input_options: {ligand_pose: 2}`。mol2 部分电荷不等于形式电荷，预检会提示审阅；PDBQT 暂不能直接输入。原始文件不改写，选择、转换、原子名对应和哈希写入输入证据。
+配体支持 SDF V2000，以及可验证保留化学图和明确立体定义的 V3000/mol2/PDBQT（规范化为 V2000，记录坐标表示舍入）。PDBQT 需 Meeko 内嵌 SMILES/索引，或 `--ligand-smiles` 与明确的原子映射/完整连接；不按距离猜键。多记录或多姿势文件须显式选择，例如 `--ligand-pose 2`；编号从 1 开始，不按分数自动选择。YAML 写作 `input_options: {ligand_pose: 2}`。mol2/PDBQT 部分电荷不等于形式电荷，预检会提示审阅。原始文件不改写，选择、转换、原子名对应和哈希写入输入证据。
 
 脂质比例可写为 `--upper POPC:POPE=7:3`。名称先通过本地常用脂质目录检查；目录不含所有官网脂质，特殊名称核对后可使用 `--allow-unknown-lipids`（YAML：`membrane.allow_unknown_lipids: true`）。常用名称参考[官网脂质库](https://www.charmm-gui.org/?doc=archive&lib=lipid)，不代表每个 API 模块都支持全部名称。
 
 末端补丁支持按链设置，例如 `--n-terminal A=GLYP,B=NTER`，也可用 `PROA` 等 segment 名；YAML 使用 `preparation.terminals: {A: {n_terminal: GLYP}, B: {n_terminal: NTER}}`。未指定的链使用统一默认值。
 
+终端和报告分别展示请求设置与提交记录；例如 NTER 自动回退为 GLYP 时显示 `NTER → GLYP`。提交结果未知或只有历史记录时会明确标注，不把请求值当作已应用值。`inputs/system-config.json` 保留原始 requested/applied 字段，并新增按链整理的 `parameter_summary`。
+
 `check` 显示失败原因、自动修复和结构审阅项，`check --full` 显示完整证据；`--json`、`--lang`、`--foreground` 可放在子命令前后。新任务本地准备失败不会占住任务名，修正输入后可以重试。
 
-预检还会按模型、TER、链和 segment 列出组成，提示核酸、糖链及 LINK 连接，避免误把它们当作蛋白或普通可删除配体。输入已明确指定的残基状态会记录在本地准备证据中，不自动选择 pH 或改变原始坐标；此类输入目前可预检和 dry-run，但在远端 PDB/PSF 状态验证接入前不提交建模。
+预检还会按模型、TER、链和 segment 列出组成，提示核酸、糖链及 LINK 连接，避免误把它们当作蛋白或普通可删除配体。输入已明确指定的残基状态会记录在准备证据中，不自动选择 pH 或改变原始坐标。构建时先核验官网源 PDB/PSF 中的相应原子类型、电荷和连接，再提交建膜；验收时再次核对最终组装。不能唯一对应服务器表单或无法验证状态时停止，保留证据，不降级成普通残基继续提交。
 
 ### 后台运行与恢复
 

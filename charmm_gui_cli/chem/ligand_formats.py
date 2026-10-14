@@ -207,7 +207,10 @@ def normalize(block, *, mol2=False):
         raise _error("ligand_parse", format="mol2" if mol2 else "V3000") from None
 
 
-def ligand_text(path, *, pose=None, report=None):
+def ligand_text(path, *, pose=None, report=None, smiles=None):
+    if Path(path).suffix.lower() == ".pdbqt":
+        from .pdbqt import ligand_text as pdbqt_text
+        return pdbqt_text(path, pose=pose, report=report, smiles=smiles)
     text = Path(path).read_bytes().decode("utf-8")
     block, evidence, selected = select(path, text, pose)
     lines = block.splitlines()
@@ -218,6 +221,14 @@ def ligand_text(path, *, pose=None, report=None):
         evidence["explicit_atom_names"] = conversion["explicit_atom_names"]
     else:
         evidence["explicit_atom_names"] = bool(re.search(r"<PDB_ATOM_NAMES>", block))
+    from .ligand_stereo import PROPERTY, declared
+    if '<' + PROPERTY + '>' in block:
+        Chem, rdBase = _rdkit()
+        with rdBase.BlockLogs():
+            molecule = Chem.MolFromMolBlock(block, removeHs=False)
+        if molecule is None:
+            raise _error('ligand_declared_stereo')
+        declared(block, molecule)
     if report is not None:
         report.update(evidence)
         repairs = report.setdefault("repairs", [])

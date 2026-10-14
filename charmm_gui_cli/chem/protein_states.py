@@ -37,13 +37,6 @@ def intent_for(manifest):
     return normalization.get("protein_state_intent", {})
 
 
-def require_remote_state_verification(manifest, *, next_command="charmm-gui-cli check -h"):
-    """Temporary fail-closed gate until actual PDB/PSF proof is integrated."""
-    if validate_intent(intent_for(manifest)):
-        raise ToolError(key="state.pipeline_pending", category="unsupported_feature",
-                        next_step=t("state.pipeline_next", command=next_command))
-
-
 def validate_intent(plan):
     """Reject edited/unknown state recipes rather than inventing form fields."""
     if plan is None or plan == {}:

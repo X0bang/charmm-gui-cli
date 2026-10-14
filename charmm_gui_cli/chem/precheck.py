@@ -401,7 +401,7 @@ def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_res
         if isinstance(exc, ToolError) and exc.key and exc.key.startswith(("input.", "state.")):
             from .input_diagnostics import bind_input_error, retention_draft
             bind_input_error(exc, protein=protein, ligand=ligand, complex_pdb=complex_pdb,
-                             ligand_resname=ligand_resname, components=components, input_options=report.get("input_options", {}))
+                             ligand_resname=ligand_resname, components=components, input_options=report.get("input_options", {}), ligand_smiles=ligand_smiles)
             if exc.key == "input.protein_hetero":
                 report["heterogen_inventory"] = [detail for detail in exc.details if detail.get("kind")]
                 candidates = [{"resname": detail["resname"], "chain": detail["chain"], "resid": detail["resid"],

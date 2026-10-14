@@ -92,11 +92,13 @@ def load_build_config(path):
         raise ToolError(key="config.directory", params=context, next_step="charmm-gui-cli build -h") from None
     except OSError:
         raise ToolError(key="config.unreadable", params=context, next_step="charmm-gui-cli build -h") from None
-    raw = mapping(raw, ["version", "protein", "ligand", "ligand_resname", "ligand_hydrogens",
+    raw = mapping(raw, ["version", "protein", "ligand", "ligand_resname", "ligand_hydrogens", "ligand_smiles",
                         "preparation", "membrane", "ions", "input_options"], "build configuration")
     if type(raw.get("version")) is not int or raw["version"] != 2:
         raise ToolError("Input-oriented build configuration must use version: 2.")
     result = dict(raw)
+    if 'ligand_smiles' in raw and (not isinstance(raw['ligand_smiles'], str) or not raw['ligand_smiles'].strip()):
+        raise ToolError(key='input.pdbqt_definition', next_step='charmm-gui-cli build -h')
     if "input_options" in raw:
         from ..chem.residues import validate_input_options
         result["input_options"] = validate_input_options(raw["input_options"])
@@ -107,6 +109,8 @@ def load_build_config(path):
         result[key] = str((path.parent / value).resolve())
         if not Path(result[key]).is_file():
             raise ToolError(f"The configured {key} file does not exist.")
+    if 'ligand_smiles' in result and Path(result['ligand']).suffix.lower() != '.pdbqt':
+        raise ToolError(key='input.ligand_competing_definition', next_step='charmm-gui-cli build -h')
     result["ligand_resname"] = raw.get("ligand_resname", "LIG")
     if (not isinstance(result["ligand_resname"], str)
             or not re.fullmatch(r"[A-Z][A-Z0-9]{0,2}", result["ligand_resname"])):

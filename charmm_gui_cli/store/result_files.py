@@ -119,7 +119,9 @@ def _system_configuration(directory, manifest):
         params = entry.get("params", {})
         if params.get("chain") and params.get("patch"):
             terminals.setdefault("terminal[" + params["chain"] + "][first]", params["patch"])
-    return {"requested": requested, "applied": applied}
+    from .settings import parameter_summary
+    return {"requested": requested, "applied": applied,
+            "parameter_summary": parameter_summary(manifest, directory)}
 
 
 def _publish_generated(directory, generated):
