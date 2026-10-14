@@ -45,8 +45,8 @@ def _protein_identity(atoms):
     return {key: atom.xyz for key, atom in zip(keys, atoms)}
 
 
-def _check_protein(protein, complex_atoms):
-    supplied, _ = _pdb(protein)
+def _check_protein(protein, complex_atoms, input_options=None):
+    supplied, _ = _pdb(protein, input_options=input_options, role="protein")
     _validate_protein(supplied)
     a, b = _protein_identity(supplied), _protein_identity(complex_atoms)
     if a.keys() != b.keys() or any(max(abs(x - y) for x, y in zip(a[key], b[key])) > 0.0001 for key in a):
@@ -109,9 +109,9 @@ def _from_smiles(atoms, bonds, smiles, resname):
                  "note": "Existing heavy coordinates retained; downstream hydrogen policy supplies valence hydrogens. No pH state chosen."}
 
 
-def _chemical_sdf_in_complex(path, atoms, bonds):
-    molecule = read_ligand(path)
-    if not re.search(r"<PDB_ATOM_NAMES>", molecule.sdf):
+def _chemical_sdf_in_complex(path, atoms, bonds, *, pose=None, selection_report=None):
+    molecule = read_ligand(path, pose=pose, report=selection_report)
+    if not molecule.provenance.get("explicit_atom_names", bool(re.search(r"<PDB_ATOM_NAMES>", molecule.sdf))):
         raise ToolError("Complex plus SDF requires explicit PDB_ATOM_NAMES in SDF; generated/default sequential names are not an atom mapping.")
     coordinate_names = {a.name: a for a in atoms}
     if len(coordinate_names) != len(atoms) or set(coordinate_names) != {a.name for a in molecule.atoms}:
@@ -139,7 +139,21 @@ def _chemical_sdf_in_complex(path, atoms, bonds):
 
 
 def prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand_resname="LIG",
-                    ligand_smiles=None, accept_conect_bond_orders=False):
+                    ligand_smiles=None, accept_conect_bond_orders=False, input_options=None):
+    try:
+        return _prepare_sources(out=out, protein=protein, ligand=ligand, complex_pdb=complex_pdb,
+                                ligand_resname=ligand_resname, ligand_smiles=ligand_smiles,
+                                accept_conect_bond_orders=accept_conect_bond_orders, input_options=input_options)
+    except ToolError as exc:
+        if exc.key and exc.key.startswith("input."):
+            from .input_diagnostics import bind_input_error
+            bind_input_error(exc, protein=protein, ligand=ligand, complex_pdb=complex_pdb,
+                             ligand_resname=ligand_resname, input_options=input_options)
+        raise
+
+
+def _prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand_resname="LIG",
+                    ligand_smiles=None, accept_conect_bond_orders=False, input_options=None):
     """Materialize PDB/SDF sources without asking users to manage intermediates.
 
     PDB+SMILES requires encoded connectivity and a unique heavy graph mapping.
@@ -148,6 +162,10 @@ def prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand_
     chemical graph. Stereo-labelled transfer is intentionally refused.
     """
     destination = Path(out).resolve()
+    from .residues import validate_input_options
+    from .input_safety import validate_cgenff, validate_ligand_name, validate_link_records
+    options = validate_input_options(input_options)
+    validate_ligand_name(ligand_resname)
     if destination.exists():
         raise ToolError("prepare_sources out must be a new directory; existing outputs are never overwritten.")
     protein, ligand, complex_pdb = (_path(value, label) for value, label in
@@ -158,32 +176,52 @@ def prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand_
         raise ToolError("ligand_resname must be a 1-3 character PDB residue name beginning with a letter.")
     if not complex_pdb and (not protein or not ligand):
         raise ToolError("Provide protein plus bound ligand PDB/SDF, or one bound complex PDB.")
-    if ligand and ligand.suffix.lower() not in (".pdb", ".sdf"):
-        raise ToolError("Ligand source must be PDB or SDF V2000.")
-    if ligand and ligand.suffix.lower() == ".sdf" and ligand_smiles:
+    chemical_formats = (".sdf", ".mol", ".mol2")
+    if "ligand_pose" in options and (ligand is None or ligand.suffix.lower() not in chemical_formats):
+        raise ToolError(key="input.ligand_pose_format", next_step="charmm-gui-cli check --help")
+    if ligand and ligand.suffix.lower() == ".pdbqt":
+        raise ToolError(key="input.pdbqt_definition", next_step="charmm-gui-cli check --help")
+    if ligand and ligand.suffix.lower() not in (".pdb",) + chemical_formats:
+        raise ToolError(key="input.ligand_format", next_step="charmm-gui-cli check --help")
+    if ligand and ligand.suffix.lower() in chemical_formats and ligand_smiles:
         raise ToolError("Supply chemical SDF or ligand_smiles, not competing chemical definitions.")
     generated, report = {}, {"coordinate_transform": "none", "source_inputs": {
         "protein": str(protein) if protein else None, "ligand": str(ligand) if ligand else None,
         "complex": str(complex_pdb) if complex_pdb else None}}
     report["input_normalization"] = {}
+    report["input_options"] = options
+    from .inputs import _hash
+    report["source_evidence"] = {role: {"path": str(path), "sha256": _hash(path), "bytes": path.stat().st_size}
+                                 for role, path in (("protein", protein), ("ligand", ligand), ("complex", complex_pdb)) if path}
+    def ligand_atoms(path):
+        normalization = {}
+        atoms, bonds = _pdb(path, report=normalization,
+                            input_options={key: value for key, value in options.items() if key != "model"}, role="ligand")
+        report["ligand_normalization"] = normalization
+        target = report["input_normalization"]
+        target.setdefault("repairs", []).extend(normalization["repairs"])
+        target.setdefault("warnings", []).extend(normalization["warnings"])
+        return atoms, bonds
     if complex_pdb:
-        all_atoms, all_bonds = _pdb(complex_pdb, report=report["input_normalization"])
+        all_atoms, all_bonds = _pdb(complex_pdb, report=report["input_normalization"], input_options=options, role="complex")
         selected = _one_ligand(all_atoms, resname=ligand_resname)
         selected_ids = {a.serial for a in selected}
         protein_atoms = [a for a in all_atoms if a.serial not in selected_ids]
-        _validate_protein(protein_atoms)
+        _validate_protein(protein_atoms, protein=protein, ligand=ligand, complex_pdb=complex_pdb,
+                          ligand_resname=ligand_resname, input_options=options)
+        validate_link_records(complex_pdb)
         bonds = _internal(selected, all_bonds)
         if protein:
-            _check_protein(protein, protein_atoms)
+            _check_protein(protein, protein_atoms, options)
             report["supplied_protein_checked_against_complex"] = True
         protein_ids = {a.serial for a in protein_atoms}
         metadata = [line for line in complex_pdb.read_text().splitlines() if line.startswith("SSBOND")]
-        generated["protein.pdb"] = "\n".join(metadata + _protein_pdb_lines(complex_pdb, protein_atoms)) + "\n" + _conect(
+        generated["protein.pdb"] = "\n".join(metadata + _protein_pdb_lines(complex_pdb, protein_atoms, input_options=options, role="complex")) + "\n" + _conect(
             {edge: order for edge, order in all_bonds.items() if set(edge) <= protein_ids}) + "END\n"
         resolved_protein = destination / "protein.pdb"
         coordinate_source = complex_pdb
         if ligand and ligand.suffix.lower() == ".pdb":
-            provided, provided_bonds = _pdb(ligand)
+            provided, provided_bonds = ligand_atoms(ligand)
             provided = _one_ligand(provided)
             supplied_by_name = {a.name: a for a in provided}
             if (len(supplied_by_name) != len(provided) or len({a.name for a in selected}) != len(selected)
@@ -208,21 +246,34 @@ def prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand_
             report["complex_connectivity_check"] = "matches supplied ligand PDB graph" if pose_edges else \
                 "Complex contains no CONECT graph; connectivity comes from the supplied named ligand PDB."
     else:
-        protein_atoms, _ = _pdb(protein, report=report["input_normalization"])
-        _validate_protein(protein_atoms)
-        resolved_protein, coordinate_source = protein, ligand
-        if ligand.suffix.lower() == ".sdf":
-            molecule = read_ligand(ligand)
-            resolved_ligand = ligand
+        protein_atoms, protein_bonds = _pdb(protein, report=report["input_normalization"], input_options=options, role="protein")
+        _validate_protein(protein_atoms, protein=protein, ligand=ligand, ligand_resname=ligand_resname, input_options=options)
+        validate_link_records(protein)
+        if report["input_normalization"]["repairs"]:
+            metadata = [line for line in protein.read_text().splitlines() if line.startswith("SSBOND")]
+            generated["protein.pdb"] = "\n".join(metadata + _protein_pdb_lines(protein, protein_atoms, input_options=options)) + "\n" + _conect(protein_bonds) + "END\n"
+        resolved_protein, coordinate_source = destination / "protein.pdb" if "protein.pdb" in generated else protein, ligand
+        if ligand.suffix.lower() in chemical_formats:
+            selection = {}
+            molecule = read_ligand(ligand, pose=options.get("ligand_pose"), report=selection)
+            report["ligand_selection"] = selection
+            report["input_normalization"]["repairs"].extend(selection.get("repairs", []))
+            validate_cgenff(molecule)
+            if molecule.sdf.encode() != ligand.read_bytes():
+                generated["ligand.sdf"] = molecule.sdf
+            resolved_ligand = destination / "ligand.sdf" if "ligand.sdf" in generated else ligand
             report.update({"coordinate_source": str(ligand), "chemical_source": str(ligand),
                            "mapping": "SDF atom order retained", "ligand_atoms": len(molecule.atoms)})
         else:
-            atoms, encoded = _pdb(ligand)
+            atoms, encoded = ligand_atoms(ligand)
             selected = _one_ligand(atoms)
             bonds = _internal(selected, encoded)
     if complex_pdb or ligand.suffix.lower() == ".pdb":
-        if ligand and ligand.suffix.lower() == ".sdf":
-            sdf, details = _chemical_sdf_in_complex(ligand, selected, bonds)
+        if ligand and ligand.suffix.lower() in chemical_formats:
+            selection = {}
+            sdf, details = _chemical_sdf_in_complex(ligand, selected, bonds, pose=options.get("ligand_pose"), selection_report=selection)
+            report["ligand_selection"] = selection
+            report["input_normalization"]["repairs"].extend(selection.get("repairs", []))
         elif ligand_smiles:
             sdf, details = _from_smiles(selected, bonds, ligand_smiles, ligand_resname)
         else:
@@ -233,6 +284,8 @@ def prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand_
             details = {"chemical_source": "user-acknowledged PDB CONECT bond multiplicity and charge fields",
                        "mapping": "PDB atom names/order retained"}
         generated["ligand.sdf"] = sdf
+        # Whitelist applies to generated CGenFF inputs, not generic/trusted readers.
+        validate_cgenff(Ligand(selected, bonds, sdf, ligand_resname))
         resolved_ligand = destination / "ligand.sdf"
         report.update(details)
         report["coordinate_source"] = str(coordinate_source)

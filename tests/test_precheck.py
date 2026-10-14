@@ -117,7 +117,7 @@ class PrecheckTests(unittest.TestCase):
         self.protein.write_text(atom_line(1, "CA", altloc="A") + "\nEND\n")
         report = self.check()
         self.assertFalse(report["passed"])
-        self.assertEqual(report["error"]["stage"], "source_preparation")
+        self.assertEqual(report["error"]["stage"], "protein_inventory")
         self.assertEqual(report["protein_inventory"]["alternate_locations"][0]["altloc"], "A")
         self.assertTrue(report["review_required"])
         self.assertTrue((self.out / "check.json").is_file())
@@ -158,12 +158,13 @@ class PrecheckTests(unittest.TestCase):
         self.assertEqual(report["spatial_review"]["summary"]["distant_component_ids"], ["ligand"])
         self.assertGreater(report["spatial_review"]["components"][0]["protein_contacts"]["minimum_distance_A"], 100)
 
-    def test_short_contact_is_review_without_automatic_coordinate_repair(self):
+    def test_short_contact_blocks_covalent_or_incorrect_pose_without_coordinate_repair(self):
         self.ligand.write_text(_sdf([Atom(1, "C1", "C", (1., 1.5, 0.))], {}, "LIG"))
         original = self.protein.read_bytes(), self.ligand.read_bytes()
         report = self.check()
-        self.assertTrue(report["passed"])
-        self.assertEqual(report["status"], "passed_with_review")
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["status"], "failed")
+        self.assertEqual(report["error"]["message_key"], "input.covalent_contact")
         spatial = report["spatial_review"]
         self.assertGreater(spatial["summary"]["near_pair_count"], 0)
         self.assertEqual(spatial["summary"]["severe_overlap_pair_count"], 0)

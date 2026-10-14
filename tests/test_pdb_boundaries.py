@@ -33,7 +33,7 @@ class PdbBoundaryTests(unittest.TestCase):
         self.protein = [atom(1, "CYS", 1, (0, 0, 0)), atom(2, "CYS", 2, (2, 0, 0)),
                         atom(3, "ALA", 3, (0, 2, 0))]
         self.sdf = self.root / "ligand.sdf"
-        self.sdf.write_text(_sdf([Atom(1, "C1", "C", (4, 0, 0)), Atom(2, "O1", "O", (5.2, 0, 0))], {(0, 1): 2}, "LIG"))
+        self.sdf.write_text(_sdf([Atom(1, "C1", "C", (4.4, 0, 0)), Atom(2, "O1", "O", (5.6, 0, 0))], {(0, 1): 2}, "LIG"))
 
     def test_existing_same_chain_ter_and_chain_segment_changes_are_retained(self):
         lines = [self.protein[0], "TER", self.protein[1],
@@ -81,10 +81,10 @@ class PdbBoundaryTests(unittest.TestCase):
             self.assertNotIn("TER\nTER", text)
 
     def test_same_chain_two_components_have_explicit_separators_without_atom_or_bond_changes(self):
-        ligand = [atom(10, "DXC", 500, (4, 0, 0), record="HETATM", name="C1"),
-                  atom(11, "DXC", 500, (5.2, 0, 0), record="HETATM", name="O1", element="O"),
-                  atom(20, "LDA", 501, (0, 4, 0), record="HETATM", name="C1"),
-                  atom(21, "LDA", 501, (0, 5.2, 0), record="HETATM", name="O1", element="O")]
+        ligand = [atom(10, "DXC", 500, (4.4, 0, 0), record="HETATM", name="C1"),
+                  atom(11, "DXC", 500, (5.6, 0, 0), record="HETATM", name="O1", element="O"),
+                  atom(20, "LDA", 501, (0, 4.4, 0), record="HETATM", name="C1"),
+                  atom(21, "LDA", 501, (0, 5.6, 0), record="HETATM", name="O1", element="O")]
         original = ssbond() + "\n" + self.protein[0] + "\nTER\n" + "\n".join(self.protein[1:] + ligand) + "\nCONECT    1    2\nEND\n"
         self.source.write_text(original)
         config = self.root / "components.yaml"

@@ -99,10 +99,20 @@ def launch(args):
         if not offline:
             token, source = load_token(args.token_file)
             from ..api import Client
-            Client(token).validate_auth()
+            from ..remote.sessions import bind, warn_expiry, session_cookie_path
+            api = Client(token)
+            cookies = session_cookie_path(args.cookies, source)
+            manager = bind(api, source, cookies)
+            api.validate_auth()
+            token = api.token if isinstance(api.token, str) else token
+            try:
+                warn_expiry(token, source)
+            except ToolError:
+                pass
         if not offline and not (directory / "bilayer" / "run.json").exists() and "reused_preparation" not in manifest:
             from ..web import WebClient, soup_for
-            web = WebClient(resolve_cookie_path(args.cookies, source), post_timeout=args.post_timeout)
+            web = WebClient(cookies, post_timeout=args.post_timeout)
+            bind(web, source, cookies, manager)
             web.validate_auth()
             response = web.request("GET", "?doc=input/membrane.bilayer")
             page = soup_for(response.text)

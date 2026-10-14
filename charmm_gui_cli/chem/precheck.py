@@ -15,19 +15,7 @@ from ..auth import ToolError
 from ..input_sources import prepare_sources
 from ..inputs import _pdb, inspect_ligand, prepare_inputs, read_ligand
 from ..pdb_normalization import normalize_lines
-
-
-_BACKBONE = {"N", "CA", "C", "O"}
-_SIDECHAINS = {name: set(atoms.split()) for name, atoms in {
-    "ALA": "CB", "ARG": "CB CG CD NE CZ NH1 NH2", "ASN": "CB CG OD1 ND2", "ASP": "CB CG OD1 OD2",
-    "CYS": "CB SG", "GLN": "CB CG CD OE1 NE2", "GLU": "CB CG CD OE1 OE2", "GLY": "",
-    "HIS": "CB CG ND1 CD2 CE1 NE2", "ILE": "CB CG1 CG2 CD1", "LEU": "CB CG CD1 CD2",
-    "LYS": "CB CG CD CE NZ", "MET": "CB CG SD CE", "PHE": "CB CG CD1 CD2 CE1 CE2 CZ",
-    "PRO": "CB CG CD", "SER": "CB OG", "THR": "CB OG1 CG2", "TRP": "CB CG CD1 CD2 NE1 CE2 CE3 CZ2 CZ3 CH2",
-    "TYR": "CB CG CD1 CD2 CE1 CE2 CZ OH", "VAL": "CB CG1 CG2",
-}.items()}
-_ALIASES = {**{name: "HIS" for name in ("HSD", "HSE", "HSP", "HID", "HIE", "HIP")},
-            "ASH": "ASP", "GLH": "GLU", "LYN": "LYS", "CYM": "CYS", "CYX": "CYS"}
+from .residues import BACKBONE as _BACKBONE, SIDECHAINS as _SIDECHAINS, ALIASES as _ALIASES, MODIFIED, validate_input_options
 
 
 def _file_evidence(value):
@@ -43,7 +31,7 @@ def _file_evidence(value):
     return {"path": str(path), "sha256": digest.hexdigest(), "bytes": path.stat().st_size}
 
 
-def inspect_protein(path, *, excluded_resnames=()):
+def inspect_protein(path, *, excluded_resnames=(), lines=None):
     """Inspect every explicit model before strict preparation rejects ambiguity.
 
     Numbering gaps are coordinate-index observations only. No sequence alignment
@@ -53,7 +41,7 @@ def inspect_protein(path, *, excluded_resnames=()):
     groups, chains, altlocs = {}, defaultdict(list), []
     model, model_count, block, atom_count = 0, 0, 0, 0
     sequence_records = False
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
+    for line in lines if lines is not None else Path(path).read_text(encoding="utf-8").splitlines():
         record = line[:6].strip()
         if record == "MODEL":
             model_count += 1
@@ -75,7 +63,9 @@ def inspect_protein(path, *, excluded_resnames=()):
                     "segment": line[72:76].strip(), "resname": line[17:21].strip()}
         if line[16:17].strip():
             altlocs.append({**identity, "atom": line[12:16].strip(), "altloc": line[16:17]})
-        if record != "ATOM" or identity["resname"] in excluded_resnames:
+        if record != "ATOM" and identity["resname"] not in MODIFIED:
+            continue
+        if record == "HETATM" and identity["resname"] in excluded_resnames and identity["resname"] not in MODIFIED:
             continue
         key = (identity["model"], block, identity["chain"], identity["segment"], residue_number,
                identity["insertion_code"], identity["resname"])
@@ -87,11 +77,13 @@ def inspect_protein(path, *, excluded_resnames=()):
     missing, unknown, gaps = [], [], []
     for value in groups.values():
         identity, present = value["identity"], set(value["atoms"])
-        template = _ALIASES.get(identity["resname"], identity["resname"])
+        template = MODIFIED.get(identity["resname"], _ALIASES.get(identity["resname"], identity["resname"]))
         if template not in _SIDECHAINS:
             unknown.append(identity)
             continue
         # Common terminal/CHARMM naming aliases are not missing heavy atoms.
+        if identity["resname"] == "MSE" and "SE" in present:
+            present.add("SD")
         if "OT1" in present:
             present.add("O")
         if template == "ILE" and "CD" in present:
@@ -241,9 +233,9 @@ def inspect_spatial_review(protein_atoms, components, *, near_A=2.0, severe_A=0.
                             "A nearby ligand or absence of flagged short contacts does not establish a correct binding pose or simulation readiness."]}
 
 
-def _complex_spatial_review(path, specifications):
+def _complex_spatial_review(path, specifications, *, input_options=None, role="complex"):
     """Use explicit selectors and the bound complex, never the chemical SDF pose."""
-    atoms, _ = _pdb(path)
+    atoms, _ = _pdb(path, input_options=input_options, role=role)
     groups, selected = [], set()
     for index, spec in enumerate(specifications, 1):
         if not {"resname", "chain", "resid"} <= spec.keys():
@@ -267,7 +259,7 @@ def _record_spatial_review(report, review):
 
 
 def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_resname="LIG",
-                 ligand_smiles=None, accept_conect_bond_orders=False, hydrogens="add_missing", components=None):
+                 ligand_smiles=None, accept_conect_bond_orders=False, hydrogens="add_missing", components=None, input_options=None):
     """Prepare and inspect in a new directory; persist failures as check.json.
 
     Existing output directories are rejected without any write. ``components``
@@ -290,6 +282,8 @@ def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_res
                               "净形式电荷只针对显式定义的配体/组分，不推断蛋白或整个体系的净电荷。"]}
     stage = "options"
     try:
+        options = validate_input_options(input_options)
+        report["input_options"] = options
         if hydrogens not in ("preserve", "add_missing"):
             raise ToolError("hydrogens must be preserve or add_missing.")
         if type(accept_conect_bond_orders) is not bool:
@@ -315,13 +309,18 @@ def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_res
         stage = "protein_inventory"
         coordinate_source = complex_pdb or protein
         if coordinate_source is not None:
-            normalization = {}
-            normalize_lines(coordinate_source, normalization)
-            report["input_normalization"] = normalization
-            report["automatic_repairs"] = normalization["repairs"]
-            report["terminal_predictions"] = normalization["terminal_predictions"]
             excluded = [item.get("resname") for item in component_config["components"]] if components is not None else [ligand_resname]
             inventory = inspect_protein(coordinate_source, excluded_resnames=excluded)
+            report["protein_inventory"] = inventory
+            report["original_protein_inventory"] = inventory
+            report["review_required"] = inventory["review_required"]
+            normalization = {"repairs": []}
+            report["input_normalization"] = normalization
+            report["automatic_repairs"] = normalization["repairs"]
+            role = "components" if components is not None and component_config["water_policy"] == "retain" else "complex" if complex_pdb else "protein"
+            normalized = normalize_lines(coordinate_source, normalization, options=options, role=role)
+            report["terminal_predictions"] = normalization["terminal_predictions"]
+            inventory = inspect_protein(coordinate_source, excluded_resnames=excluded, lines=normalized)
             report["protein_inventory"] = inventory
             report["review_required"] = inventory["review_required"]
             report["checks"][stage] = {"passed": True, "review_required": inventory["review_required"],
@@ -330,7 +329,7 @@ def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_res
         if components is None:
             sources = prepare_sources(out=directory / "sources", protein=protein, ligand=ligand,
                                       complex_pdb=complex_pdb, ligand_resname=ligand_resname,
-                                      ligand_smiles=ligand_smiles, accept_conect_bond_orders=accept_conect_bond_orders)
+                                      ligand_smiles=ligand_smiles, accept_conect_bond_orders=accept_conect_bond_orders, input_options=options)
             report["sources"] = sources["report"]
             report["checks"][stage] = {"passed": True}
             protein_atoms, _ = _pdb(sources["protein"])
@@ -340,21 +339,31 @@ def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_res
             stage = "input_preparation"
             prepared = prepare_inputs(sources["protein"], sources["ligand"], directory / "prepared",
                                       ligand_resname=ligand_resname, hydrogen_policy=hydrogens)
+            from .pdb_normalization import attach_source_normalization
+            attach_source_normalization(prepared, sources["report"])
+            report["input_normalization"] = prepared["manifest"]["input_normalization"]
+            report["automatic_repairs"] = prepared["manifest"]["automatic_repairs"]
             report.update(prepared_complex=prepared["files"]["complex.pdb"], prepared_files=prepared["files"],
                           component_resnames=[ligand_resname])
             report["checks"][stage] = {"passed": True}
             stage = "chemical_graph"
             report["chemistry"] = [_chemistry(prepared["files"]["ligand.sdf"], ligand_resname)]
+            report["chemistry"][0]["ligand_source"] = prepared["manifest"].get("ligand_selection", {})
+            conversion = report["chemistry"][0]["ligand_source"].get("conversion", {})
+            if conversion.get("review_required"):
+                report["review_required"] = True
+                report["chemistry"][0].setdefault("chemistry_warnings", []).append({"key": "input.mol2_review", "params": {"partial": f"{conversion['partial_charge_sum']:.4f}", "formal": conversion["net_formal_charge"]}})
         else:
             if complex_pdb is None or any(value is not None for value in (protein, ligand, ligand_smiles)) or accept_conect_bond_orders:
                 raise ToolError("Component precheck requires complex_pdb and per-component chemical definitions; do not mix single-ligand inputs/options.")
-            _record_spatial_review(report, _complex_spatial_review(complex_pdb, component_config["components"]))
+            _record_spatial_review(report, _complex_spatial_review(complex_pdb, component_config["components"], input_options=options, role=role))
             from ..multicomponent import prepare_build_components
             prepared = prepare_build_components(complex_pdb=complex_pdb, components_config=components,
-                                                out=directory / "prepared", hydrogens=hydrogens)
+                                                out=directory / "prepared", hydrogens=hydrogens, input_options=options)
             report.update(prepared_complex=prepared["files"]["complex.pdb"], prepared_files=prepared["files"],
                           component_preparation=prepared["manifest"],
                           component_resnames=sorted({item["resname"] for item in prepared["manifest"]["components"]}))
+            report["automatic_repairs"] = prepared["manifest"].get("automatic_repairs", report.get("automatic_repairs", []))
             report["checks"][stage] = {"passed": True}
             stage = "chemical_graph"
             report["chemistry"] = [{**_chemistry(item["sdf"], item["resname"]), "component_id": item["id"]}
@@ -365,6 +374,21 @@ def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_res
         report.update(passed=True, hydrogen_policy=hydrogens,
                       status="passed_with_review" if report["review_required"] else "passed")
     except (ToolError, OSError, UnicodeError) as exc:
+        if isinstance(exc, ToolError) and exc.key and exc.key.startswith("input."):
+            from .input_diagnostics import bind_input_error, retention_draft
+            bind_input_error(exc, protein=protein, ligand=ligand, complex_pdb=complex_pdb,
+                             ligand_resname=ligand_resname, input_options=report.get("input_options", {}))
+            if exc.key == "input.protein_hetero":
+                report["heterogen_inventory"] = [detail for detail in exc.details if detail.get("kind")]
+                try:
+                    draft = retention_draft(directory, source=complex_pdb or protein, ligand=ligand,
+                                            ligand_resname=ligand_resname, input_options=report.get("input_options", {}), findings=exc.details)
+                    if draft:
+                        report["retention_draft"] = draft
+                        exc.details.append({"key": "input.draft", "params": {"config": draft["config"], "complex": draft["complex"], "command": draft["next_step"]}})
+                except (ToolError, OSError, ValueError):
+                    # A draft failure must not hide the authoritative input error.
+                    pass
         error = exc.as_dict() if isinstance(exc, ToolError) else {
             "category": "local_io", "message": "Cannot read or prepare local input files; retained outputs can be inspected.",
             "retryable": False, "next_step": "Check local paths, permissions and text encoding; use a new output directory."}

@@ -146,6 +146,19 @@ def assert_nonpolymer_parameterization(form, resnames):
                             next_step="检查输入 PDB 的 TER 链/组分分隔。保留当前源任务、输入及响应；不要伪造 CGenFF 字段、删除意图或重传。修正输入后须明确创建新任务，当前源无法通过此表单安全恢复。")
 
 
+def load_cookies(web, cookie_path):
+    try:
+        saved = json.loads(Path(cookie_path).read_text(encoding="utf-8"))
+        jar = requests.cookies.RequestsCookieJar()
+        for item in saved["cookies"]:
+            if item["domain"].lstrip(".") not in ("charmm-gui.org", "www.charmm-gui.org"):
+                raise ValueError
+            jar.set_cookie(requests.cookies.create_cookie(**item))
+        web.session.cookies = jar
+    except (OSError, ValueError, KeyError, TypeError):
+        raise AuthError(key="session.cookies") from None
+
+
 class WebClient:
     def __init__(self, cookie_path=None, session=None, *, post_timeout=900, heartbeat_interval=30):
         if not math.isfinite(post_timeout) or post_timeout <= 0 or heartbeat_interval <= 0:
@@ -154,6 +167,7 @@ class WebClient:
         self.heartbeat_interval = heartbeat_interval
         self.session = session or requests.Session()
         self.cookie_path = Path(cookie_path) if cookie_path else None
+        self.renewer = None
         self.session.headers.update({"User-Agent": "charmm-gui-cli/0.2 (Python requests; research workflow)"})
         if self.cookie_path and self.cookie_path.is_file():
             try:
@@ -167,18 +181,42 @@ class WebClient:
 
     def save_cookies(self):
         if self.cookie_path:
+            if self.renewer is not None:
+                self.renewer.persist_cookies(self)
+                return
             cookies = [{"name": cookie.name, "value": cookie.value, "domain": cookie.domain,
                         "path": cookie.path, "secure": cookie.secure, "expires": cookie.expires,
                         "rest": cookie._rest} for cookie in self.session.cookies]
             atomic_json(self.cookie_path, {"version": 1, "cookies": cookies})
 
     def validate_auth(self):
+        if self.renewer is not None:
+            self.renewer.web_ready(self)
         # A session cookie cannot prove authentication, but missing/expired
         # saved cookies can be rejected before creating any POST intent.
         if self.cookie_path is not None and not any(not cookie.is_expired() for cookie in self.session.cookies):
-            raise AuthError("Website session is missing or expired. Run charmm-gui-cli login.")
+            if self.renewer is not None and self.renewer.profile:
+                self.renewer.web_ready(self, force=True)
+            if not any(not cookie.is_expired() for cookie in self.session.cookies):
+                raise AuthError(key="session.cookies")
 
     def request(self, method, target, **kwargs):
+        original_method = method.upper()
+        if original_method in ("GET", "POST") and self.renewer is not None:
+            self.renewer.web_ready(self)
+        try:
+            result = self._request_once(method, target, **kwargs)
+            if original_method == "GET" and self.renewer is not None and self.renewer.profile and soup_for(result.text).select_one('form input[type="password"]'):
+                result.close()
+                raise AuthError(key="session.cookies")
+            return result
+        except AuthError as exc:
+            if original_method != "GET" or exc.category != "authentication" or self.renewer is None or not self.renewer.profile:
+                raise
+            self.renewer.web_ready(self, force=True)
+            return self._request_once(method, target, **kwargs)
+
+    def _request_once(self, method, target, **kwargs):
         url = urljoin(WEB_BASE, target)
         for _ in range(6):
             parsed = urlparse(url)

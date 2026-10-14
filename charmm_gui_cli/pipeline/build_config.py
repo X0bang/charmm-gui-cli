@@ -92,10 +92,13 @@ def load_build_config(path):
     except OSError:
         raise ToolError(key="config.unreadable", params=context, next_step="charmm-gui-cli build -h") from None
     raw = mapping(raw, ["version", "protein", "ligand", "ligand_resname", "ligand_hydrogens",
-                        "preparation", "membrane", "ions"], "build configuration")
+                        "preparation", "membrane", "ions", "input_options"], "build configuration")
     if type(raw.get("version")) is not int or raw["version"] != 2:
         raise ToolError("Input-oriented build configuration must use version: 2.")
     result = dict(raw)
+    if "input_options" in raw:
+        from ..chem.residues import validate_input_options
+        result["input_options"] = validate_input_options(raw["input_options"])
     for key in ("protein", "ligand"):
         value = raw.get(key)
         if not isinstance(value, str) or not value:

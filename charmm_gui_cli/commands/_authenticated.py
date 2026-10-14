@@ -14,6 +14,8 @@ def execute(args):
     )
     token, source = load_token(args.token_file)
     client = Client(token)
+    from ..remote.sessions import bind
+    bind(client, source)
     if args.command == "auth":
         info = {"source": source, **token_info(token), "server_checked": False}
         cookies = resolve_cookie_path(token_source=source)

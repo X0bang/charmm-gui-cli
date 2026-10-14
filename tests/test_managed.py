@@ -331,8 +331,8 @@ class ManagedTests(unittest.TestCase):
             out.mkdir(parents=True)
             atomic_write(out / "protein.pdb", "protein")
             atomic_write(out / "ligand.sdf", "ligand")
-            return {"protein": str(out / "protein.pdb"), "ligand": str(out / "ligand.sdf"), "report": {"mode": "split"}}
-        def initialize(config, destination, *, _reserved=False):
+            return {"protein": str(out / "protein.pdb"), "ligand": str(out / "ligand.sdf"), "report": {"mode": "split", "input_options": {}}}
+        def initialize(config, destination, *, _reserved=False, _source_report=None):
             self.assertTrue(_reserved)
             self.assertTrue(destination.exists())
             # The reservation is exclusively owned by this preparation.
@@ -358,7 +358,7 @@ class ManagedTests(unittest.TestCase):
     def test_failed_initialization_is_not_registered(self):
         def sources(**kwargs):
             kwargs["out"].mkdir(parents=True)
-            return {"protein": "/unused-protein.pdb", "ligand": "/unused-ligand.sdf", "report": {}}
+            return {"protein": "/unused-protein.pdb", "ligand": "/unused-ligand.sdf", "report": {"input_options": {}}}
         with patch("charmm_gui_cli.input_sources.prepare_sources", side_effect=sources), \
                 patch.object(managed, "initialize", side_effect=ToolError("invalid input chemistry")):
             with self.assertRaisesRegex(ToolError, "invalid input chemistry"):

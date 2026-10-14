@@ -15,10 +15,12 @@ import re
 from ..auth import ToolError
 from ..input_sources import _chemical_sdf_in_complex, _internal
 from ..inputs import Ligand, _apply_hydrogen_policy, _conect, _pdb, _protein_pdb_lines, _sdf, _validate_ligand, _validate_protein, read_ligand
+from .residues import SIDECHAINS, ALIASES, WATERS, validate_input_options
+from .input_safety import validate_cgenff, validate_contact, validate_ligand_name
 
 
-_PROTEIN = set("ALA ARG ASN ASP CYS GLN GLU GLY HIS ILE LEU LYS MET PHE PRO SER THR TRP TYR VAL HSD HSE HSP HID HIE HIP ASH GLH LYN CYM CYX".split())
-_WATER = {"HOH", "WAT", "TIP3"}
+_PROTEIN = set(SIDECHAINS) | set(ALIASES)
+_WATER = set(WATERS)
 _IONS = {"NA": ("Na", 1), "SOD": ("Na", 1), "K": ("K", 1), "POT": ("K", 1), "CL": ("Cl", -1), "CLA": ("Cl", -1)}
 _ORGANIC = set("H B C N O F Si P S Cl Br I".split())
 
@@ -127,7 +129,7 @@ def _topology(spec, molecule, resname):
             "limitation": "User-trusted standalone CHARMM files; atom identity, connectivity and charge sum checked, not force-field completeness or physical accuracy."}
 
 
-def prepare_multicomponent(*, complex_pdb, components, out, water_policy, ion_policy):
+def prepare_multicomponent(*, complex_pdb, components, out, water_policy, ion_policy, input_options=None):
     """Prepare explicit noncovalent component instances, retaining all input atoms.
 
     ``components`` is a nonempty list of selector dictionaries. Each specifies
@@ -145,13 +147,18 @@ def prepare_multicomponent(*, complex_pdb, components, out, water_policy, ion_po
     if not isinstance(components, list) or not components:
         raise ToolError("Provide a nonempty list of explicit component instances.")
     source = _file(complex_pdb, "Complex PDB")
-    atoms, bonds = _pdb(source)
+    original_atom_count = sum(line.startswith(("ATOM  ", "HETATM")) for line in source.read_text().splitlines())
+    options = validate_input_options(input_options)
+    role = "components" if water_policy == "retain" or input_options is None else "complex"
+    normalization = {}
+    atoms, bonds = _pdb(source, report=normalization, input_options=options, role=role)
     residues = {}
     for atom in atoms:
         residues.setdefault(_identity(atom), []).append(atom)
     selected, ownership = {}, {}
     for index, spec in enumerate(components, 1):
         key = _select(spec, residues)
+        validate_ligand_name(key[0])
         if key in selected:
             raise ToolError("A component residue was selected more than once.")
         if key[0] in _PROTEIN | _WATER | set(_IONS):
@@ -236,6 +243,8 @@ def prepare_multicomponent(*, complex_pdb, components, out, water_policy, ion_po
             if not chemistry:
                 raise ToolError("Trusted topology requires a named SDF chemical sidecar; RTF alone does not reliably specify chemical bond orders.")
             topology = _topology(spec["topology"], molecule, key[0])
+        if topology is None:
+            validate_cgenff(molecule)
         signature, graph = _signature(molecule)
         mode = "trusted_charmm" if topology else "cgenff_required"
         group = groups.setdefault(key[0], {"resname": key[0], "chemical_signature": signature, "mode": mode, "instances": []})
@@ -267,13 +276,15 @@ def prepare_multicomponent(*, complex_pdb, components, out, water_policy, ion_po
         group.setdefault("files", {"sdf": str(sdf_path), **({"rtf": topology["rtf"]["path"], "prm": topology["prm"]["path"]} if topology else {})})
     protein_serials = {a.serial for a in protein}
     metadata = [line for line in source.read_text().splitlines() if line.startswith("SSBOND")]
-    files["protein.pdb"] = "\n".join(metadata + _protein_pdb_lines(source, protein)) + "\n" + _conect({edge: order for edge, order in bonds.items() if set(edge) <= protein_serials}) + "END\n"
+    files["protein.pdb"] = "\n".join(metadata + _protein_pdb_lines(source, protein, input_options=options, role=role)) + "\n" + _conect({edge: order for edge, order in bonds.items() if set(edge) <= protein_serials}) + "END\n"
     report = {"schema_version": 1, "source": _evidence(source), "complex": str(destination / "complex.pdb"),
               "protein": str(destination / "protein.pdb"), "components": reports, "chemistry_groups": list(groups.values()),
               "policies": {"water": water_policy, "ions": ion_policy}, "retained_waters": retained_waters, "retained_ions": retained_ions,
-              "source_atoms": len(atoms), "output_complex_atoms": len(atoms), "discarded_atoms": 0,
+              "source_atoms": original_atom_count, "output_complex_atoms": len(atoms), "discarded_atoms": original_atom_count - len(atoms),
+              "normalized_source_atoms": len(atoms),
               "coordinate_transform": "none", "scientific_correctness_verified": False,
               "remote_support_verified": False,
+              "input_options": options, "input_normalization": normalization, "automatic_repairs": normalization["repairs"],
               "remote_validation_supported": all(len(group["instances"]) == 1 for group in groups.values()) and not retained_waters and not retained_ions,
               "limitations": ["No docking, hydrogen addition, pH-state selection or coordinate-based bond guessing.",
                               "Retained waters/ions still require explicit downstream server options and final identity checks.",
@@ -281,9 +292,10 @@ def prepare_multicomponent(*, complex_pdb, components, out, water_policy, ion_po
                               "Local preparation does not prove multi-component HTTP parameterization or force-field compatibility."]}
     files["multicomponent-manifest.json"] = json.dumps(report, indent=2) + "\n"
     destination.mkdir(parents=True, exist_ok=False)
-    # Preserve the complete original structure (including TER/SSBOND metadata).
-    with (destination / "complex.pdb").open("xb") as handle:
-        handle.write(source.read_bytes())
+    # Preserve retained metadata/coordinates, including the shared normalization.
+    from .pdb_normalization import normalize_lines
+    with (destination / "complex.pdb").open("x") as handle:
+        handle.write("\n".join(normalize_lines(source, options=options, role=role)) + "\n")
     for name, text in files.items():
         with (destination / name).open("x") as handle:
             handle.write(text)
@@ -423,7 +435,7 @@ def load_components_config(path):
     return raw
 
 
-def prepare_build_components(*, components_config, complex_pdb, out, hydrogens="add_missing", allow_distant_pose=False):
+def prepare_build_components(*, components_config, complex_pdb, out, hydrogens="add_missing", allow_distant_pose=False, input_options=None):
     """Prepare the complete upload without losing any declared component.
 
     Returns the same ``files``/``manifest`` envelope as ``prepare_inputs``.
@@ -437,7 +449,7 @@ def prepare_build_components(*, components_config, complex_pdb, out, hydrogens="
         raise ToolError("Build preparation out must be a new directory.")
     config = load_components_config(components_config)
     prepared = prepare_multicomponent(complex_pdb=complex_pdb, components=config["components"], out=destination / "sources",
-                                     water_policy=config["water_policy"], ion_policy=config["ion_policy"])
+                                     water_policy=config["water_policy"], ion_policy=config["ion_policy"], input_options=validate_input_options(input_options))
     manifest = prepared["report"]
     if not manifest["remote_validation_supported"]:
         raise ToolError("Remote builds currently require distinct component residue names with one copy each and no retained source waters/ions; local preparation is preserved under sources/.")
@@ -453,11 +465,11 @@ def prepare_build_components(*, components_config, complex_pdb, out, hydrogens="
     previous_heavy = []
     for component in manifest["components"]:
         molecule = _apply_hydrogen_policy(read_ligand(component["sdf"]), hydrogens)
+        if not component["topology"]:
+            validate_cgenff(molecule)
         validation = _validate_ligand(molecule)
         heavy = [a for a in molecule.atoms if a.element != "H"]
-        distance = min(math.dist(a.xyz, b.xyz) for a in heavy for b in protein if b.element != "H")
-        if distance < 0.8:
-            raise ToolError("A component overlaps protein heavy atoms (<0.8 A); verify the bound input coordinates.")
+        distance = validate_contact(protein, molecule.atoms)
         if distance > 6 and not allow_distant_pose:
             raise ToolError("A component is >6 A from protein; provide a bound pose or explicitly allow_distant_pose.")
         if any(math.dist(a.xyz, b.xyz) < 0.8 for a in heavy for b in previous_heavy):
@@ -511,7 +523,7 @@ def prepare_build_components(*, components_config, complex_pdb, out, hydrogens="
     file_text["protein.pdb"] = "\n".join(metadata + protein_lines) + "\n" + _conect({tuple(protein_map[i] for i in edge): order for edge, order in protein_bonds.items()}) + "END\n"
     file_text["complex.pdb"] = "\n".join(metadata + all_lines) + "\n" + _conect(mapped_bonds) + "END\n"
     manifest.update({"complex": str(destination / "complex.pdb"), "protein": str(destination / "protein.pdb"),
-                     "output_complex_atoms": serial, "hydrogens_added": serial - manifest["source_atoms"],
+                     "output_complex_atoms": serial, "hydrogens_added": serial - manifest["normalized_source_atoms"],
                      "hydrogen_policy": hydrogens, "components_config": _evidence(components_config),
                      "force_field_parameters_generated": False,
                      "preparation_warnings": ["Added valence hydrogens, not pH-dependent protonation or optimized hydrogen positions."] if hydrogens == "add_missing" else []})

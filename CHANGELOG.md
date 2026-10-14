@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+## 0.8.0
+
+### Compatibility changes
+
+- Default modeling input preparation now removes recognized crystallographic waters, resolves complete alternate conformations by occupancy and converts MSE to MET, with repair evidence. Use the explicit input options to review or change these policies; original input files are not rewritten.
+- Additional pre-upload safety checks can reject structures previously accepted locally, including geometric backbone breaks, unsupported chemistry and excessively close protein–ligand contacts.
+- New prepared manifests include additive source/selection/repair evidence. Existing task records and uncertain POST recovery remain readable and are not automatically resealed or resubmitted.
+
+### Improvements
+
+- Add explicit 1-based ligand record selection for multi-record SDF/mol2 with bounded name/score diagnostics; propagate the choice through check, direct/YAML builds, batches and sweeps without automatically selecting the best score.
+- Normalize supported V3000/mol2 ligands with chemical-graph/stereo round-trip checks, original source hashes, atom-name mappings and coordinate-roundoff evidence. Keep mol2 partial charges distinct from formal charges and require review; reject unsupported chemical semantics instead of dropping them.
+- Preserve declared chirality and depicted 2D double-bond E/Z definitions during conversion and hydrogen addition; copying old wedge/parity codes onto changed atom neighborhoods could previously invert or lose stereochemistry. PDBQT remains unsupported with actionable input guidance.
+
+- Add explicit `login --remember` with allowlisted OS credential backends, a bounded memory-only `CHARMM_GUI_PASSWORD_COMMAND`, local `logout`, JWT lifetime diagnostics and startup expiry warnings.
+- Renew API and website sessions together under shared file locks, retain pair receipts and the original credential backend, roll back failed publication, and defer repeated failed renewal. Never replay modeling POSTs; GET-only reconcile does not log in automatically.
+- Follow recorded custom Cookie destinations, preserve credential formats/permissions, protect paired sessions from standalone web-login overwrites, and install the optional authentication dependencies with the isolated installer.
+
+- Share crystallographic-water removal, complete residue-level occupancy-ranked altloc selection, MSE-to-MET conversion, explicit heterogen/additive removal and model selection across check, direct/YAML builds, components, batches and sweeps. Preserve original files, source hashes and detailed repairs in prepared manifests.
+- Report heterogen identities, metal donor atoms within 2.8 Å and nearest cofactor contacts; create intentionally incomplete retained-component drafts with chemical/charge/topology requirements.
+- Block geometric backbone breaks, unknown protein residues, unsupported CGenFF elements, reserved ligand names and protein–ligand contacts below 2.2 Å before upload. Do not bypass LINK coordination/covalent-linkage records.
+- Recognize modified amino acids in structural inventories without inventing missing numbering gaps; bound duplicate-serial diagnostics and show compact bilingual repair summaries.
+
+### Validation scope
+
+Local regression tests cover shared input repairs, chemical-format conversion, selected-record uploads, paired renewal concurrency, credential redaction and no-POST-replay recovery using fixtures and mocked service responses. Real OS credential vaults, a twelve-hour official-service session and a new end-to-end modeling/simulation-equivalence run remain unverified; this release does not complete all audit remediation items. PDBQT import, general modified-residue/protonation mapping and specialized metal/covalent workflows remain unsupported.
+
 ## 0.7.3
 
 - Store new task-local metadata paths relative to the task root; resolve historical single-directory absolute paths without rewriting or resealing evidence.

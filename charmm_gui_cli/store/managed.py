@@ -218,9 +218,12 @@ def inspect_run(target, *, remote_check=False, token_file=None):
         from ..api import Client
         from ..auth import load_token
         from ..workflow import status_summary
-        token, _ = load_token(token_file)
+        token, source = load_token(token_file)
         try:
-            response = Client(token).status(result["build_job_id"])
+            from ..remote.sessions import bind
+            client = Client(token)
+            bind(client, source)
+            response = client.status(result["build_job_id"])
         except ToolError as error:
             error.for_task(result.get("name") or str(task_root(directory)))
             if error.category in ("api_error", "http_error", "unexpected_response"):
@@ -364,7 +367,7 @@ def latest_run():
 
 def create_managed_build(*, protein=None, ligand=None, complex_pdb=None, ligand_resname="LIG",
                          ligand_smiles=None, accept_conect_bond_orders=False, output=None,
-                         membrane=None, ions=None, preparation=None, hydrogens="add_missing"):
+                         membrane=None, ions=None, preparation=None, hydrogens="add_missing", input_options=None):
     """Prepare inputs and initialize one new run; never contact CHARMM-GUI."""
     from ..input_sources import prepare_sources
     from ..build_config import validate_model_options
@@ -384,14 +387,14 @@ def create_managed_build(*, protein=None, ligand=None, complex_pdb=None, ligand_
     with local_initialization(directory):
         sources = prepare_sources(protein=protein, ligand=ligand, complex_pdb=complex_pdb,
                                   ligand_resname=ligand_resname, ligand_smiles=ligand_smiles,
-                                  accept_conect_bond_orders=accept_conect_bond_orders, out=staging)
+                                  accept_conect_bond_orders=accept_conect_bond_orders, out=staging, input_options=input_options)
         config = {"version": 2, "protein": str(Path(sources["protein"]).resolve()),
                   "ligand": str(Path(sources["ligand"]).resolve()), "ligand_resname": ligand_resname,
                   "ligand_hydrogens": hydrogens, "membrane": model["membrane"],
-                  "ions": model["ions"], "preparation": model["preparation"]}
+                  "ions": model["ions"], "preparation": model["preparation"], "input_options": sources["report"]["input_options"]}
         config_path = staging / "build-config.json"
         _new_json(config_path, config)  # JSON is valid YAML accepted by initialize.
-        initialize(config_path, directory, _reserved=True)
+        initialize(config_path, directory, _reserved=True, _source_report=sources["report"])
         _new_json(directory / "managed.json", {"version": 1, "sources_directory": str(staging.resolve()),
                                                "source_report": sources.get("report", {}), "config_file": str(config_path.resolve())})
     remember_run(directory)
@@ -399,7 +402,7 @@ def create_managed_build(*, protein=None, ligand=None, complex_pdb=None, ligand_
 
 
 def create_component_build(*, components_config, complex_pdb, output=None, membrane=None, ions=None,
-                           preparation=None, hydrogens="add_missing", allow_distant_pose=False):
+                           preparation=None, hydrogens="add_missing", allow_distant_pose=False, input_options=None):
     """Initialize one locally verified multicomponent run, without remote calls."""
     from ..build_config import load_build_config
     from ..build_config import validate_model_options
@@ -414,7 +417,7 @@ def create_component_build(*, components_config, complex_pdb, output=None, membr
     from .local_build import local_initialization
     with local_initialization(directory):
         inputs = prepare_build_components(components_config=components_config, complex_pdb=complex_pdb,
-                                          out=inputs_path(directory), hydrogens=hydrogens, allow_distant_pose=allow_distant_pose)
+                                          out=inputs_path(directory), hydrogens=hydrogens, allow_distant_pose=allow_distant_pose, input_options=input_options)
         component_manifest = inputs["manifest"]
         if any(group["mode"] != "cgenff_required" for group in component_manifest["chemistry_groups"]):
             raise ToolError(key="build.components_unsupported", next_step="charmm-gui-cli check --help")

@@ -43,14 +43,14 @@ def precheck_summary(report):
         "sequence_alignment_performed": False, "repaired": False}
     result["chemistry"] = [{key: component[key] for key in ("resname", "atoms", "heavy_atoms", "bonds",
         "molecular_formula", "net_formal_charge", "rdkit_sanitized", "graph_sha256", "implicit_hydrogen_atoms",
-        "explicit_hydrogen_atoms", "chemistry_warnings") if key in component}
+        "explicit_hydrogen_atoms", "chemistry_warnings", "ligand_source") if key in component}
         for component in report.get("chemistry", [])]
     for key in ("automatic_repairs", "terminal_predictions", "input_normalization"):
         if key in report:
             result[key] = report[key]
     if "spatial_review" in report:
         result["spatial_review"] = report["spatial_review"].get("summary", {})
-    result["next_step"] = t("check.next_passed" if report.get("passed") else "check.next_failed")
+    result["next_step"] = report.get("error", {}).get("next_step") or t("check.next_passed" if report.get("passed") else "check.next_failed")
     return result
 
 
@@ -178,6 +178,9 @@ def parser():
     login.add_argument("--save-to", type=Path, help=t('help.text.09'))
     login.add_argument("--web", action="store_true", help=argparse.SUPPRESS)
     login.add_argument("--cookies", type=Path, help=t('help.text.10'))
+    login.add_argument("--remember", action="store_true", help=t("session.remember_help"))
+    logout = commands.add_parser("logout", help=t("session.logout_help"))
+    logout.add_argument("--cookies", type=Path, help=t("help.text.10"))
     web_login = commands.add_parser("web-login", help=t('help.text.11'))
     web_login.add_argument("--email")
     web_login.add_argument("--cookies", type=Path, help=t('help.text.12'))
@@ -261,6 +264,14 @@ def parser():
     structures.add_argument("--ligand-smiles", help=t('help.text.43'))
     structures.add_argument("--accept-conect-bond-orders", action="store_true", help=t('help.text.44'))
     structures.add_argument("--hydrogens", choices=("add_missing", "preserve"), help=t('help.text.45'))
+    def add_input_selection(command):
+        command.add_argument("--altloc", help=t("help.input_altloc"))
+        command.add_argument("--drop-hetero", help=t("help.input_drop"))
+        command.add_argument("--keep-mse", action="store_true", default=None, help=t("help.input_mse"))
+        command.add_argument("--drop-additives", action="store_true", default=None, help=t("help.input_additives"))
+        command.add_argument("--model", type=int, help=t("help.input_model"))
+        command.add_argument("--ligand-pose", type=int, help=t("help.ligand_pose"))
+    add_input_selection(structures)
     model = build.add_argument_group(t("help.model_group"))
     model.add_argument("--upper", help=t('help.text.46'))
     model.add_argument("--lower", help=t('help.text.47'))
@@ -315,6 +326,7 @@ def parser():
     precheck.add_argument("--ligand-smiles")
     precheck.add_argument("--accept-conect-bond-orders", action="store_true")
     precheck.add_argument("--hydrogens", choices=("preserve", "add_missing"), default="add_missing")
+    add_input_selection(precheck)
     precheck.add_argument("--out", type=Path, help=t('help.text.71'))
     precheck.add_argument("--no-preview", action="store_true")
     precheck.add_argument("--open", action="store_true", help=t("help.open_preview"))
@@ -384,6 +396,7 @@ def dispatch(args):
         'web-step': 'web_step',
         'prepare': 'prepare',
         'login': 'login',
+        'logout': 'logout',
         'plan': 'plan',
         'inspect': 'inspect',
         'auth': 'auth',

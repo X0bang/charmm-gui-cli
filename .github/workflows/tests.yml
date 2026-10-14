@@ -25,10 +25,26 @@ jobs:
       - name: English regression tests
         env:
           CHARMM_GUI_CLI_LANG: en
-        run: python -m unittest discover -s tests -q
+        run: python -m unittest discover -s tests -q 2>&1 | tee regression-en.log
       - name: Chinese regression tests
         env:
           CHARMM_GUI_CLI_LANG: zh
-        run: python -m unittest discover -s tests -q
+        run: python -m unittest discover -s tests -q 2>&1 | tee regression-zh.log
+      - name: Annotate regression failures
+        if: failure()
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          for path in Path('.').glob('regression-*.log'):
+              for block in path.read_text(encoding='utf-8', errors='replace').split('=' * 70):
+                  if not block.lstrip().startswith(('FAIL:', 'ERROR:')):
+                      continue
+                  text = block.strip()[:6000]
+                  text = re.sub(r'eyJ[\w-]+\.[\w-]+\.[\w-]+', '[redacted]', text)
+                  text = re.sub(r'(?i)(password|token|cookie|authorization)\s*[:=]\s*\S+', r'\1=[redacted]', text)
+                  print('::error::' + text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+          PY
       - name: Verify release packaging
         run: python scripts/build_release.py --out release-assets

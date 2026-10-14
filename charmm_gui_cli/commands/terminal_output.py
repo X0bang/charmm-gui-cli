@@ -45,8 +45,26 @@ def format_login(value, *, email=None):
         lines.append(t("output.cookie_path", path=_path(value["cookie_file"])))
     if value.get("notice"):
         lines.append(t("output.env_override"))
+    if value.get("remembered"):
+        lines.append(t("session.remembered"))
+    if value.get("password_command"):
+        lines.append(t("session.command_enabled"))
     lines.append(t("cli.next", action="charmm-gui-cli build --protein protein.pdb --ligand bound-ligand.sdf --name receptor-a"))
     return "\n".join(lines)
+
+
+def _repair_lines(entries):
+    lines, alternates = [], []
+    for entry in entries:
+        if entry["key"] == "input.altloc_selected":
+            alternates.append(entry)
+        else:
+            lines.append("• " + t(entry["key"], **entry["params"]))
+    if alternates:
+        from collections import Counter
+        counts = Counter(entry["params"]["altloc"] for entry in alternates)
+        lines.append("• " + t("input.altloc_summary", count=len(alternates), choices=", ".join(f"{key}={count}" for key, count in sorted(counts.items()))))
+    return lines
 
 
 def format_build(value, **context):
@@ -54,6 +72,7 @@ def format_build(value, **context):
         background = value["background"]
         name = value.get("name") or _path(value.get("directory", ""))
         return "\n".join([t("output.background", name=_text(name), pid=background.get("pid", "—")),
+                         *_repair_lines(value.get("automatic_repairs", [])),
                          t("output.log", path=_path(background["log"])),
                          t("cli.next", action="charmm-gui-cli jobs watch " + str(name))])
     from ..progress import describe_progress
@@ -64,6 +83,9 @@ def format_build(value, **context):
         label = t("stage." + state)
     lines = [t("output.task", name=_text(value.get("name") or value.get("job_id") or "—")),
              t("output.state", state=label)]
+    lines.extend(_repair_lines(value.get("automatic_repairs", [])))
+    for warning in value.get("chemistry_warnings", []):
+        lines.append("• " + t(warning["key"], **warning["params"]))
     execution = value.get("execution_state")
     if execution in ("failed_remote", "failed_local", "interrupted"):
         lines[1] = t("output.state", state=t("execution." + execution))
@@ -156,8 +178,7 @@ def format_check(value, **context):
         lines.append(t("check.ligand", name=component.get("resname", "—"), formula=component.get("molecular_formula", "—"), charge=component.get("net_formal_charge", "—")))
         for warning in component.get("chemistry_warnings", []):
             lines.append("• " + t(warning["key"], **warning["params"]))
-    for entry in value.get("automatic_repairs", []):
-        lines.append("• " + t(entry["key"], **entry["params"]))
+    lines.extend(_repair_lines(value.get("automatic_repairs", [])))
     for prediction in value.get("terminal_predictions", []):
         lines.append(t("check.terminal", chain=prediction["chain"], residue=prediction["first_resname"], patch=prediction["suggested_n_terminal"]))
     if value.get("input_normalization", {}).get("hetatm_present") is False:
@@ -256,6 +277,21 @@ def format_relink(value, **context):
     return t("jobs.relinked", name=_text(value["name"]), path=_path(value["directory"])) + "\n" + t("cli.next", action=value["next_step"])
 
 
-FORMATTERS = {"update": format_update, "login": format_login, "build": format_build, "build-resume": format_build,
+def format_logout(value, **context):
+    return "\n".join([t("session.logged_out", count=len(value.get("removed_files", []))),
+                      t("session.logout_notice"), t("cli.next", action=value.get("next_step", "charmm-gui-cli login"))])
+
+
+def format_doctor(value, **context):
+    lines = [t("session.doctor_header", state=t("output.passed" if value.get("passed") else "output.failed"))]
+    for name, check in value.get("checks", {}).items():
+        lines.append(t("session.doctor_check", name=name, state=t("output.passed" if check.get("passed") else "output.failed")))
+    remaining = value.get("session", {}).get("remaining_seconds")
+    lines.append(t("session.doctor_expiry", seconds=remaining) if remaining is not None else t("session.doctor_unknown" if value.get("session", {}).get("format") == "JWT" else "session.doctor_missing"))
+    lines.append(t("cli.next", action=value.get("next_step", "charmm-gui-cli login")))
+    return "\n".join(lines)
+
+
+FORMATTERS = {"doctor": format_doctor, "logout": format_logout, "update": format_update, "login": format_login, "build": format_build, "build-resume": format_build,
               "status": format_build, "jobs.status": format_job_status, "jobs.resume": format_build,
               "check": format_check, "jobs.list": format_jobs, "jobs.relink": format_relink}

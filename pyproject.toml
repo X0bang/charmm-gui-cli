@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "charmm-gui-cli"
-version = "0.7.3"
+version = "0.8.0"
 description = "Experimental, resumable CHARMM-GUI membrane-protein/ligand API client"
 readme = "README.md"
 license = "GPL-3.0-only"
@@ -14,6 +14,7 @@ dependencies = ["requests>=2.31,<3", "PyYAML>=6,<7", "beautifulsoup4>=4.12,<5"]
 
 [project.optional-dependencies]
 chem = ["rdkit>=2024.3", "numpy>=1.23", "Pillow>=10"]
+auth = ["keyring>=25,<26"]
 
 [project.scripts]
 charmm-gui-cli = "charmm_gui_cli.cli:main"
