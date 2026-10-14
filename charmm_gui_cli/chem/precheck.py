@@ -348,6 +348,11 @@ def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_res
             report["checks"][stage] = {"passed": True}
             stage = "chemical_graph"
             report["chemistry"] = [_chemistry(prepared["files"]["ligand.sdf"], ligand_resname)]
+            report["chemistry"][0]["ligand_source"] = prepared["manifest"].get("ligand_selection", {})
+            conversion = report["chemistry"][0]["ligand_source"].get("conversion", {})
+            if conversion.get("review_required"):
+                report["review_required"] = True
+                report["chemistry"][0].setdefault("chemistry_warnings", []).append({"key": "input.mol2_review", "params": {"partial": f"{conversion['partial_charge_sum']:.4f}", "formal": conversion["net_formal_charge"]}})
         else:
             if complex_pdb is None or any(value is not None for value in (protein, ligand, ligand_smiles)) or accept_conect_bond_orders:
                 raise ToolError("Component precheck requires complex_pdb and per-component chemical definitions; do not mix single-ligand inputs/options.")

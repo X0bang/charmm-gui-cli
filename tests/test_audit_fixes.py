@@ -222,8 +222,8 @@ class AuditFixTests(unittest.TestCase):
         sdf.write_text("Ligand\n\n\n  0  0 V3000\nM  END\n$$$$\n")
         with self.assertRaises(ToolError) as caught:
             read_ligand(sdf)
-        self.assertEqual(caught.exception.key, "input.sdf_format")
-        self.assertIn("ligand-v2000.sdf", caught.exception.next_step)
+        self.assertEqual(caught.exception.key, "input.ligand_parse")
+        self.assertIn("check", caught.exception.next_step)
 
     def test_implicit_hydrogens_are_explicitly_reported(self):
         import importlib.util

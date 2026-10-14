@@ -109,9 +109,9 @@ def _from_smiles(atoms, bonds, smiles, resname):
                  "note": "Existing heavy coordinates retained; downstream hydrogen policy supplies valence hydrogens. No pH state chosen."}
 
 
-def _chemical_sdf_in_complex(path, atoms, bonds):
-    molecule = read_ligand(path)
-    if not re.search(r"<PDB_ATOM_NAMES>", molecule.sdf):
+def _chemical_sdf_in_complex(path, atoms, bonds, *, pose=None, selection_report=None):
+    molecule = read_ligand(path, pose=pose, report=selection_report)
+    if not molecule.provenance.get("explicit_atom_names", bool(re.search(r"<PDB_ATOM_NAMES>", molecule.sdf))):
         raise ToolError("Complex plus SDF requires explicit PDB_ATOM_NAMES in SDF; generated/default sequential names are not an atom mapping.")
     coordinate_names = {a.name: a for a in atoms}
     if len(coordinate_names) != len(atoms) or set(coordinate_names) != {a.name for a in molecule.atoms}:
@@ -176,9 +176,14 @@ def _prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand
         raise ToolError("ligand_resname must be a 1-3 character PDB residue name beginning with a letter.")
     if not complex_pdb and (not protein or not ligand):
         raise ToolError("Provide protein plus bound ligand PDB/SDF, or one bound complex PDB.")
-    if ligand and ligand.suffix.lower() not in (".pdb", ".sdf"):
-        raise ToolError("Ligand source must be PDB or SDF V2000.")
-    if ligand and ligand.suffix.lower() == ".sdf" and ligand_smiles:
+    chemical_formats = (".sdf", ".mol", ".mol2")
+    if "ligand_pose" in options and (ligand is None or ligand.suffix.lower() not in chemical_formats):
+        raise ToolError(key="input.ligand_pose_format", next_step="charmm-gui-cli check --help")
+    if ligand and ligand.suffix.lower() == ".pdbqt":
+        raise ToolError(key="input.pdbqt_definition", next_step="charmm-gui-cli check --help")
+    if ligand and ligand.suffix.lower() not in (".pdb",) + chemical_formats:
+        raise ToolError(key="input.ligand_format", next_step="charmm-gui-cli check --help")
+    if ligand and ligand.suffix.lower() in chemical_formats and ligand_smiles:
         raise ToolError("Supply chemical SDF or ligand_smiles, not competing chemical definitions.")
     generated, report = {}, {"coordinate_transform": "none", "source_inputs": {
         "protein": str(protein) if protein else None, "ligand": str(ligand) if ligand else None,
@@ -248,10 +253,15 @@ def _prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand
             metadata = [line for line in protein.read_text().splitlines() if line.startswith("SSBOND")]
             generated["protein.pdb"] = "\n".join(metadata + _protein_pdb_lines(protein, protein_atoms, input_options=options)) + "\n" + _conect(protein_bonds) + "END\n"
         resolved_protein, coordinate_source = destination / "protein.pdb" if "protein.pdb" in generated else protein, ligand
-        if ligand.suffix.lower() == ".sdf":
-            molecule = read_ligand(ligand)
+        if ligand.suffix.lower() in chemical_formats:
+            selection = {}
+            molecule = read_ligand(ligand, pose=options.get("ligand_pose"), report=selection)
+            report["ligand_selection"] = selection
+            report["input_normalization"]["repairs"].extend(selection.get("repairs", []))
             validate_cgenff(molecule)
-            resolved_ligand = ligand
+            if molecule.sdf.encode() != ligand.read_bytes():
+                generated["ligand.sdf"] = molecule.sdf
+            resolved_ligand = destination / "ligand.sdf" if "ligand.sdf" in generated else ligand
             report.update({"coordinate_source": str(ligand), "chemical_source": str(ligand),
                            "mapping": "SDF atom order retained", "ligand_atoms": len(molecule.atoms)})
         else:
@@ -259,8 +269,11 @@ def _prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand
             selected = _one_ligand(atoms)
             bonds = _internal(selected, encoded)
     if complex_pdb or ligand.suffix.lower() == ".pdb":
-        if ligand and ligand.suffix.lower() == ".sdf":
-            sdf, details = _chemical_sdf_in_complex(ligand, selected, bonds)
+        if ligand and ligand.suffix.lower() in chemical_formats:
+            selection = {}
+            sdf, details = _chemical_sdf_in_complex(ligand, selected, bonds, pose=options.get("ligand_pose"), selection_report=selection)
+            report["ligand_selection"] = selection
+            report["input_normalization"]["repairs"].extend(selection.get("repairs", []))
         elif ligand_smiles:
             sdf, details = _from_smiles(selected, bonds, ligand_smiles, ligand_resname)
         else:

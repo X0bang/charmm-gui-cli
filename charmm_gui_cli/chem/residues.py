@@ -19,7 +19,7 @@ ADDITIVES = frozenset(("GOL", "EDO", "SO4", "PO4", "ACT", "PEG", "PG4", "MPD", "
 DETERGENTS = frozenset(("OLC", "OLA", "LDA", "BOG", "LMT", "DMU", "PLM", "CLR"))
 METALS = frozenset(("Li", "Na", "K", "Rb", "Cs", "Mg", "Ca", "Sr", "Ba", "Mn", "Fe", "Co", "Ni", "Cu", "Zn", "Cd", "Hg", "Al", "Cr"))
 CGENFF_ELEMENTS = frozenset(("H", "C", "N", "O", "S", "P", "F", "Cl", "Br", "I"))
-INPUT_FIELDS = ("altloc", "drop_hetero", "keep_mse", "drop_additives", "model")
+INPUT_FIELDS = ("altloc", "drop_hetero", "keep_mse", "drop_additives", "model", "ligand_pose")
 
 
 def options_from_args(args):
@@ -38,7 +38,7 @@ def validate_input_options(raw=None):
     from ..store.auth import ToolError
     if raw is None:
         raw = {}
-    allowed = {"altloc", "drop_hetero", "keep_mse", "drop_additives", "model"}
+    allowed = set(INPUT_FIELDS)
     if not isinstance(raw, dict) or set(raw) - allowed:
         raise ToolError(key="input.options_invalid", next_step="charmm-gui-cli check -h")
     result = {"altloc": "highest", "drop_hetero": [], "keep_mse": False, "drop_additives": False, **raw}
@@ -53,6 +53,8 @@ def validate_input_options(raw=None):
     if set(names) & (set(SIDECHAINS) | set(ALIASES) | set(MODIFIED)):
         raise ToolError(key="input.drop_polymer", next_step="charmm-gui-cli check -h")
     result["drop_hetero"] = sorted(set(names))
+    if "ligand_pose" in result and (type(result["ligand_pose"]) is not int or result["ligand_pose"] < 1):
+        raise ToolError(key="input.ligand_pose_option", next_step="charmm-gui-cli check -h")
     if any(type(result[key]) is not bool for key in ("keep_mse", "drop_additives")) or ("model" in result and (type(result["model"]) is not int or result["model"] < 1)):
         raise ToolError(key="input.options_invalid", next_step="charmm-gui-cli check -h")
     return result

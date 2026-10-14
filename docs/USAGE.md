@@ -60,7 +60,16 @@ charmm-gui-cli build \
   --salt KCl --salt-concentration 0.10
 ```
 
-两个文件必须在**同一个结合姿势坐标系**中。SDF 为 V2000 单分子，提供可靠的键级和形式电荷。程序默认按此化学定义补缺失氢，不改变重原子结合坐标，不预测 pH/互变异构体。
+两个文件必须在**同一个结合姿势坐标系**中。配体需提供可靠的键级和形式电荷。支持 SDF V2000、可保留化学定义的 V3000 和 mol2；后两者规范化为 V2000，转换产生的坐标字段舍入会记录，不旋转、平移或优化结合姿势。程序默认按化学定义补缺失氢，不预测 pH/互变异构体。
+
+多记录文件不能默认使用第一条，也不会按对接分数选构象；先查看预检列出的名称和分数，再明确指定记录（从 1 开始）：
+
+```bash
+charmm-gui-cli check --protein protein.pdb --ligand poses.sdf --ligand-pose 2
+charmm-gui-cli build --name receptor-a --protein protein.pdb --ligand poses.sdf --ligand-pose 2
+```
+
+mol2 原子类型须可被 RDKit 识别；部分电荷与形式电荷分别报告，普通价态缺失氢也需审阅。转换不支持超过 999 个原子/键、查询结构、同位素、自由基、特殊键或增强立体组，不会静默丢弃这些定义。PDBQT 暂不能直接读取，应先提供可信的已结合 SDF 化学结构。
 
 ### B. 已结合好的复合物 PDB
 

@@ -43,7 +43,7 @@ def precheck_summary(report):
         "sequence_alignment_performed": False, "repaired": False}
     result["chemistry"] = [{key: component[key] for key in ("resname", "atoms", "heavy_atoms", "bonds",
         "molecular_formula", "net_formal_charge", "rdkit_sanitized", "graph_sha256", "implicit_hydrogen_atoms",
-        "explicit_hydrogen_atoms", "chemistry_warnings") if key in component}
+        "explicit_hydrogen_atoms", "chemistry_warnings", "ligand_source") if key in component}
         for component in report.get("chemistry", [])]
     for key in ("automatic_repairs", "terminal_predictions", "input_normalization"):
         if key in report:
@@ -270,6 +270,7 @@ def parser():
         command.add_argument("--keep-mse", action="store_true", default=None, help=t("help.input_mse"))
         command.add_argument("--drop-additives", action="store_true", default=None, help=t("help.input_additives"))
         command.add_argument("--model", type=int, help=t("help.input_model"))
+        command.add_argument("--ligand-pose", type=int, help=t("help.ligand_pose"))
     add_input_selection(structures)
     model = build.add_argument_group(t("help.model_group"))
     model.add_argument("--upper", help=t('help.text.46'))

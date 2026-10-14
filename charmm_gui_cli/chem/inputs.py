@@ -7,7 +7,7 @@ All output files are created exclusively: an existing output is never overwritte
 """
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import json
 import math
@@ -36,6 +36,7 @@ class Ligand:
     bonds: dict
     sdf: str
     name: str = "LIG"
+    provenance: dict = field(default_factory=dict)
 
 
 def _protein_pdb_lines(path, atoms, serial_map=None, *, input_options=None, role="protein"):
@@ -145,9 +146,10 @@ def _sdf(atoms, bonds, name):
     return "\n".join(lines) + "\n"
 
 
-def read_ligand(path):
-    """Read exactly one SDF V2000 molecule with supplied 3D coordinates and bonds."""
-    text = Path(path).read_text()
+def read_ligand(path, *, pose=None, report=None):
+    """Select an explicit ligand record, preserving supplied chemical semantics."""
+    from .ligand_formats import ligand_text
+    text, provenance = ligand_text(path, pose=pose, report=report)
     records = [record for record in text.split("$$$$") if record.strip()]
     if len(records) != 1:
         raise ToolError("Ligand SDF must contain exactly one molecule.")
@@ -202,7 +204,7 @@ def read_ligand(path):
                     atom.name = name
     except (ValueError, IndexError):
         raise ToolError("Malformed SDF atom, bond, charge, or atom-name records.") from None
-    ligand = Ligand(atoms, bonds, text, lines[0].strip() or "LIG")
+    ligand = Ligand(atoms, bonds, text, lines[0].strip() or "LIG", provenance)
     _validate_ligand(ligand)
     return ligand
 
@@ -244,6 +246,12 @@ def _validate_ligand(ligand):
               "formal_charge": sum(a.charge for a in atoms), "rdkit_sanitized": False,
               "warnings": ["Coordinates must already represent a bound pose in the protein coordinate frame.",
                            "Input preparation does not produce ligand force-field parameters."]}
+    if ligand.provenance:
+        report["ligand_source"] = ligand.provenance
+        conversion = ligand.provenance.get("conversion", {})
+        if conversion.get("review_required"):
+            warning = {"key": "input.mol2_review", "params": {"partial": f"{conversion['partial_charge_sum']:.4f}", "formal": conversion["net_formal_charge"]}}
+            report.setdefault("chemistry_warnings", []).append(warning)
     try:
         from rdkit import Chem
         from rdkit.Chem import rdMolDescriptors
@@ -259,7 +267,7 @@ def _validate_ligand(ligand):
         report["implicit_hydrogen_atoms"] = implicit
         report["explicit_hydrogen_atoms"] = sum(atom.element == "H" for atom in atoms)
         if implicit:
-            report["chemistry_warnings"] = [{"key": "input.implicit_hydrogens", "params": {"count": implicit}}]
+            report.setdefault("chemistry_warnings", []).append({"key": "input.implicit_hydrogens", "params": {"count": implicit}})
             from ..i18n import MESSAGES
             report["warnings"].append(MESSAGES["input.implicit_hydrogens"]["en"].format(count=implicit))
         report["warnings"].append("RDKit sanitization is not a force-field quality or protonation-state assessment.")
@@ -283,6 +291,19 @@ def _apply_hydrogen_policy(ligand, policy):
     mol = Chem.MolFromMolBlock(ligand.sdf.split("$$$$")[0], sanitize=True, removeHs=False)
     if mol is None:
         raise ToolError("RDKit could not sanitize ligand before adding hydrogens.")
+    original = ligand.sdf.splitlines()
+    n_old, nb_old = len(ligand.atoms), len(ligand.bonds)
+    keep_atoms = {i for i in range(n_old) if int(original[4 + i][39:42].strip() or "0")}
+    keep_bonds = set()
+    for i in range(nb_old):
+        line = original[4 + n_old + i]
+        if int(line[9:12].strip() or "0"):
+            keep_bonds.add(i)
+            keep_atoms.add(int(line[:3]) - 1)
+    from .ligand_formats import _clear_inferred_stereo
+    _clear_inferred_stereo(mol, keep_atoms, keep_bonds)
+    Chem.AssignStereochemistry(mol, cleanIt=False, force=True)
+    declared_cip = {i: mol.GetAtomWithIdx(i).GetProp("_CIPCode") for i in keep_atoms if mol.GetAtomWithIdx(i).HasProp("_CIPCode")}
     before = [tuple(mol.GetConformer().GetAtomPosition(i)) for i in range(mol.GetNumAtoms())]
     hydrogenated = Chem.AddHs(mol, addCoords=True)
     for i, xyz in enumerate(before):
@@ -297,17 +318,13 @@ def _apply_hydrogen_policy(ligand, policy):
             if name not in names:
                 break
         names.append(name)
-    original = ligand.sdf.splitlines()
     block = Chem.MolToMolBlock(hydrogenated).splitlines()
-    n_old, nb_old = len(ligand.atoms), len(ligand.bonds)
-    n_new = hydrogenated.GetNumAtoms()
-    # Keep the input's explicit stereo declarations; do not add inferred labels
-    # derived from the coordinate geometry during RDKit's MolBlock read/write.
-    for i in range(n_old):
-        block[4 + i] = block[4 + i][:39] + original[4 + i][39:42] + block[4 + i][42:]
-    for i in range(nb_old):
-        block[4 + n_new + i] = (block[4 + n_new + i][:9] + original[4 + n_old + i][9:12]
-                                  + block[4 + n_new + i][12:])
+    # Explicit Hs change neighbor ordering. Use the stereo-aware writer rather
+    # than copying wedge/parity codes onto a differently ordered neighborhood.
+    checked = Chem.MolFromMolBlock("\n".join(block), removeHs=False)
+    if checked is None or any(not checked.GetAtomWithIdx(i).HasProp("_CIPCode") or
+                              checked.GetAtomWithIdx(i).GetProp("_CIPCode") != code for i, code in declared_cip.items()):
+        raise ToolError(key="input.hydrogen_stereo", next_step="charmm-gui-cli check --hydrogens preserve -h")
     sdf = "\n".join(block) + "\n>  <PDB_ATOM_NAMES>\n" + " ".join(names) + "\n\n$$$$\n"
     atoms = []
     for i, atom in enumerate(hydrogenated.GetAtoms()):
@@ -317,7 +334,7 @@ def _apply_hydrogen_policy(ligand, policy):
     for bond in hydrogenated.GetBonds():
         order = 4 if bond.GetIsAromatic() else int(bond.GetBondTypeAsDouble())
         bonds[tuple(sorted((bond.GetBeginAtomIdx(), bond.GetEndAtomIdx())))] = order
-    return Ligand(atoms, bonds, sdf, ligand.name)
+    return Ligand(atoms, bonds, sdf, ligand.name, ligand.provenance)
 
 
 def apply_hydrogen_policy(ligand_sdf, output_dir, *, policy="add_missing"):
@@ -453,7 +470,9 @@ def _prepare_inputs(protein_pdb, ligand_sdf, output_dir, *, ligand_resname="LIG"
     protein, protein_bonds = _pdb(protein_pdb, report=normalization, input_options=options, role="protein")
     _validate_protein(protein, protein=protein_pdb, ligand=ligand_sdf, ligand_resname=ligand_resname, input_options=options)
     validate_link_records(protein_pdb)
-    ligand = _apply_hydrogen_policy(read_ligand(ligand_sdf), hydrogen_policy)
+    ligand_normalization = {}
+    ligand = _apply_hydrogen_policy(read_ligand(ligand_sdf, pose=options.get("ligand_pose"), report=ligand_normalization), hydrogen_policy)
+    normalization["repairs"].extend(ligand_normalization.get("repairs", []))
     validate_cgenff(ligand)
     report = _validate_ligand(ligand)
     chains = {a.line[21:22] for a in protein}
@@ -510,6 +529,7 @@ def _prepare_inputs(protein_pdb, ligand_sdf, output_dir, *, ligand_resname="LIG"
     manifest["input_normalization"] = normalization
     manifest["automatic_repairs"] = normalization["repairs"]
     manifest["input_options"] = options
+    manifest["ligand_selection"] = ligand_normalization
     files = {"protein.pdb": "\n".join(protein_lines) + "\n" + _conect(mapped_protein) + "END\n",
              "ligand.pdb": "\n".join(ligand_lines) + "\n" + _conect(mapped_ligand) + "END\n",
              "ligand.sdf": ligand.sdf,

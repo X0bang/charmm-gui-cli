@@ -227,6 +227,8 @@ def _execute(args, holder):
                              if (directory / "full-run.json").is_file() else {})
         return {"directory": str(directory), "state": "inputs_ready", "server_submitted": False,
                 "automatic_repairs": prepared_manifest.get("automatic_repairs", []),
+                "review_required": prepared_manifest.get("ligand_selection", {}).get("conversion", {}).get("review_required", False),
+                "chemistry_warnings": prepared_manifest.get("ligand", {}).get("chemistry_warnings", []),
                 **({"name": args.name} if getattr(args, "name", None) else {}),
                 "next_step": "charmm-gui-cli login; charmm-gui-cli build-resume"}, 0
     if directory.is_dir() and not getattr(args, "_worker", False):

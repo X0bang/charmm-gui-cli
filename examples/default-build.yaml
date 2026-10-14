@@ -10,7 +10,11 @@ protein: ./protein.pdb
 ligand: ./bound-ligand.sdf
 ligand_resname: LIG
 
-# 配体 SDF 需为 V2000 单分子，具有可信键级与形式电荷。
+# 配体需具有可信键级与形式电荷；支持 V2000 及可保留化学定义的 V3000/mol2。
+# 多记录配体必须明确选择，从 1 开始；取消以下注释并按需修改：
+# input_options:
+#   ligand_pose: 2
+# mol2 的部分电荷不是形式电荷，需审核转换报告。
 # add_missing：按已有化学定义补氢，不预测 pH 或质子化状态。
 # preserve：保留输入氢，不补氢。
 ligand_hydrogens: add_missing

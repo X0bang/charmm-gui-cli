@@ -84,6 +84,8 @@ def format_build(value, **context):
     lines = [t("output.task", name=_text(value.get("name") or value.get("job_id") or "—")),
              t("output.state", state=label)]
     lines.extend(_repair_lines(value.get("automatic_repairs", [])))
+    for warning in value.get("chemistry_warnings", []):
+        lines.append("• " + t(warning["key"], **warning["params"]))
     execution = value.get("execution_state")
     if execution in ("failed_remote", "failed_local", "interrupted"):
         lines[1] = t("output.state", state=t("execution." + execution))

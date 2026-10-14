@@ -179,6 +179,13 @@ def attach_source_normalization(prepared, source_report):
     manifest["source_inputs"] = source_report.get("source_inputs", {})
     manifest["source_evidence"] = source_report.get("source_evidence", {})
     manifest["input_options"] = source_report.get("input_options", manifest.get("input_options", {}))
+    if source_report.get("ligand_selection"):
+        manifest["ligand_selection"] = source_report["ligand_selection"]
+        manifest["ligand"]["ligand_source"] = source_report["ligand_selection"]
+        conversion = source_report["ligand_selection"].get("conversion", {})
+        if conversion.get("review_required"):
+            warning = {"key": "input.mol2_review", "params": {"partial": f"{conversion['partial_charge_sum']:.4f}", "formal": conversion["net_formal_charge"]}}
+            manifest["ligand"].setdefault("chemistry_warnings", []).append(warning)
     atomic_json(prepared["files"]["input-manifest.json"], manifest)
 
 

@@ -33,6 +33,8 @@ def bind_input_error(error, *, protein=None, ligand=None, complex_pdb=None, liga
         options["model"] = 1
     elif error.key == "input.altloc_incomplete":
         options["altloc"] = "highest"
+    elif error.key in ("input.ligand_poses", "input.ligand_pose_range", "input.ligand_pose_option"):
+        options["ligand_pose"] = 1
     removable = sorted({detail["resname"] for detail in error.details if detail.get("resname") not in MODIFIED and detail.get("kind")})
     if error.key == "input.protein_hetero" and removable:
         options["drop_hetero"] = sorted(set(options.get("drop_hetero", [])) | set(removable))
@@ -41,7 +43,7 @@ def bind_input_error(error, *, protein=None, ligand=None, complex_pdb=None, liga
     else:
         command = check_command(protein=protein, ligand=ligand, complex_pdb=complex_pdb,
                                 ligand_resname="LIG" if error.key == "input.reserved_name" else ligand_resname, input_options=options)
-        error.next_step = command if error.key in ("input.models", "input.model_range", "input.reserved_name") else t("input.recheck", command=command)
+        error.next_step = command if error.key in ("input.models", "input.model_range", "input.reserved_name", "input.ligand_poses", "input.ligand_pose_range", "input.ligand_pose_option") else t("input.recheck", command=command)
     if error.key == "input.protein_hetero":
         error.details = [detail for detail in error.details if detail.get("key") != "input.retain_via_check"]
         error.details.append({"key": "input.retain_via_check", "params": {"command": check_command(
