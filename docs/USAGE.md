@@ -69,7 +69,7 @@ charmm-gui-cli check --protein protein.pdb --ligand poses.sdf --ligand-pose 2
 charmm-gui-cli build --name receptor-a --protein protein.pdb --ligand poses.sdf --ligand-pose 2
 ```
 
-mol2 原子类型须可被 RDKit 识别；部分电荷与形式电荷分别报告，普通价态缺失氢也需审阅。转换不支持超过 999 个原子/键、查询结构、同位素、自由基、特殊键或增强立体组，不会静默丢弃这些定义。PDBQT 暂不能直接读取，应先提供可信的已结合 SDF 化学结构。
+mol2 原子类型须可被 RDKit 识别；部分电荷与形式电荷分别报告，普通价态缺失氢也需审阅。转换不支持超过 999 个原子/键、查询结构、同位素、自由基、特殊键或增强立体组，不会静默丢弃这些定义。PDBQT 可使用 Meeko 内嵌 SMILES/索引，或 `--ligand-smiles` 提供显式 serial 映射；没有映射时必须有完整 CONECT 且图对应唯一。`--ligand-pose N` 选择其第 N 个姿势，不按分数自动选择。详见 [PDBQT 化学定义](ADVANCED.md#pdbqt-化学定义与结合姿势)。
 
 ### B. 已结合好的复合物 PDB
 

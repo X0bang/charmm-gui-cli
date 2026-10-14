@@ -152,10 +152,12 @@ def _sdf(atoms, bonds, name):
     return "\n".join(lines) + "\n"
 
 
-def read_ligand(path, *, pose=None, report=None):
+def read_ligand(path, *, pose=None, report=None, smiles=None):
     """Select an explicit ligand record, preserving supplied chemical semantics."""
+    if smiles is not None and Path(path).suffix.lower() != '.pdbqt':
+        raise ToolError(key='input.ligand_competing_definition', next_step='charmm-gui-cli check -h')
     from .ligand_formats import ligand_text
-    text, provenance = ligand_text(path, pose=pose, report=report)
+    text, provenance = ligand_text(path, pose=pose, report=report, smiles=smiles)
     records = [record for record in text.split("$$$$") if record.strip()]
     if len(records) != 1:
         raise ToolError("Ligand SDF must contain exactly one molecule.")
@@ -307,6 +309,10 @@ def _apply_hydrogen_policy(ligand, policy):
             keep_bonds.add(i)
             keep_atoms.add(int(line[:3]) - 1)
     from .ligand_formats import _clear_inferred_stereo, _depicted_double_bonds
+    from .ligand_stereo import declared, annotation, PROPERTY
+    explicit_atoms, explicit_bonds = declared(ligand.sdf, mol)
+    keep_atoms.update(explicit_atoms)
+    keep_bonds.update(explicit_bonds)
     keep_bonds.update(_depicted_double_bonds(mol))
     _clear_inferred_stereo(mol, keep_atoms, keep_bonds)
     Chem.AssignStereochemistry(mol, cleanIt=False, force=True)
@@ -334,7 +340,10 @@ def _apply_hydrogen_policy(ligand, policy):
                               checked.GetAtomWithIdx(i).GetProp("_CIPCode") != code for i, code in declared_cip.items()) or \
             any(checked.GetBondWithIdx(i).GetStereo() != stereo for i, stereo in declared_bonds.items()):
         raise ToolError(key="input.hydrogen_stereo", next_step="charmm-gui-cli check --hydrogens preserve -h")
-    sdf = "\n".join(block) + "\n>  <PDB_ATOM_NAMES>\n" + " ".join(names) + "\n\n$$$$\n"
+    sdf = "\n".join(block) + "\n>  <PDB_ATOM_NAMES>\n" + " ".join(names) + "\n\n"
+    if '<' + PROPERTY + '>' in ligand.sdf:
+        sdf += annotation(hydrogenated)
+    sdf += "$$$$\n"
     atoms = []
     for i, atom in enumerate(hydrogenated.GetAtoms()):
         atoms.append(Atom(i + 1, names[i], atom.GetSymbol(),
@@ -452,21 +461,21 @@ def _conect(bonds):
 
 
 def prepare_inputs(protein_pdb, ligand_sdf, output_dir, *, ligand_resname="LIG", ligand_chain=None,
-                   ligand_resid=1, allow_distant_pose=False, hydrogen_policy="preserve", input_options=None):
+                   ligand_resid=1, allow_distant_pose=False, hydrogen_policy="preserve", input_options=None, ligand_smiles=None):
     try:
         return _prepare_inputs(protein_pdb, ligand_sdf, output_dir, ligand_resname=ligand_resname,
                                ligand_chain=ligand_chain, ligand_resid=ligand_resid, allow_distant_pose=allow_distant_pose,
-                               hydrogen_policy=hydrogen_policy, input_options=input_options)
+                               hydrogen_policy=hydrogen_policy, input_options=input_options, ligand_smiles=ligand_smiles)
     except ToolError as exc:
         if exc.key and exc.key.startswith(("input.", "state.")):
             from .input_diagnostics import bind_input_error
             bind_input_error(exc, protein=protein_pdb, ligand=ligand_sdf,
-                             ligand_resname=ligand_resname, input_options=input_options)
+                             ligand_resname=ligand_resname, input_options=input_options, ligand_smiles=ligand_smiles)
         raise
 
 
 def _prepare_inputs(protein_pdb, ligand_sdf, output_dir, *, ligand_resname="LIG", ligand_chain=None,
-                    ligand_resid=1, allow_distant_pose=False, hydrogen_policy="preserve", input_options=None):
+                    ligand_resid=1, allow_distant_pose=False, hydrogen_policy="preserve", input_options=None, ligand_smiles=None):
     """Merge a protein PDB and chemically defined ligand SDF in their current frame.
 
     Outputs include a mapping between SDF atom index, ligand PDB names and complex
@@ -486,7 +495,7 @@ def _prepare_inputs(protein_pdb, ligand_sdf, output_dir, *, ligand_resname="LIG"
     _validate_protein(protein, protein=protein_pdb, ligand=ligand_sdf, ligand_resname=ligand_resname, input_options=options)
     validate_link_records(protein_pdb)
     ligand_normalization = {}
-    ligand = _apply_hydrogen_policy(read_ligand(ligand_sdf, pose=options.get("ligand_pose"), report=ligand_normalization), hydrogen_policy)
+    ligand = _apply_hydrogen_policy(read_ligand(ligand_sdf, pose=options.get("ligand_pose"), report=ligand_normalization, smiles=ligand_smiles), hydrogen_policy)
     normalization["repairs"].extend(ligand_normalization.get("repairs", []))
     validate_cgenff(ligand)
     report = _validate_ligand(ligand)

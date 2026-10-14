@@ -2,6 +2,25 @@
 
 常规使用只需 `login` 和 `build --protein ... --ligand ...`，见 [README](../README.md)。本页面向需要保留 YAML、官方 token 或已有 job ID 的用户。
 
+## PDBQT 化学定义与结合姿势
+
+可直接输入 [Meeko](https://meeko.readthedocs.io/en/develop/export_usage.html) 保留了 `REMARK SMILES`、`REMARK SMILES IDX` 和已有氢的 `REMARK H PARENT` 的配体 PDBQT：
+
+```bash
+charmm-gui-cli check --protein protein.pdb --ligand docked.pdbqt --ligand-pose 2
+charmm-gui-cli build --protein protein.pdb --ligand docked.pdbqt --ligand-pose 2 --name receptor-a
+```
+
+只有一个姿势时不必写 `--ligand-pose`；多个 MODEL 必须明确选择，分数只用于展示。原文件、原有氢和重原子的坐标不改。转换临时恢复出的缺失氢不会直接写入结果；最终由 `--hydrogens preserve/add_missing` 决定是否按已定义价态补氢。电荷和手性/E/Z 来自 SMILES，不从部分电荷、距离或对接分数推断。显式声明通过带原子索引的 SDF 化学定义保存在中间文件中，并在再次读取和补氢时验证。
+
+没有 Meeko 元数据的 PDBQT 可以用带原子映射的 SMILES：映射号对应 PDBQT ATOM/HETATM 的 serial，必须覆盖每个已有坐标的原子（包括已有氢）。例如只含 serial 1、2 两个重原子的甲醇使用 `'[CH3:1][OH:2]'`；若 serial 3 还有羟基氢，则使用 `'[CH3:1][O:2][H:3]'`。这些只是格式示例，实际必须提供自己配体的化学定义。普通无映射 SMILES 仅在文件有完整 CONECT、重原子图对应唯一、已有氢的父原子明确时可用；对称映射不会任取一个。
+
+若显式手性中心的坐标镜像、E/Z 与声明相反，或移除非极性氢后剩余几何接近平面、无法可靠核验，会拒绝转换。手性错误会指出原始 PDBQT serial；应核对原始结构及化学定义，不能仅改标签来让检查通过。
+
+版本 2 YAML 可写 `ligand: docked.pdbqt` 和 `ligand_smiles: '实际带映射的SMILES'`，姿势选择仍放在 `input_options: {ligand_pose: 2}`；batch/sweep 也使用同一套规则。配体多组分、柔性受体、金属/伪原子、错误映射或不兼容的显式立体声明会被拒绝。化学定义与坐标不符时不会转换成另一种微观状态继续。
+
+标准安装器会安装化学依赖（含 Meeko 0.8、gemmi、scipy）；手工最小安装若缺少依赖，会显示针对当前程序 Python 环境的安装命令。转换证据记录后端版本、部分电荷、原子 serial/名字映射、原文件/所选姿势哈希及坐标舍入。
+
 ## 用 YAML 配置文件建模
 
 把结构路径、膜组成、盐浓度等参数写在 `system.yaml` 中，每次修改配置后传给 `build`。不需要手写 token、job ID 或中间文件；从本地蛋白和配体开始请用 `version: 2`。

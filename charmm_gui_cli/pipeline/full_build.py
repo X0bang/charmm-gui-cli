@@ -42,6 +42,7 @@ def initialize(config_path, directory, *, _reserved=False, _source_report=None):
     prepared = prepare_inputs(config["protein"], config["ligand"], inputs_path(directory),
                               ligand_resname=config["ligand_resname"],
                               hydrogen_policy=config["ligand_hydrogens"],
+                              **({"ligand_smiles": config["ligand_smiles"]} if "ligand_smiles" in config else {}),
                               input_options={} if _source_report is not None else config.get("input_options"))
     if _source_report is not None:
         from ..chem.pdb_normalization import attach_source_normalization
