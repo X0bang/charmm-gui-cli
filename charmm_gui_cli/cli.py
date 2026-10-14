@@ -178,6 +178,9 @@ def parser():
     login.add_argument("--save-to", type=Path, help=t('help.text.09'))
     login.add_argument("--web", action="store_true", help=argparse.SUPPRESS)
     login.add_argument("--cookies", type=Path, help=t('help.text.10'))
+    login.add_argument("--remember", action="store_true", help=t("session.remember_help"))
+    logout = commands.add_parser("logout", help=t("session.logout_help"))
+    logout.add_argument("--cookies", type=Path, help=t("help.text.10"))
     web_login = commands.add_parser("web-login", help=t('help.text.11'))
     web_login.add_argument("--email")
     web_login.add_argument("--cookies", type=Path, help=t('help.text.12'))
@@ -392,6 +395,7 @@ def dispatch(args):
         'web-step': 'web_step',
         'prepare': 'prepare',
         'login': 'login',
+        'logout': 'logout',
         'plan': 'plan',
         'inspect': 'inspect',
         'auth': 'auth',

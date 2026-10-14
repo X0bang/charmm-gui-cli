@@ -218,9 +218,12 @@ def inspect_run(target, *, remote_check=False, token_file=None):
         from ..api import Client
         from ..auth import load_token
         from ..workflow import status_summary
-        token, _ = load_token(token_file)
+        token, source = load_token(token_file)
         try:
-            response = Client(token).status(result["build_job_id"])
+            from ..remote.sessions import bind
+            client = Client(token)
+            bind(client, source)
+            response = client.status(result["build_job_id"])
         except ToolError as error:
             error.for_task(result.get("name") or str(task_root(directory)))
             if error.category in ("api_error", "http_error", "unexpected_response"):

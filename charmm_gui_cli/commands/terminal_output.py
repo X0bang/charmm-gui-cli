@@ -45,6 +45,10 @@ def format_login(value, *, email=None):
         lines.append(t("output.cookie_path", path=_path(value["cookie_file"])))
     if value.get("notice"):
         lines.append(t("output.env_override"))
+    if value.get("remembered"):
+        lines.append(t("session.remembered"))
+    if value.get("password_command"):
+        lines.append(t("session.command_enabled"))
     lines.append(t("cli.next", action="charmm-gui-cli build --protein protein.pdb --ligand bound-ligand.sdf --name receptor-a"))
     return "\n".join(lines)
 
@@ -271,6 +275,21 @@ def format_relink(value, **context):
     return t("jobs.relinked", name=_text(value["name"]), path=_path(value["directory"])) + "\n" + t("cli.next", action=value["next_step"])
 
 
-FORMATTERS = {"update": format_update, "login": format_login, "build": format_build, "build-resume": format_build,
+def format_logout(value, **context):
+    return "\n".join([t("session.logged_out", count=len(value.get("removed_files", []))),
+                      t("session.logout_notice"), t("cli.next", action=value.get("next_step", "charmm-gui-cli login"))])
+
+
+def format_doctor(value, **context):
+    lines = [t("session.doctor_header", state=t("output.passed" if value.get("passed") else "output.failed"))]
+    for name, check in value.get("checks", {}).items():
+        lines.append(t("session.doctor_check", name=name, state=t("output.passed" if check.get("passed") else "output.failed")))
+    remaining = value.get("session", {}).get("remaining_seconds")
+    lines.append(t("session.doctor_expiry", seconds=remaining) if remaining is not None else t("session.doctor_unknown" if value.get("session", {}).get("format") == "JWT" else "session.doctor_missing"))
+    lines.append(t("cli.next", action=value.get("next_step", "charmm-gui-cli login")))
+    return "\n".join(lines)
+
+
+FORMATTERS = {"doctor": format_doctor, "logout": format_logout, "update": format_update, "login": format_login, "build": format_build, "build-resume": format_build,
               "status": format_build, "jobs.status": format_job_status, "jobs.resume": format_build,
               "check": format_check, "jobs.list": format_jobs, "jobs.relink": format_relink}

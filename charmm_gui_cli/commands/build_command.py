@@ -165,10 +165,15 @@ def _execute(args, holder):
         offline_recovery = (bilayer.get("schema_version") == 1 and bool(bilayer.get("job_id"))
                             and bilayer.get("state") not in ("submission_unknown", "submitting", "remote_error")
                             and full.get("state") not in ("submission_unknown", "remote_error", "preparation_failed"))
-    token = cookies = None
+    token = cookies = source = None
     if not dry_run and not local_complete and not offline_recovery:
         token, source = load_token(args.token_file)
-        cookies = resolve_cookie_path(args.cookies, source)
+        from ..remote.sessions import warn_expiry, session_cookie_path
+        cookies = session_cookie_path(args.cookies, source)
+        try:
+            warn_expiry(token, source)
+        except ToolError:
+            pass  # Actual transport validation remains authoritative.
         if not api_only and not cookies.is_file():
             next_step = "charmm-gui-cli login; then resume this existing task." if directory is not None else "charmm-gui-cli login; then repeat build."
             raise ToolError("The saved website session is missing. Run charmm-gui-cli login; custom token files need matching --cookies or a Cookie file beside the token.",
@@ -254,7 +259,13 @@ def _execute(args, holder):
                 atomic_json(directory / "network-wait.json", {"active": False, "updated_at": now()})
                 reporter({"state": managed._read_json(directory / "full-run.json").get("state", "running")})
         with long_get_retries(retry_window, on_wait=waiting):
-            result = advance(directory, None if api_only else WebClient(cookies, post_timeout=getattr(args, "post_timeout", 900)), Client(token), wait=args.wait,
+            from ..remote.sessions import bind
+            api = Client(token)
+            manager = bind(api, source, cookies) if source is not None else None
+            web = None if api_only else WebClient(cookies, post_timeout=getattr(args, "post_timeout", 900))
+            if web is not None and source is not None:
+                bind(web, source, cookies, manager)
+            result = advance(directory, web, api, wait=args.wait,
                              interval=args.interval, max_wait=args.max_wait, progress=reporter)
     summary = {"directory": str(directory), **{key: result[key] for key in
                ("state", "source_job_id", "build_job_id") if key in result}}

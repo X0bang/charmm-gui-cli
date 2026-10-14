@@ -14,6 +14,10 @@ bash install.sh
 
 也可从 [GitHub Releases](https://github.com/X0bang/charmm-gui-cli/releases) 下载源码安装包，解压后运行 `bash install.sh`。若找不到命令，执行 `export PATH="$HOME/.local/bin:$PATH"`。
 
+## 登录与续期
+
+长任务可使用 `charmm-gui-cli login --remember`：密码仅保存到系统凭据库，令牌到期后重新登录 API 和网页；不重发建模 POST。服务器没有可用凭据库时，可设置 `CHARMM_GUI_PASSWORD_COMMAND` 为返回单行密码的可信命令，再执行 `login --email 邮箱`。命令和密码不写入配置，普通 `login` 不记住密码。`doctor` 显示 JWT 剩余时间（本地解码，不验证服务端状态）；`logout` 清除所选本地会话和对应记住的密码，不删除任务或撤销已发令牌。详见 [会话续期](docs/ADVANCED.md#长任务会话续期)。
+
 ## 更新
 
 ```bash

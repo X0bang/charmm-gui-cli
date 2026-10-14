@@ -71,7 +71,7 @@ def install(source, prefix, bin_dir, *, offline=False, wheelhouse=None):
         command.append("--no-index")
     if wheelhouse:
         command.extend(["--find-links", str(Path(wheelhouse).resolve())])
-    command.append(artifacts["wheel"] + "[chem]")
+    command.append(artifacts["wheel"] + "[chem,auth]")
     subprocess.run(command, check=True)
     health_check = ("import requests, yaml, bs4, numpy; from PIL import Image; from rdkit import Chem; "
                     "from charmm_gui_cli.cli import parser; from charmm_gui_cli import __version__; "

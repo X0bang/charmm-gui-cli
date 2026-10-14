@@ -124,6 +124,39 @@ HTML 输出文件需尚未存在。网络中断或 Ctrl-C 后恢复原任务，�
 
 ## 官方 token 与自定义登录位置
 
+### 长任务会话续期
+
+默认 `login` 只保存 token 和 Cookie，不保存密码。需要后台任务、batch 或 sweep 到期后自动继续时，先明确启用其中一种方式：
+
+```bash
+charmm-gui-cli login --remember
+```
+
+密码保存在系统凭据库，接受内置 macOS 钥匙串、Linux Secret Service/KWallet 等系统后端，不回落到明文或自行加密的文件。系统凭据库须可用且已解锁；完整安装器包含 `auth` 依赖，从源码仅用 pip 安装时可执行 `python -m pip install '.[auth]'`。后端和接口说明见 [keyring 官方文档](https://keyring.readthedocs.io/en/latest/)。
+
+无图形界面或系统凭据库不可用时，可用自己的可信秘密管理器命令：
+
+```bash
+export CHARMM_GUI_PASSWORD_COMMAND='/absolute/path/to/password-helper'
+charmm-gui-cli login --email your-email@example.org
+```
+
+命令应只向 stdout 返回单行 UTF-8 密码，退出码为 0；最多 4096 字节，超时 30 秒。不经过隐式 shell，不提供交互 stdin，也不记录命令、stdout 或 stderr；不要在命令参数中硬编码密码。需要管道时，在自己受控的辅助脚本中实现。环境变量须在 worker/Slurm 的实际环境中保留；辅助命令本身由用户信任和维护。
+
+必须先完成一次 `login` 建立账户记录；单独设置密码命令不会从旧 token 猜测账户。环境变量 `CHARMMGUI_TOKEN` 仍优先于默认文件，不自动续期；自定义 token 文件只使用与其账户记录绑定的 Cookie 和凭据库。API 与网页均确认登录后才保存成对文件，原 session 格式和 0600 权限不变，新增账户记录不包含密码或命令。Cookie、账户或文件被外部改动时，停止自动使用并要求重新登录。
+
+续期发生在已知未提交的预检或只读请求中；已发出的建模 POST 失败仍保留不确定提交记录，不自动重发。多个进程通过会话锁共享一次续期；失败会有短暂冷却。`jobs reconcile` 不自动登录，仍只做远端 GET，过期时先单独运行 `login`。旧 `web-login` 不能覆盖成对会话，请用完整 `login`，或显式指定独立 Cookie 文件。
+
+```bash
+charmm-gui-cli doctor
+charmm-gui-cli logout
+charmm-gui-cli --token-file /path/to/account.token logout
+```
+
+`doctor` 只读本地 JWT 有效期，不访问凭据库或服务器；不足两小时会在启动建模时提醒。`logout` 仅清除所选 token、Cookie、账户记录以及对应的记住密码；锁文件和非秘密的失败冷却记录可保留，模型/日志/任务索引不动，也不撤销服务端令牌。系统凭据库删除失败时会明确报错，不伪称退出成功；解锁后重试。若设了 `CHARMMGUI_TOKEN`，还须自行 `unset CHARMMGUI_TOKEN`。
+
+### 官方 JWT 和自定义会话路径
+
 官方 JWT 可以按相同 Bearer 协议使用，但不等于网站 Cookie。从原始结构建模需要同一账户的两种会话，默认 `login` 自动处理。
 
 ```bash
@@ -139,7 +172,7 @@ charmm-gui-cli --token-file ~/.charmmgui_token build system.yaml \
   --cookies /path/to/account.cookies.json
 ```
 
-`--token-file` 放在子命令前。凭据优先级为：显式文件 → `CHARMMGUI_TOKEN` 环境变量 → 全局会话 → 旧版当前目录 `session.token` → `~/.charmmgui_token`。选中的凭据失效不会静默换账户。环境变量 token 默认配全局 Cookie，用户必须确保同账户；无法确认时使用显式路径或默认 `login`。
+`--token-file` 可放在子命令前后。凭据优先级为：显式文件 → `CHARMMGUI_TOKEN` 环境变量 → 全局会话 → 旧版当前目录 `session.token` → `~/.charmmgui_token`。选中的凭据失效不会静默换账户。环境变量 token 默认配全局 Cookie，用户必须确保同账户；无法确认时使用显式路径或默认 `login`。
 
 ```bash
 charmm-gui-cli auth --check --jobid 1234567890

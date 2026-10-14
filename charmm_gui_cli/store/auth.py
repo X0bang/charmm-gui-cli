@@ -134,7 +134,13 @@ def token_info(token):
         "signature_verified_locally": False,
         "expires_at_unix": expiry,
         "expired": expiry is not None and expiry <= time.time(),
+        "remaining_seconds": max(0, int(expiry - time.time())) if expiry is not None else None,
     }
+
+
+def local_token_path():
+    candidates = [default_token_path(), Path("session.token"), Path.home() / ".charmmgui_token"]
+    return next((path for path in candidates if path.is_file()), default_token_path())
 
 
 def load_token(path=None):
@@ -150,9 +156,8 @@ def load_token(path=None):
     else:
         # A new `login` must not be shadowed by an expired project-local token.
         # Legacy files remain readable only when no saved global login exists.
-        candidates = [default_token_path(), Path("session.token"), Path.home() / ".charmmgui_token"]
-        selected = next((p for p in candidates if p.is_file()), None)
-        if selected is None:
+        selected = local_token_path()
+        if not selected.is_file():
             raise ToolError(key="auth.missing", category="authentication")
         try:
             raw = selected.read_text(encoding="utf-8")

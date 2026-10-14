@@ -11,8 +11,16 @@ def execute(args):
         getpass,
     )
     from ..web import WebClient
-    cookies = resolve_cookie_path(args.cookies)
+    from ..store.auth import default_token_path
+    from ..remote.sessions import SessionManager, bind
+    manager = SessionManager(str(args.token_file or default_token_path()), args.cookies)
+    cookies = manager.cookies
+    paired = manager.profile and manager.profile["cookie_file"] == str(cookies.absolute())
+    if args.command == "web-login" and paired:
+        raise ToolError(key="session.web_only", category="authentication", next_step="charmm-gui-cli login")
     web_client = WebClient(None if args.command == "web-login" else cookies)
+    if args.command != "web-login" and paired:
+        bind(web_client, str(manager.path), cookies, manager)
     if args.command == "web-login":
         result = web_client.login(args.email or input(t("prompt.email")), getpass(t("prompt.password")))
         web_client.cookie_path = cookies

@@ -524,7 +524,10 @@ def status(directory, *, remote_check=False, token_file=None):
     if remote_check:
         from ..auth import load_token
         from ..api import Client
-        client = Client(load_token(token_file)[0])
+        token, source = load_token(token_file)
+        client = Client(token)
+        from ..remote.sessions import bind
+        bind(client, source)
     for job in manifest["jobs"]:
         _local(job)
         identifier = job.get("build_job_id") or job.get("source_job_id")

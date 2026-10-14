@@ -42,9 +42,10 @@ def job_id(value):
 
 
 class Client:
-    def __init__(self, token=None, session=None):
+    def __init__(self, token=None, session=None, *, renewer=None):
         self.token = token
         self.session = session or requests.Session()
+        self.renewer = renewer
 
     def _secrets(self):
         values = [self.token] if isinstance(self.token, str) else []
@@ -58,6 +59,8 @@ class Client:
         """Local preflight; run before recording a new submission intent."""
         if not self.token:
             raise AuthError(key="api.token_missing")
+        if self.renewer is not None and self.renewer.profile:
+            self.token = self.renewer.token(self.token)
         try:
             token, _ = normalize_token(self.token)
             expired = token_info(token)["expired"]
@@ -68,6 +71,15 @@ class Client:
         return token
 
     def _request(self, method, endpoint, *, authenticated=True, **kwargs):
+        try:
+            return self._request_once(method, endpoint, authenticated=authenticated, **kwargs)
+        except AuthError as exc:
+            if method.upper() != "GET" or not authenticated or exc.category != "authentication" or self.renewer is None or not self.renewer.profile:
+                raise
+            self.token = self.renewer.token(self.token, force=True)
+            return self._request_once(method, endpoint, authenticated=authenticated, **kwargs)
+
+    def _request_once(self, method, endpoint, *, authenticated=True, **kwargs):
         headers = {"Authorization": "Bearer " + self.validate_auth()} if authenticated else {}
         try:
             response = request_with_retry(self.session,
@@ -158,7 +170,13 @@ class Client:
         if jobid is None:
             raise ToolError(key="api.status_jobid")
         params = {"jobid": job_id(jobid)}
-        return self._json(self._request("GET", "/check_status", params=params), secrets=self._secrets())
+        try:
+            return self._json(self._request("GET", "/check_status", params=params), secrets=self._secrets())
+        except AuthError as exc:
+            if exc.category != "authentication" or self.renewer is None or not self.renewer.profile:
+                raise
+            self.token = self.renewer.token(self.token, force=True)
+            return self._json(self._request_once("GET", "/check_status", params=params), secrets=self._secrets())
 
     def submit(self, payload):
         # Once a POST has been attempted, a bad/missing response cannot prove
