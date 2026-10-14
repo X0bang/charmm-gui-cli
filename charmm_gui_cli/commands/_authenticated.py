@@ -1,17 +1,12 @@
 
 
 def execute(args):
-    from ..cli import (
-        emit,
-        brief,
-        Client,
-        ToolError,
-        load_token,
-        resolve_cookie_path,
-        token_info,
-        load_config,
-        workflow,
-    )
+    from charmm_gui_cli.cli import emit
+    from charmm_gui_cli.presentation.summaries import brief
+    from charmm_gui_cli.remote.api import Client
+    from charmm_gui_cli.store.auth import ToolError, load_token, resolve_cookie_path, token_info
+    from charmm_gui_cli.pipeline.config import load_config
+    from charmm_gui_cli.pipeline import workflow
     token, source = load_token(args.token_file)
     client = Client(token)
     from ..remote.sessions import bind

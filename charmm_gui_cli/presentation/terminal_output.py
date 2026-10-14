@@ -4,7 +4,7 @@ from pathlib import Path
 import os
 import re
 
-from ..i18n import t
+from charmm_gui_cli.locales.i18n import t
 
 
 def _text(value):
@@ -16,7 +16,7 @@ def _error_text(error):
     if error.get("server_message") and error["server_message"] not in message:
         message += " " + t("error.server", message=error["server_message"])
     for detail in error.get("details", []):
-        from ..i18n import MESSAGES
+        from charmm_gui_cli.locales.i18n import MESSAGES
         if isinstance(detail, dict) and detail.get("key") in MESSAGES:
             message += " " + t(detail["key"], **detail.get("params", {}))
     return _text(message)
@@ -75,8 +75,8 @@ def format_build(value, **context):
                          *_repair_lines(value.get("automatic_repairs", [])),
                          t("output.log", path=_path(background["log"])),
                          t("cli.next", action="charmm-gui-cli jobs watch " + str(name))])
-    from ..progress import describe_progress
-    from ..auth import recovery_guidance
+    from charmm_gui_cli.presentation.progress import describe_progress
+    from charmm_gui_cli.store.auth import recovery_guidance
     state = value.get("state", value.get("status", "unknown"))
     label = describe_progress({"state": state}, localized=True)["label"]
     if state in ("done", "downloading", "downloaded_unverified", "ligands_present", "inputs_ready", "validated"):
@@ -120,7 +120,7 @@ def format_build(value, **context):
         lines[1] = t("output.state", state=t("validation.stale_label"))
         lines.append(t("output.stale"))
         for detail in value.get("validation_issues", []):
-            from ..i18n import MESSAGES
+            from charmm_gui_cli.locales.i18n import MESSAGES
             if detail.get("key") in MESSAGES:
                 params = dict(detail.get("params", {}))
                 if "path" in params:
@@ -297,8 +297,8 @@ def format_doctor(value, **context):
 
 
 def format_batch(value, **context):
-    from ..pipeline.progress import describe_progress
-    from ..i18n import MESSAGES
+    from charmm_gui_cli.presentation.progress import describe_progress
+    from charmm_gui_cli.locales.i18n import MESSAGES
     queue = value.get("batch", value)
     def label(state):
         key = "batch.state." + state

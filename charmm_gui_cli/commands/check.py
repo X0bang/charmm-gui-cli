@@ -3,16 +3,13 @@
 
 
 def execute(args):
-    from ..cli import (
-        emit,
-        precheck_summary,
-        ToolError,
-        atomic_json,
-        Path,
-        sys,
-    )
-    from ..precheck import check_inputs
-    from ..preview import render_model, new_preview_path
+    from charmm_gui_cli.cli import emit
+    from charmm_gui_cli.presentation.summaries import precheck_summary
+    from charmm_gui_cli.store.auth import ToolError, atomic_json
+    from pathlib import Path
+    import sys
+    from charmm_gui_cli.chem.precheck import check_inputs
+    from charmm_gui_cli.chem.preview import render_model, new_preview_path
     from ..chem.residues import options_from_args
     report = check_inputs(out=args.out or new_preview_path("checks"), protein=args.protein,
         ligand=args.ligand, complex_pdb=args.complex_pdb, components=args.components,

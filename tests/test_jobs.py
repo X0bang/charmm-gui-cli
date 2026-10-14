@@ -8,8 +8,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from charmm_gui_cli import managed
-from charmm_gui_cli.auth import ToolError, atomic_json, atomic_write
+from charmm_gui_cli.store import managed
+from charmm_gui_cli.store.auth import ToolError, atomic_json, atomic_write
 from charmm_gui_cli.cli import main
 
 
@@ -80,8 +80,8 @@ class JobsTests(unittest.TestCase):
         (self.directory / "bilayer").mkdir()
         atomic_json(self.directory / "bilayer/run.json", {"job_id": "123", "state": "running"})
         before = (self.directory / "bilayer/run.json").read_bytes()
-        with patch("charmm_gui_cli.auth.load_token", return_value=("test-token", "mock")), \
-                patch("charmm_gui_cli.api.Client.status", return_value={"status": "done", "hasTarFile": True}) as status:
+        with patch("charmm_gui_cli.store.auth.load_token", return_value=("test-token", "mock")), \
+                patch("charmm_gui_cli.remote.api.Client.status", return_value={"status": "done", "hasTarFile": True}) as status:
             result = managed.inspect_run("example", remote_check=True)
         status.assert_called_once_with("123")
         self.assertTrue(result["server_checked"])
@@ -92,7 +92,7 @@ class JobsTests(unittest.TestCase):
 
     def test_named_resume_routes_to_existing_directory(self):
         managed.assign_name(self.directory, "example")
-        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "running"}, 0)) as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "running"}, 0)) as execute:
             self.assertEqual(self.call(["jobs", "resume", "example", "--no-wait"])[0], 0)
         self.assertEqual(execute.call_args.args[0].directory, self.directory)
         self.assertFalse(execute.call_args.args[0].wait)
@@ -102,8 +102,8 @@ class JobsTests(unittest.TestCase):
         (self.directory / "bilayer").mkdir()
         atomic_json(self.directory / "bilayer/run.json", {"job_id": "123", "state": "done"})
         before = (self.directory / "bilayer/run.json").read_bytes()
-        with patch("charmm_gui_cli.auth.load_token", return_value=("test-token", "mock")), \
-                patch("charmm_gui_cli.api.Client.status", return_value={"status": "compressing", "hasTarFile": False}):
+        with patch("charmm_gui_cli.store.auth.load_token", return_value=("test-token", "mock")), \
+                patch("charmm_gui_cli.remote.api.Client.status", return_value={"status": "compressing", "hasTarFile": False}):
             result = managed.inspect_run("example", remote_check=True)
         self.assertEqual(result["remote_status"], "archive_preparing")
         self.assertFalse(result["archive_available"])
@@ -127,8 +127,8 @@ class JobsTests(unittest.TestCase):
         (self.directory / "bilayer").mkdir()
         atomic_write(self.directory / "bilayer/charmm-gui.tgz", "mock archive")
         managed.assign_name(self.directory, "example")
-        with patch("charmm_gui_cli.build_command.load_token") as auth, \
-                patch("charmm_gui_cli.full_build.advance") as advance, \
+        with patch("charmm_gui_cli.pipeline.build_command.load_token") as auth, \
+                patch("charmm_gui_cli.pipeline.full_build.advance") as advance, \
                 patch.object(managed, "finalize_managed_build", return_value={"passed": True, "checks": {}}):
             code, result, _ = self.call(["jobs", "resume", "example", "--no-grompp"])
         self.assertEqual(code, 0)
@@ -141,8 +141,8 @@ class JobsTests(unittest.TestCase):
         (self.directory / "bilayer").mkdir()
         atomic_json(self.directory / "bilayer/run.json", {"schema_version": 1, "job_id": "123", "state": "ligands_present"})
         atomic_write(self.directory / "bilayer/charmm-gui.tgz", "mock archive")
-        with patch("charmm_gui_cli.build_command.load_token") as auth, \
-                patch("charmm_gui_cli.full_build.advance", return_value={"state": "ligands_present"}) as advance, \
+        with patch("charmm_gui_cli.pipeline.build_command.load_token") as auth, \
+                patch("charmm_gui_cli.pipeline.full_build.advance", return_value={"state": "ligands_present"}) as advance, \
                 patch.object(managed, "finalize_managed_build", return_value={"passed": True, "checks": {}}):
             code, result, _ = self.call(["build-resume", str(self.directory), "--no-grompp"])
         self.assertEqual(code, 0)
@@ -162,7 +162,7 @@ class JobsTests(unittest.TestCase):
         code, result, error = self.call(["jobs", "report", "example"])
         self.assertEqual(code, 2)
         self.assertIsNone(result)
-        from charmm_gui_cli.i18n import t
+        from charmm_gui_cli.locales.i18n import t
         self.assertIn(t("cli.stale_report"), error)
 
     def test_report_exposes_warnings_and_full_report_without_network(self):

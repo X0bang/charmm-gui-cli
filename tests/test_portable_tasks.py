@@ -30,7 +30,7 @@ class PortableTaskTests(unittest.TestCase):
         self.addCleanup(self.stack.close)
         self.stack.enter_context(patch("pathlib.Path.cwd", return_value=self.base))
         self.stack.enter_context(patch("requests.Session.request", side_effect=AssertionError("No live network")))
-        self.stack.enter_context(patch("charmm_gui_cli.managed._registries", return_value=(self.base / "index",)))
+        self.stack.enter_context(patch("charmm_gui_cli.store.managed._registries", return_value=(self.base / "index",)))
 
     def portable(self):
         atomic_json(self.run / "path-mode.json", {"version": 1})
@@ -263,8 +263,8 @@ class PreparedPortableTests(unittest.TestCase):
         self.base = self.fixture.root
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
-        self.stack.enter_context(patch("charmm_gui_cli.managed._registry", return_value=self.base / "index"))
-        self.stack.enter_context(patch("charmm_gui_cli.managed._registries", return_value=(self.base / "index",)))
+        self.stack.enter_context(patch("charmm_gui_cli.store.managed._registry", return_value=self.base / "index"))
+        self.stack.enter_context(patch("charmm_gui_cli.store.managed._registries", return_value=(self.base / "index",)))
         self.stack.enter_context(patch("pathlib.Path.cwd", return_value=self.base))
 
     def test_real_cli_dryrun_moved_then_upload_uses_new_local_inputs(self):

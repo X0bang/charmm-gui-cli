@@ -9,8 +9,8 @@ import tempfile
 import unittest
 from unittest.mock import Mock
 
-from charmm_gui_cli import workflow
-from charmm_gui_cli.auth import ToolError
+from charmm_gui_cli.pipeline import workflow
+from charmm_gui_cli.store.auth import ToolError
 
 
 class ArchiveProvenanceTests(unittest.TestCase):

@@ -11,10 +11,10 @@ from unittest.mock import patch
 
 import yaml
 
-from charmm_gui_cli import batch
+from charmm_gui_cli.pipeline import batch
 from charmm_gui_cli.cli import main
-from charmm_gui_cli.inputs import Atom, _sdf
-from charmm_gui_cli.preview import read_scene
+from charmm_gui_cli.chem.inputs import Atom, _sdf
+from charmm_gui_cli.chem.preview import read_scene
 
 
 def pdb_atom(serial, name, resname, xyz, element, record="ATOM", chain="A", resid=1):
@@ -28,9 +28,9 @@ class CLIFeatureTests(unittest.TestCase):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.network = self.stack.enter_context(patch("requests.Session.request", side_effect=AssertionError("No network in CLI feature tests")))
-        self.auth = self.stack.enter_context(patch("charmm_gui_cli.build_command.load_token", side_effect=AssertionError("No authentication")))
-        self.stack.enter_context(patch("charmm_gui_cli.auth.load_token", side_effect=AssertionError("No authentication")))
-        self.stack.enter_context(patch("charmm_gui_cli.managed._registry", return_value=self.root / "registry"))
+        self.auth = self.stack.enter_context(patch("charmm_gui_cli.pipeline.build_command.load_token", side_effect=AssertionError("No authentication")))
+        self.stack.enter_context(patch("charmm_gui_cli.store.auth.load_token", side_effect=AssertionError("No authentication")))
+        self.stack.enter_context(patch("charmm_gui_cli.store.managed._registry", return_value=self.root / "registry"))
         self.protein = self.root / "protein.pdb"
         self.protein_text = "".join(pdb_atom(i, name, "ALA", xyz, element) for i, name, xyz, element in (
             (1, "N", (-1.458, 0., 0.), "N"), (2, "CA", (0., 0., 0.), "C"),
@@ -93,7 +93,7 @@ class CLIFeatureTests(unittest.TestCase):
 
     def test_check_no_preview_does_not_render(self):
         self.require_chem()
-        with patch("charmm_gui_cli.preview.render_model", side_effect=AssertionError("Preview explicitly disabled")):
+        with patch("charmm_gui_cli.chem.preview.render_model", side_effect=AssertionError("Preview explicitly disabled")):
             code, report, error = self.call(["check", "--protein", str(self.protein), "--ligand", str(self.ligand),
                                              "--out", str(self.root / "no-preview-check"), "--no-preview"])
         self.assertEqual(code, 0, error)
@@ -149,7 +149,7 @@ class CLIFeatureTests(unittest.TestCase):
         self.assertEqual(status["total"], 2)
         self.assertEqual(status["counts"], {"inputs_ready": 2})
         self.assertEqual(before, (directory / "batch/batch.json").read_bytes())
-        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "preparation_running"}, 0)) as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "preparation_running"}, 0)) as execute:
             code, result, error = self.call(["sweep-resume", str(directory), "--no-wait", "--no-preview"])
         self.assertEqual(code, 0, error)
         self.assertEqual(execute.call_count, 1)
@@ -163,7 +163,7 @@ class CLIFeatureTests(unittest.TestCase):
         config.write_text(yaml.safe_dump({"version": 1, "jobs": [{"name": "one", "protein": "protein.pdb", "ligand": "bound.sdf"}]}))
         directory = self.root / "batch"
         batch.initialize(config, directory)
-        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "running"}, 0)) as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "running"}, 0)) as execute:
             code, result, error = self.call(["batch-resume", str(directory), "--no-wait", "--no-preview"])
         self.assertEqual(code, 0, error)
         self.assertTrue(execute.call_args.args[0].no_preview)

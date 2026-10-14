@@ -3,8 +3,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
-from charmm_gui_cli.auth import atomic_json, atomic_write
-from charmm_gui_cli.reconcile import reconcile
+from charmm_gui_cli.store.auth import atomic_json, atomic_write
+from charmm_gui_cli.remote.reconcile import reconcile
 
 
 OLD = '''<script>var nstep=1; var formstop=0;</script><form action="?doc=input/pdbreader&amp;step=2">

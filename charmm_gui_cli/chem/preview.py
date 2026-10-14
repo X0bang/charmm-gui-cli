@@ -5,7 +5,7 @@ headgroups/coarse tail traces, and selected components are heavy-atom spheres.
 No membrane planes, atom positions, chemical bonds, or missing atoms are invented.
 """
 
-from ..layout import full_archive_path
+from charmm_gui_cli.store.layout import full_archive_path
 
 from collections import Counter
 from statistics import mean
@@ -15,7 +15,7 @@ import math
 from pathlib import Path
 import shutil
 
-from ..auth import ToolError, atomic_json
+from charmm_gui_cli.store.auth import ToolError, atomic_json
 
 
 WATER = {"TIP3", "TIP4", "HOH", "WAT", "SOL"}
@@ -331,8 +331,8 @@ def preview_run(directory, *, report=None, out=None, width=1400, views=("side", 
     import tarfile
     import uuid
     from .. import __version__
-    from ..managed import _read_json, _final_summary
-    from ..workflow import run_lock
+    from charmm_gui_cli.store.managed import _read_json, _final_summary
+    from charmm_gui_cli.store.locking import run_lock
     directory = Path(directory).expanduser().resolve()
     with run_lock(directory):
         summary = _final_summary(directory)
@@ -342,7 +342,7 @@ def preview_run(directory, *, report=None, out=None, width=1400, views=("side", 
         if report is not None and report.get("fingerprint") != stored.get("fingerprint"):
             raise ToolError("Preview report does not match current final validation evidence.")
         extracted = Path(stored["extracted_directory"]).resolve()
-        from ..layout import modern, task_root
+        from charmm_gui_cli.store.layout import modern, task_root
         valid = (extracted == task_root(directory) / "model" if modern(directory)
                  else extracted.is_relative_to(directory / "results" / "checks"))
         if not valid:
@@ -408,7 +408,7 @@ def preview_run(directory, *, report=None, out=None, width=1400, views=("side", 
         destination = Path(out) if out is not None else directory / "results" / "previews" / uuid.uuid4().hex
         rendered = render_model(pdb, destination, ligand_resnames=names, width=width, views=views, scope=scope)
         rendered["identity"] = identity
-        from ..progress import official_links
+        from charmm_gui_cli.presentation.progress import official_links
         rendered["official_links"] = official_links(
             source_job_id=manifest.get("source_job_id"), build_job_id=manifest.get("build_job_id"))
         atomic_json(destination / "preview.json", rendered)

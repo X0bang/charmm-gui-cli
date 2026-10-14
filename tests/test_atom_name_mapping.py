@@ -8,11 +8,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from charmm_gui_cli.auth import ToolError
-from charmm_gui_cli.multicomponent import validate_components
-from charmm_gui_cli.pose_validation import derive_server_atom_mapping
-from charmm_gui_cli.validation import compare_bound_pose, validate_atom_name_map
-from charmm_gui_cli import workflow
+from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.chem.multicomponent import validate_components
+from charmm_gui_cli.chem.pose_validation import derive_server_atom_mapping
+from charmm_gui_cli.chem.validation import compare_bound_pose, validate_atom_name_map
+from charmm_gui_cli.pipeline import workflow
 
 
 def pdb_atom(serial, name, resname, resid, xyz, element, segment):
@@ -252,7 +252,7 @@ class AtomNameMappingTests(unittest.TestCase):
         for failure in (ToolError("Compiler setup failed"), {"passed": False, "reason": "Compiler rejected topology"}):
             with self.subTest(failure=failure):
                 options = {"side_effect": failure} if isinstance(failure, Exception) else {"return_value": failure}
-                with patch("charmm_gui_cli.validation.run_grompp_check", **options) as compiler:
+                with patch("charmm_gui_cli.chem.validation.run_grompp_check", **options) as compiler:
                     report = validate_components(self.system, self.manifest, self.reference,
                                                  archive_path=self.archive, run_grompp=True, gmx="gmx")
                 self.assertFalse(report["passed"])

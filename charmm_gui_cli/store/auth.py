@@ -10,7 +10,7 @@ from pathlib import Path
 import tempfile
 import time
 
-from ..i18n import MESSAGES, t
+from charmm_gui_cli.locales.i18n import MESSAGES, t
 
 
 def recovery_guidance(category, *, cause_category=None):

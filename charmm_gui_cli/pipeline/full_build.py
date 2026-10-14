@@ -7,17 +7,18 @@ import time
 import sys
 from urllib.parse import parse_qs, urlparse
 
-from ..api import AuthError, SubmissionUnknown, job_id
-from ..auth import ToolError, atomic_json, atomic_write
-from ..build_config import api_config, load_build_config
-from ..config import validate_config
-from ..inputs import prepare_inputs
-from ..web import soup_for, assert_nonpolymer_parameterization, snapshot_error
-from ..i18n import t
-from ..pdb_normalization import finding
-from ..web_state import parse_page_state
-from ..workflow import now, tracked_run, start as start_api, resume as resume_api
-from ..layout import modern, task_root, inputs_path
+from charmm_gui_cli.remote.api import AuthError, SubmissionUnknown, job_id
+from charmm_gui_cli.store.auth import ToolError, atomic_json, atomic_write
+from charmm_gui_cli.pipeline.build_config import api_config, load_build_config
+from charmm_gui_cli.pipeline.config import validate_config
+from charmm_gui_cli.chem.inputs import prepare_inputs
+from charmm_gui_cli.remote.web import soup_for, assert_nonpolymer_parameterization, snapshot_error
+from charmm_gui_cli.locales.i18n import t
+from charmm_gui_cli.chem.pdb_normalization import finding
+from charmm_gui_cli.remote.web_state import parse_page_state
+from charmm_gui_cli.store.locking import now
+from charmm_gui_cli.pipeline.workflow import tracked_run, start as start_api, resume as resume_api
+from charmm_gui_cli.store.layout import modern, task_root, inputs_path
 from ..store.paths import read_value
 
 
@@ -33,7 +34,7 @@ def initialize(config_path, directory, *, _reserved=False, _source_report=None):
         from ..store.local_build import local_initialization
         with local_initialization(directory):
             return initialize(config_path, directory, _reserved=True, _source_report=_source_report)
-    from ..delivery import creation_context
+    from charmm_gui_cli.store.delivery import creation_context
     manifest = {"schema_version": 2, "created_at": now(), "state": "preparing_inputs", "config": config,
                 "delivery_context": creation_context()}
     _save(directory, manifest)
@@ -44,7 +45,7 @@ def initialize(config_path, directory, *, _reserved=False, _source_report=None):
     if _source_report is not None:
         from ..chem.pdb_normalization import attach_source_normalization
         attach_source_normalization(prepared, _source_report)
-    from ..build_config import validate_terminal_residues
+    from charmm_gui_cli.pipeline.build_config import validate_terminal_residues
     validate_terminal_residues(config["preparation"], prepared.get("manifest", {}).get("input_normalization", {}).get("terminal_predictions", []))
     manifest.update(state="inputs_ready", inputs=prepared)
     _save(directory, manifest)
@@ -205,7 +206,7 @@ def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, pro
             # resume, which refuses to submit another job.
             return _resume_bilayer(directory, manifest, api, build_directory, wait, interval, max_wait, progress)
         if "reused_preparation" in manifest:
-            from ..sweep import reuse_api_config
+            from charmm_gui_cli.pipeline.sweep import reuse_api_config
             prepared_config = reuse_api_config(directory, manifest)
             return _start_prepared_bilayer(directory, manifest, api, prepared_config, wait, interval, max_wait, progress)
         config = manifest["config"]
@@ -219,7 +220,7 @@ def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, pro
             if upload_dir.exists():
                 raise SubmissionUnknown("Upload directory already exists without a response; inspect/recover the prior upload before continuing. No repeated upload was sent.")
             if groups is None:
-                from ..sweep import seal_preparation
+                from charmm_gui_cli.pipeline.sweep import seal_preparation
                 seal_preparation(directory)
             manifest["state"] = "uploading"
             _save(directory, manifest)

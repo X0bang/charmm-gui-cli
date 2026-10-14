@@ -2,22 +2,12 @@
 
 
 def execute(args):
-    from ..cli import (
-        emit,
-        brief,
-        report_summary,
-        Client,
-        ToolError,
-        load_token,
-        resolve_cookie_path,
-        workflow,
-        json,
-    )
-    from .. import managed
-    from ..build_command import execute
+    from charmm_gui_cli.cli import emit
+    from charmm_gui_cli.store import managed
+    from charmm_gui_cli.pipeline.build_command import execute
     args.directory = managed.resolve_run(args.target)
     args.command = "build-resume"
-    from ..background import launch
+    from charmm_gui_cli.store.background import launch
     result, code = execute(args) if args.foreground else launch(args)
     emit(result, command="jobs.resume")
     return code

@@ -13,8 +13,10 @@ from unittest.mock import Mock, patch
 
 import requests
 
-from charmm_gui_cli import cli, i18n, updater
-from charmm_gui_cli.auth import ToolError
+from charmm_gui_cli import cli
+from charmm_gui_cli.locales import i18n
+from charmm_gui_cli.pipeline import updater
+from charmm_gui_cli.store.auth import ToolError
 
 
 COMMIT = "a" * 40

@@ -4,8 +4,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from charmm_gui_cli.progress import ProgressReporter
-from charmm_gui_cli.run_logging import LogStream
+from charmm_gui_cli.presentation.progress import ProgressReporter
+from charmm_gui_cli.store.run_logging import LogStream
 
 
 class RunLoggingTests(unittest.TestCase):

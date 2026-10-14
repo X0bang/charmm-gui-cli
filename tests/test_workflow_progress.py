@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock
 
-from charmm_gui_cli import workflow
+from charmm_gui_cli.pipeline import workflow
 
 
 class WorkflowProgressTests(unittest.TestCase):

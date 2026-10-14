@@ -7,10 +7,10 @@ import tempfile
 
 import requests
 
-from ..auth import ToolError, normalize_token, token_info, recovery_guidance
-from ..i18n import t
+from charmm_gui_cli.store.auth import ToolError, normalize_token, token_info, recovery_guidance
+from charmm_gui_cli.locales.i18n import t
 from .archive_transport import normalize_download, staging_directory
-from ..http_retry import request as request_with_retry, retry_delay, transient_exception, RETRY_STATUSES
+from charmm_gui_cli.remote.http_retry import request as request_with_retry, retry_delay, transient_exception, RETRY_STATUSES
 from .diagnostics import diagnostic, secret_values
 
 API_BASE = "https://charmm-gui.org/api"

@@ -18,11 +18,11 @@ from urllib.parse import parse_qs, urljoin, urlparse
 from bs4 import BeautifulSoup
 import requests
 
-from ..auth import ToolError, atomic_json, atomic_write, recovery_guidance
-from ..api import AuthError, SubmissionUnknown
-from ..http_retry import request as request_with_retry, retry_delay, transient_exception, RETRY_STATUSES
-from ..i18n import t, MESSAGES
-from ..progress import official_links, CONSOLE_LOCK, clear_line
+from charmm_gui_cli.store.auth import ToolError, atomic_json, atomic_write, recovery_guidance
+from charmm_gui_cli.remote.api import AuthError, SubmissionUnknown
+from charmm_gui_cli.remote.http_retry import request as request_with_retry, retry_delay, transient_exception, RETRY_STATUSES
+from charmm_gui_cli.locales.i18n import t, MESSAGES
+from charmm_gui_cli.presentation.progress import official_links, CONSOLE_LOCK, clear_line
 
 WEB_BASE = "https://www.charmm-gui.org/"
 

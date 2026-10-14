@@ -3,9 +3,9 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from charmm_gui_cli.auth import ToolError
-from charmm_gui_cli.input_sources import prepare_sources
-from charmm_gui_cli.inputs import Atom, _conect, _sdf, read_ligand, split_complex
+from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.chem.input_sources import prepare_sources
+from charmm_gui_cli.chem.inputs import Atom, _conect, _sdf, read_ligand, split_complex
 
 
 DATASET = Path(__file__).resolve().parents[1] / "test-dataset/CrtW_BetaCarotene_af3_fixed.pdb"

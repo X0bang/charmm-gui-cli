@@ -7,27 +7,11 @@ import re
 
 import yaml
 
-from ..api import job_id
-from ..auth import ToolError
-from ..structure import analyze_pdb
+from charmm_gui_cli.remote.api import job_id
+from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.chem.structure import analyze_pdb
 from ..chem.lipids import KNOWN_LIPIDS
-
-
-class UniqueLoader(yaml.SafeLoader):
-    pass
-
-
-def unique_mapping(loader, node, deep=False):
-    result = {}
-    for key_node, value_node in node.value:
-        key = loader.construct_object(key_node, deep=deep)
-        if not isinstance(key, str) or key in result:
-            raise ToolError("Configuration keys must be unique strings.")
-        result[key] = loader.construct_object(value_node, deep=deep)
-    return result
-
-
-UniqueLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, unique_mapping)
+from ..store.configuration import UniqueLoader, unique_mapping
 
 
 def mapping(value, keys, name):

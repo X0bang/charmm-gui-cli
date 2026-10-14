@@ -9,9 +9,8 @@ import json
 from pathlib import Path
 import re
 
-from ..auth import ToolError
-from ..inputs import (Ligand, _conect, _pdb, _protein_pdb_lines, _sdf, _validate_ligand,
-                     _validate_protein, read_ligand)
+from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.chem.inputs import Ligand, _conect, _pdb, _protein_pdb_lines, _sdf, _validate_ligand, _validate_protein, read_ligand
 
 
 def _path(value, label):

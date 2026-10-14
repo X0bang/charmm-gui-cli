@@ -12,12 +12,12 @@ from unittest.mock import Mock, patch
 
 import requests
 
-from charmm_gui_cli import full_build, workflow
-from charmm_gui_cli.api import AuthError, Client, SubmissionUnknown
-from charmm_gui_cli.auth import ToolError, atomic_json, atomic_write, recovery_guidance, load_token
-from charmm_gui_cli.i18n import t
-from charmm_gui_cli.http_retry import request, retry_delay
-from charmm_gui_cli.web import WebClient
+from charmm_gui_cli.pipeline import full_build, workflow
+from charmm_gui_cli.remote.api import AuthError, Client, SubmissionUnknown
+from charmm_gui_cli.store.auth import ToolError, atomic_json, atomic_write, recovery_guidance, load_token
+from charmm_gui_cli.locales.i18n import t
+from charmm_gui_cli.remote.http_retry import request, retry_delay
+from charmm_gui_cli.remote.web import WebClient
 
 
 def token(expiry=None):
@@ -43,7 +43,7 @@ def config():
 class RetryTests(unittest.TestCase):
     def setUp(self):
         self.session = Mock(spec=requests.Session)
-        self.sleep = patch("charmm_gui_cli.http_retry.time.sleep").start()
+        self.sleep = patch("charmm_gui_cli.remote.http_retry.time.sleep").start()
         self.addCleanup(patch.stopall)
 
     def test_get_connection_and_http_failures_retry_then_succeed(self):
@@ -248,7 +248,7 @@ class RecoveryTests(unittest.TestCase):
     def test_poll_interrupt_retains_running_state(self):
         workflow.start(self.client, config(), self.directory)
         self.client.status.return_value = {"status": "running"}
-        with patch("charmm_gui_cli.workflow.time.sleep", side_effect=KeyboardInterrupt()):
+        with patch("charmm_gui_cli.pipeline.workflow.time.sleep", side_effect=KeyboardInterrupt()):
             with self.assertRaises(KeyboardInterrupt):
                 workflow.resume(self.client, self.directory, wait=True)
         saved = workflow.read(self.directory)

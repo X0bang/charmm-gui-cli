@@ -5,9 +5,9 @@ import re
 
 import yaml
 
-from ..auth import ToolError
-from ..config import UniqueLoader, mapping, validate_config
-from ..pdb_normalization import N_TERMINALS, C_TERMINALS
+from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.pipeline.config import UniqueLoader, mapping, validate_config
+from charmm_gui_cli.chem.pdb_normalization import N_TERMINALS, C_TERMINALS
 
 
 def validate_preparation(raw):

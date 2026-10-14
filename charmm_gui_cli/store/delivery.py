@@ -1,6 +1,6 @@
 """In-place task results and explicitly requested independent exports."""
 
-from ..layout import modern, task_root, inputs_path, log_path, full_archive_path
+from charmm_gui_cli.store.layout import modern, task_root, inputs_path, log_path, full_archive_path
 
 import hashlib
 import json
@@ -12,8 +12,8 @@ import tempfile
 import tarfile
 import uuid
 
-from ..auth import ToolError, atomic_json, atomic_write
-from ..workflow import run_lock, now
+from charmm_gui_cli.store.auth import ToolError, atomic_json, atomic_write
+from charmm_gui_cli.store.locking import run_lock, now
 
 MARKER = ".charmm-gui-delivery.json"
 
@@ -49,7 +49,7 @@ def _tree(source, prefix):
 
 def check_destination(directory):
     """Reject a foreign default destination before submitting a new build."""
-    from .. import managed
+    from charmm_gui_cli.store import managed
     directory = Path(directory).resolve()
     if modern(directory):
         return  # Root was exclusively reserved before any remote submission.
@@ -78,7 +78,7 @@ def export_run(directory, *, to=None):
     previously exported files; foreign directories and edited files are refused.
     Failed partial exports are retained and can be retried at a new destination.
     """
-    from ..background import metadata
+    from charmm_gui_cli.store.background import metadata
     directory = Path(directory).expanduser().resolve()
     if metadata(directory)["running"]:
         raise ToolError(key="background.running", next_step="charmm-gui-cli jobs list")
@@ -113,7 +113,7 @@ def verify_model(archive, model):
 
 def _system_configuration(directory, manifest):
     """Record actual submitted patches, never global requests as applied facts."""
-    from .. import managed
+    from charmm_gui_cli.store import managed
     requested = manifest["config"]
     applied = json.loads(json.dumps(requested))
     adjustments = manifest.get("terminal_adjustments", [])
@@ -150,10 +150,10 @@ def _system_configuration(directory, manifest):
 
 def publish_in_place(directory):
     """Generate small summaries; archive, model and inputs stay in place."""
-    from .. import managed
-    from ..cli import report_summary
-    from ..reporting import display_result, render_text
-    from ..i18n import t
+    from charmm_gui_cli.store import managed
+    from ..presentation.summaries import report_summary
+    from charmm_gui_cli.presentation.reporting import display_result, render_text
+    from charmm_gui_cli.locales.i18n import t
     directory = Path(directory).resolve()
     with run_lock(directory):
         root = task_root(directory)
@@ -171,7 +171,7 @@ def publish_in_place(directory):
                      "README.txt": t("delivery.single_layout", name=name) + "\n"}
         _publish_generated(directory, generated)
         log_path(directory).touch(mode=0o600, exist_ok=True)
-        from ..archive_transport import cleanup_download_duplicates
+        from charmm_gui_cli.remote.archive_transport import cleanup_download_duplicates
         result = {"directory": str(root), "archive": str(full_archive_path(directory)),
                   "model": str(root / "model"), "report": str(root / "report.txt"),
                   "inputs": str(root / "inputs"), "status": report["status"], "passed": report["passed"],
@@ -183,7 +183,7 @@ def publish_in_place(directory):
 
 def _publish_generated(directory, generated):
     """Preserve edited display documents; never overwrite edited input settings."""
-    from .. import managed
+    from charmm_gui_cli.store import managed
     root = task_root(directory)
     marker = directory / "generated-files.json"
     if marker.is_symlink():
@@ -226,7 +226,7 @@ def _verify_report(directory, manifest, report):
     A client upgrade alone must not prevent exporting an old completed task.
     All other archive/input/config/compiler evidence still has to match.
     """
-    from .. import managed
+    from charmm_gui_cli.store import managed
     try:
         stored = report["evidence"]
         current = managed._evidence(manifest, full_archive_path(directory), stored["grompp"], stored["gmx"])
@@ -242,8 +242,8 @@ def _verify_report(directory, manifest, report):
 
 
 def _export(directory, *, to=None):
-    from .. import managed
-    from ..i18n import t
+    from charmm_gui_cli.store import managed
+    from charmm_gui_cli.locales.i18n import t
     if modern(directory) and (to is None or Path(to).expanduser().resolve() == task_root(directory)):
         return publish_in_place(directory)
     with run_lock(directory):
@@ -275,8 +275,8 @@ def _export(directory, *, to=None):
         # No copying into the source, its parents, or any of its descendants.
         if target == directory or target in directory.parents or directory in target.parents:
             raise _error("delivery.unsafe", target)
-        from ..cli import report_summary
-        from ..reporting import display_result, render_text
+        from ..presentation.summaries import report_summary
+        from charmm_gui_cli.presentation.reporting import display_result, render_text
         text_report = directory / "results" / "delivery-report.txt"
         atomic_write(text_report, render_text(display_result(report_summary(report, name, "reports/validation.json"),
                      {"name": name, "archive": "charmm-gui.tgz",
@@ -378,7 +378,7 @@ def _export(directory, *, to=None):
                   "model": str(target / "model"), "report": str(target / "reports/validation.json"),
                   "inputs": str(target / "inputs"), "status": report["status"], "passed": report["passed"],
                   "validation_tool_version": report["evidence"]["tool_version"]}
-        from ..archive_transport import cleanup_download_duplicates
+        from charmm_gui_cli.remote.archive_transport import cleanup_download_duplicates
         result["download_temporary_files_removed"] = cleanup_download_duplicates(full_archive_path(directory))
         atomic_json(directory / "delivery.json", result)
         return result

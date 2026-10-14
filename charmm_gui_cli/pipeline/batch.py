@@ -17,11 +17,11 @@ from datetime import datetime, timezone
 
 import yaml
 
-from ..auth import ToolError, atomic_json, atomic_write, recovery_guidance
-from ..config import UniqueLoader, mapping, composition, number
-from ..workflow import run_lock, now
-from ..pdb_normalization import N_TERMINALS, C_TERMINALS
-from ..layout import inputs_path
+from charmm_gui_cli.store.auth import ToolError, atomic_json, atomic_write, recovery_guidance
+from charmm_gui_cli.pipeline.config import UniqueLoader, mapping, composition, number
+from charmm_gui_cli.store.locking import run_lock, now
+from charmm_gui_cli.chem.pdb_normalization import N_TERMINALS, C_TERMINALS
+from charmm_gui_cli.store.layout import inputs_path
 from ..locales.i18n import t
 from ..chem.residues import INPUT_FIELDS as INPUT_SELECTION, validate_input_options
 
@@ -84,7 +84,7 @@ def _options(raw, base):
     for key, allowed in choices.items():
         if key in result and result[key] not in allowed:
             raise ToolError(f"Unsupported batch {key}.")
-    from ..build_config import validate_preparation
+    from charmm_gui_cli.pipeline.build_config import validate_preparation
     validate_preparation({key: result[key] for key in ("n_terminal", "c_terminal", "terminals") if key in result})
     if "ligand_resname" in result and not re.fullmatch(r"[A-Z][A-Z0-9]{0,2}", result["ligand_resname"]):
         raise ToolError("ligand_resname must be 1-3 uppercase letters/digits beginning with a letter.")
@@ -255,7 +255,8 @@ def _prepare(directory, manifest, *, progress=None):
 
 
 def _prepare_entries(directory, manifest, *, progress=None):
-    from .. import build_command, managed
+    from charmm_gui_cli.pipeline import build_command
+    from charmm_gui_cli.store import managed
     for job, specification in zip(manifest["jobs"], manifest["config"]["jobs"]):
         if job["state"] not in ("pending", "preparing_local"):
             continue
@@ -278,7 +279,7 @@ def _prepare_entries(directory, manifest, *, progress=None):
                 managed.assign_name(output, _named_job(directory, job["name"]))
                 job["state"] = "inputs_ready"
                 if manifest["config"].get("reuse_preparation"):
-                    from ..sweep import seal_preparation
+                    from charmm_gui_cli.pipeline.sweep import seal_preparation
                     seal_preparation(output)
             except (OSError, ValueError, KeyError, TypeError, AttributeError, ToolError) as error:
                 if getattr(error, "category", None) == "lock_busy":
@@ -301,7 +302,7 @@ def _prepare_entries(directory, manifest, *, progress=None):
                 managed.assign_name(Path(job["directory"]), _named_job(directory, job["name"]))
                 job["state"] = result["state"]
                 if manifest["config"].get("reuse_preparation"):
-                    from ..sweep import seal_preparation
+                    from charmm_gui_cli.pipeline.sweep import seal_preparation
                     seal_preparation(output)
             except (ToolError, OSError) as error:
                 if getattr(error, "category", None) == "lock_busy":
@@ -348,7 +349,7 @@ def _register_children(directory, manifest):
 
 
 def _local(job):
-    from .. import managed
+    from charmm_gui_cli.store import managed
     directory = Path(job["directory"])
     if job["state"] in ("preparing_local", "waiting_index") and job.get("error_category") == "lock_busy":
         return  # Local preparation/registration must finish before submission.
@@ -486,7 +487,7 @@ def _summary(directory, manifest):
 
 
 def _auth_error(error):
-    from ..api import AuthError
+    from charmm_gui_cli.remote.api import AuthError
     return isinstance(error, AuthError) or getattr(error, "category", None) in ("authentication", "auth_required") or getattr(error, "cause_category", None) in ("authentication", "auth_required") or any(word in str(error).lower() for word in
         ("session expired", "session is missing", "no api token", "token file", "jwt", "authentication", "web-login"))
 
@@ -547,7 +548,7 @@ def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=
             token_file=None, cookies=None, grompp=False, no_grompp=False, gmx="gmx", no_preview=False, post_timeout=900,
             progress=None, retry_failed_local=False):
     """Advance no-wait rounds; active covers preparation through final validation."""
-    from .. import build_command
+    from charmm_gui_cli.pipeline import build_command
     if grompp and not shutil.which(gmx):
         raise ToolError("Batch --grompp requires a GROMACS executable; no remote tasks were advanced.", category="local_dependency")
     if type(max_active) is not int or not 1 <= max_active <= 4:
@@ -578,7 +579,7 @@ def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=
                 completed_at = None
                 manifest.pop("finished_at", None)
             if manifest["config"].get("reuse_preparation"):
-                from ..sweep import bind_ready_sources
+                from charmm_gui_cli.pipeline.sweep import bind_ready_sources
                 bind_ready_sources(directory, manifest)
             if any(j["state"] == "blocked" and j.get("error_category") == "submission_unknown" for j in manifest["jobs"]):
                 manifest["state"] = "paused_inspection"
@@ -693,8 +694,8 @@ def status(directory, *, remote_check=False, token_file=None):
     manifest = _read(directory, verify=False)
     client = None
     if remote_check:
-        from ..auth import load_token
-        from ..api import Client
+        from charmm_gui_cli.store.auth import load_token
+        from charmm_gui_cli.remote.api import Client
         token, source = load_token(token_file)
         client = Client(token)
         from ..remote.sessions import bind

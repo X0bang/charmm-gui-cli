@@ -5,8 +5,8 @@ from pathlib import Path
 import re
 import string
 
-from ..auth import ToolError
-from ..i18n import MESSAGES, t
+from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.locales.i18n import MESSAGES, t
 
 
 N_TERMINALS = ("NTER", "NNEU", "ACE", "ACP", "NONE", "GLYP", "PROP")

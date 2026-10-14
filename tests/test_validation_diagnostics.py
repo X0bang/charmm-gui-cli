@@ -9,7 +9,7 @@ from unittest.mock import patch
 from charmm_gui_cli.store import managed, delivery
 from charmm_gui_cli.store.auth import atomic_json
 from charmm_gui_cli.cli import main
-from charmm_gui_cli.commands.terminal_output import format_job_status
+from charmm_gui_cli.presentation.terminal_output import format_job_status
 from charmm_gui_cli.locales.i18n import set_language
 from tests import test_single_directory as fixtures
 

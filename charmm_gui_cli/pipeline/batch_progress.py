@@ -8,7 +8,7 @@ import sys
 import threading
 import time
 
-from .progress import CONSOLE_LOCK, clear_line, describe_progress, format_progress, terminal_frame
+from charmm_gui_cli.presentation.progress import CONSOLE_LOCK, clear_line, describe_progress, format_progress, terminal_frame
 from ..locales.i18n import t
 from ..store.layout import log_path
 from ..store.auth import ToolError

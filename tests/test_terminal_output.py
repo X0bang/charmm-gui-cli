@@ -4,8 +4,9 @@ import json
 import unittest
 from unittest.mock import patch
 
-from charmm_gui_cli import cli, i18n
-from charmm_gui_cli.terminal_output import format_build
+from charmm_gui_cli import cli
+from charmm_gui_cli.locales import i18n
+from charmm_gui_cli.presentation.terminal_output import format_build
 
 
 class TerminalOutputTests(unittest.TestCase):

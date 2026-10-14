@@ -10,7 +10,7 @@ import yaml
 
 from charmm_gui_cli.pipeline import batch
 from charmm_gui_cli.pipeline.batch_progress import BatchReporter
-from charmm_gui_cli.commands import build_command
+from charmm_gui_cli.pipeline import build_command
 from charmm_gui_cli.store.auth import ToolError, atomic_json
 from charmm_gui_cli.store.paths import read_value
 from charmm_gui_cli.locales.i18n import set_language
@@ -184,7 +184,7 @@ class BatchWorkflowTests(unittest.TestCase):
         self.assertNotIn(b"\x1b", raw)
         self.assertEqual(log.count("jobid=123"), 1)
         self.assertEqual(log.count("jobid=456"), 1)
-        from charmm_gui_cli.pipeline.progress import format_progress
+        from charmm_gui_cli.presentation.progress import format_progress
         expected = format_progress({"state": "running ffconverter", "source_job_id": "123", "build_job_id": "456"})
         self.assertEqual(log.count(expected), 1)
         self.assertNotIn("run=", stream.getvalue())

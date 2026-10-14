@@ -1,7 +1,7 @@
-"""Compatibility import; implementation lives in store.background."""
+"""Legacy import shim; targets are centralized in _compat.MODULE_ALIASES."""
 import sys
-from .store import background as _implementation
-sys.modules[__name__] = _implementation
+from ._compat import install_alias
+_implementation = install_alias("charmm_gui_cli.background" if __name__ == "__main__" else __name__)
 
 if __name__ == "__main__":
     sys.exit(_implementation.worker(sys.argv[1], int(sys.argv[2])))

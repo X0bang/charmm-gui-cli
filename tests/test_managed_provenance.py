@@ -8,8 +8,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from charmm_gui_cli import managed
-from charmm_gui_cli.auth import ToolError
+from charmm_gui_cli.store import managed
+from charmm_gui_cli.store.auth import ToolError
 
 
 class ManagedProvenanceTests(unittest.TestCase):
@@ -48,8 +48,8 @@ class ManagedProvenanceTests(unittest.TestCase):
         report = {"passed": True, "status": "validated", "validation_complete": True,
                   "fingerprint": managed._canonical_hash(evidence), "evidence": evidence}
         (self.run / "results").mkdir(exist_ok=True)
-        from charmm_gui_cli.layout import modern, task_root
-        from charmm_gui_cli.validation import extract_for_validation
+        from charmm_gui_cli.store.layout import modern, task_root
+        from charmm_gui_cli.chem.validation import extract_for_validation
         model = task_root(self.run) / "model" if modern(self.run) else self.run / "results/checks/model"
         if not model.exists():
             extract_for_validation(self.archive, model)

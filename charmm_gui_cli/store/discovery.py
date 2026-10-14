@@ -95,7 +95,7 @@ def locate(record):
 def relink(name, target):
     from . import managed
     from .background import metadata
-    from ..pipeline.workflow import run_lock
+    from charmm_gui_cli.store.locking import run_lock
     if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", name):
         raise ToolError(key="input.task_name", next_step="charmm-gui-cli jobs relink -h")
     records = [registry / "names" / (str(name) + ".json") for registry in managed._registries()]

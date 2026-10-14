@@ -2,18 +2,11 @@
 
 
 def execute(args):
-    from ..cli import (
-        emit,
-        brief,
-        report_summary,
-        Client,
-        ToolError,
-        load_token,
-        resolve_cookie_path,
-        workflow,
-        json,
-    )
-    from .. import managed
+    from charmm_gui_cli.cli import emit
+    from charmm_gui_cli.presentation.summaries import report_summary
+    from charmm_gui_cli.store.auth import ToolError
+    import json
+    from charmm_gui_cli.store import managed
     if args.full and args.format != "json":
         raise ToolError(key="cli.full_json")
     if args.format == "html" and args.out is None:
@@ -32,13 +25,13 @@ def execute(args):
     if args.format == "json":
         payload = report if args.full else summary
         if args.out:
-            from ..reporting import write_new
+            from charmm_gui_cli.presentation.reporting import write_new
             destination = write_new(args.out, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
             emit({"report": destination, "passed": report.get("passed"), "format": "json"})
         else:
             emit(payload)
     else:
-        from ..reporting import display_result, render_text, render_html, verified_images, write_new
+        from charmm_gui_cli.presentation.reporting import display_result, render_text, render_html, verified_images, write_new
         displayed = display_result(summary, result, managed._read_json(directory / "full-run.json"), report)
         if args.format == "html":
             images, note = verified_images(directory, report)

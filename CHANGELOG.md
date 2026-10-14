@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Use canonical subpackage imports throughout implementation and regression mocks; centralize historical import targets without making internal code depend on them.
+- Move build/update libraries out of command adapters and isolate progress, summaries and reports in `presentation/`; keep original top-level module identities compatible.
+- Share task locking and strict YAML loading below orchestration; delivery no longer imports CLI report helpers. Add fresh-process alias blocking and package-boundary checks.
+- Fix `inspect` command dispatch, which referenced a missing import despite successful module/handler smoke tests; cover actual read-only archive/configuration/status/report invocations.
+
 ## 0.8.1
 
 ### Compatibility changes

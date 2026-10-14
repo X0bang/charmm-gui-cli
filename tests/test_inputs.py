@@ -6,8 +6,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from charmm_gui_cli.auth import ToolError
-from charmm_gui_cli.inputs import (Atom, Ligand, _pdb, _sdf, _validate_ligand,
+from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.chem.inputs import (Atom, Ligand, _pdb, _sdf, _validate_ligand,
                                    apply_hydrogen_policy, inspect_ligand, prepare_inputs, read_ligand, split_complex)
 
 

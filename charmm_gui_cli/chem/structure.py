@@ -5,7 +5,7 @@ import hashlib
 import math
 from pathlib import Path
 
-from ..auth import ToolError
+from charmm_gui_cli.store.auth import ToolError
 
 
 def analyze_pdb(path, expected_ligands):

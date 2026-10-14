@@ -15,7 +15,7 @@ from charmm_gui_cli.locales.transfers import transfer_text
 from charmm_gui_cli.pipeline import workflow
 from charmm_gui_cli.remote.api import Client, ARCHIVE_PREPARING_MESSAGE
 from charmm_gui_cli.store.auth import ToolError, atomic_json
-from charmm_gui_cli.pipeline.progress import ProgressReporter
+from charmm_gui_cli.presentation.progress import ProgressReporter
 from test_client import archive_bytes, config, pdb, token
 
 

@@ -1,10 +1,8 @@
 """Durable intent before submission, explicit recovery after ambiguous POSTs."""
 
-from ..layout import archive_path as run_archive_path
+from charmm_gui_cli.store.layout import archive_path as run_archive_path
 
 from contextlib import contextmanager
-from datetime import datetime, timezone
-import fcntl
 import gzip
 import hashlib
 import json
@@ -18,32 +16,12 @@ import time
 import zlib
 
 from .. import __version__
-from ..api import SubmissionUnknown, job_id
-from ..artifacts import inspect_archive
-from ..auth import ToolError, atomic_json
-from ..config import plan, validate_config
+from charmm_gui_cli.remote.api import SubmissionUnknown, job_id
+from charmm_gui_cli.pipeline.artifacts import inspect_archive
+from charmm_gui_cli.store.auth import ToolError, atomic_json
+from charmm_gui_cli.pipeline.config import plan, validate_config
 from ..store.paths import read_value
-
-
-def now():
-    return datetime.now(timezone.utc).isoformat()
-
-
-@contextmanager
-def run_lock(directory):
-    directory = Path(directory)
-    if not directory.is_dir():
-        raise ToolError("Run directory does not exist.")
-    with (directory / ".lock").open("a") as handle:
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise ToolError(key="run.lock_busy", category="lock_busy", retryable=True,
-                            retry_after_seconds=10, next_step="charmm-gui-cli jobs list") from None
-        try:
-            yield
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+from ..store.locking import now, run_lock
 
 
 def save(directory, manifest):
@@ -354,7 +332,7 @@ def resume(client, directory, *, wait=False, interval=30, max_wait=21600, pdb_me
         if not archive.exists():
             _download_archive(client, directory, manifest, archive, wait=wait, deadline=deadline, progress=progress)
         receipt = verify_archive_provenance(directory, manifest, create_receipt=True)
-        from ..archive_transport import cleanup_download_duplicates
+        from charmm_gui_cli.remote.archive_transport import cleanup_download_duplicates
         cleanup_download_duplicates(archive)
         manifest["state"] = "downloaded_unverified"
         manifest["archive_sha256"] = receipt["archive_sha256"]

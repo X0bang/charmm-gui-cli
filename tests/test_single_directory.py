@@ -8,11 +8,12 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from charmm_gui_cli import managed, delivery, workflow
-from charmm_gui_cli.auth import ToolError, atomic_json
+from charmm_gui_cli.store import managed, delivery
+from charmm_gui_cli.pipeline import workflow
+from charmm_gui_cli.store.auth import ToolError, atomic_json
 from charmm_gui_cli.cli import main
-from charmm_gui_cli.layout import full_archive_path, log_path, inputs_path
-from charmm_gui_cli.validation import extract_for_validation
+from charmm_gui_cli.store.layout import full_archive_path, log_path, inputs_path
+from charmm_gui_cli.chem.validation import extract_for_validation
 from tests import test_managed_provenance as provenance
 
 
@@ -35,7 +36,7 @@ class SingleDirectoryTests(unittest.TestCase):
         fixture.save()
         self.stack = contextlib.ExitStack()
         self.addCleanup(self.stack.close)
-        self.stack.enter_context(patch("charmm_gui_cli.managed._registry", return_value=fixture.root / "index"))
+        self.stack.enter_context(patch("charmm_gui_cli.store.managed._registry", return_value=fixture.root / "index"))
         managed._evidence(fixture.manifest, fixture.archive, False, "gmx", create_receipt=True)
         self.report = fixture.publish_report()
         self.model = self.root / "model"
@@ -117,7 +118,7 @@ class SingleDirectoryTests(unittest.TestCase):
         self.assertEqual(path.read_text(), "user edit")
 
     def test_written_report_has_confirmed_job_ids_and_no_grompp_state(self):
-        from charmm_gui_cli.i18n import set_language
+        from charmm_gui_cli.locales.i18n import set_language
         set_language("en")
         delivery.auto_export(self.run)
         content = (self.root / "report.txt").read_text()
@@ -136,8 +137,8 @@ class SingleDirectoryTests(unittest.TestCase):
         self.assertEqual(caught.exception.key, "delivery.unsafe")
 
     def test_new_layout_preview_reaches_renderer(self):
-        from charmm_gui_cli.preview import preview_run
-        with patch("charmm_gui_cli.preview.render_model", return_value={"images": [], "model": "mock"}) as render:
+        from charmm_gui_cli.chem.preview import preview_run
+        with patch("charmm_gui_cli.chem.preview.render_model", return_value={"images": [], "model": "mock"}) as render:
             preview_run(self.run)
         self.assertEqual(render.call_args.args[0].resolve(),
                          (self.model / "charmm-gui-200/step5_assembly.pdb").resolve())
@@ -147,7 +148,7 @@ class SingleDirectoryTests(unittest.TestCase):
         def interrupted(source, output):
             output.write(b"x")
             raise KeyboardInterrupt
-        with patch("charmm_gui_cli.validation.shutil.copyfileobj", side_effect=interrupted):
+        with patch("charmm_gui_cli.chem.validation.shutil.copyfileobj", side_effect=interrupted):
             with self.assertRaises(KeyboardInterrupt):
                 extract_for_validation(self.fixture.archive, destination)
         self.assertFalse(destination.exists())
@@ -201,11 +202,11 @@ class SingleDirectoryTests(unittest.TestCase):
         self.assertFalse((fixture.root / "charmm-gui-runs").exists())
 
     def test_foreign_root_is_not_overwritten(self):
-        from charmm_gui_cli.full_build import initialize
+        from charmm_gui_cli.pipeline.full_build import initialize
         foreign = self.fixture.root / "foreign"
         foreign.mkdir()
         (foreign / "keep.txt").write_text("user file")
-        with patch("charmm_gui_cli.full_build.load_build_config", return_value={}), self.assertRaises(ToolError):
+        with patch("charmm_gui_cli.pipeline.full_build.load_build_config", return_value={}), self.assertRaises(ToolError):
             initialize("unused.yaml", foreign / ".charmm-gui")
         self.assertEqual((foreign / "keep.txt").read_text(), "user file")
         self.assertFalse((foreign / ".charmm-gui").exists())

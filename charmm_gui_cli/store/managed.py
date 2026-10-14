@@ -12,14 +12,14 @@ import tempfile
 import uuid
 
 from .. import __version__
-from ..acceptance import assess_acceptance, extract_cgenff_penalties
-from ..auth import ToolError, atomic_json, default_token_path
-from ..full_build import initialize
-from ..pose_validation import validate_bound_pose
-from ..validation import extract_for_validation, inspect_environment, validate_system
-from ..workflow import run_lock
-from ..multicomponent import prepare_build_components, validate_components
-from ..layout import modern, task_root, inputs_path, log_path, full_archive_path
+from charmm_gui_cli.pipeline.acceptance import assess_acceptance, extract_cgenff_penalties
+from charmm_gui_cli.store.auth import ToolError, atomic_json, default_token_path
+from charmm_gui_cli.pipeline.full_build import initialize
+from charmm_gui_cli.chem.pose_validation import validate_bound_pose
+from charmm_gui_cli.chem.validation import extract_for_validation, inspect_environment, validate_system
+from charmm_gui_cli.store.locking import run_lock
+from charmm_gui_cli.chem.multicomponent import prepare_build_components, validate_components
+from charmm_gui_cli.store.layout import modern, task_root, inputs_path, log_path, full_archive_path
 from .paths import read_value, encode, identity
 
 
@@ -231,9 +231,9 @@ def inspect_run(target, *, remote_check=False, token_file=None):
         if key in manifest and key not in result:
             result[key] = manifest[key]
     if remote_check and result.get("build_job_id"):
-        from ..api import Client
-        from ..auth import load_token
-        from ..workflow import status_summary
+        from charmm_gui_cli.remote.api import Client
+        from charmm_gui_cli.store.auth import load_token
+        from charmm_gui_cli.pipeline.workflow import status_summary
         token, source = load_token(token_file)
         try:
             from ..remote.sessions import bind
@@ -251,16 +251,16 @@ def inspect_run(target, *, remote_check=False, token_file=None):
         if result["remote_status"] == "done" and result.get("state") not in ("validated", "validation_failed"):
             result["next_step"] = "Remote model is done. Use jobs resume to download and validate it."
         elif result["remote_status"] == "archive_preparing" and result.get("state") not in ("validated", "validation_failed"):
-            from ..auth import recovery_guidance
+            from charmm_gui_cli.store.auth import recovery_guidance
             result["next_step"] = recovery_guidance("archive_preparing")
     elif remote_check:
         result["remote_check_note"] = "No bilayer job exists yet; preparation state is recorded locally."
     if isinstance(result.get("next_step"), str):
         result["next_step"] = re.sub(r"\bNAME\b", lambda _: shlex.quote(result.get("name") or str(task_root(directory))), result["next_step"])
-    from ..progress import result_presentation
+    from charmm_gui_cli.presentation.progress import result_presentation
     result["presentation"] = result_presentation(result)
     result["official_links"] = result["presentation"]["official_links"]
-    from ..background import metadata
+    from charmm_gui_cli.store.background import metadata
     result["background"] = metadata(directory)
     if result["background"].get("running"):
         from .transfer_state import saved_transfer
@@ -356,7 +356,7 @@ def list_runs():
             record.update(_final_summary(Path(record["directory"])))
             record.update(_job_metadata(Path(record["directory"])))
             record.update(_recovery_summary(Path(record["directory"])))
-            from ..background import metadata
+            from charmm_gui_cli.store.background import metadata
             record["background"] = metadata(record["directory"])
             unique.append(record)
             seen.add(record["directory"])
@@ -395,8 +395,8 @@ def create_managed_build(*, protein=None, ligand=None, complex_pdb=None, ligand_
                          ligand_smiles=None, accept_conect_bond_orders=False, output=None,
                          membrane=None, ions=None, preparation=None, hydrogens="add_missing", input_options=None):
     """Prepare inputs and initialize one new run; never contact CHARMM-GUI."""
-    from ..input_sources import prepare_sources
-    from ..build_config import validate_model_options
+    from charmm_gui_cli.chem.input_sources import prepare_sources
+    from charmm_gui_cli.pipeline.build_config import validate_model_options
     from .local_build import local_initialization
     model = validate_model_options(
         membrane if membrane is not None else {"upper": "POPC=1", "lower": "POPC=1", "margin_A": 20, "water_padding_A": 22.5},
@@ -430,9 +430,9 @@ def create_managed_build(*, protein=None, ligand=None, complex_pdb=None, ligand_
 def create_component_build(*, components_config, complex_pdb, output=None, membrane=None, ions=None,
                            preparation=None, hydrogens="add_missing", allow_distant_pose=False, input_options=None):
     """Initialize one locally verified multicomponent run, without remote calls."""
-    from ..build_config import load_build_config
-    from ..build_config import validate_model_options
-    from ..workflow import now
+    from charmm_gui_cli.pipeline.build_config import load_build_config
+    from charmm_gui_cli.pipeline.build_config import validate_model_options
+    from charmm_gui_cli.store.locking import now
 
     directory = new_run_path() if output is None else Path(output).expanduser().resolve()
     model = validate_model_options(
@@ -454,13 +454,13 @@ def create_component_build(*, components_config, complex_pdb, output=None, membr
         config_path = directory / "component-build-config.json"
         _new_json(config_path, raw)
         config = load_build_config(config_path)
-        from ..build_config import validate_terminal_residues
-        from ..pdb_normalization import normalize_lines, terminal_predictions
+        from charmm_gui_cli.pipeline.build_config import validate_terminal_residues
+        from charmm_gui_cli.chem.pdb_normalization import normalize_lines, terminal_predictions
         validate_terminal_residues(config["preparation"], terminal_predictions(normalize_lines(inputs["files"]["protein.pdb"])))
         config.update(components_mode=True, component_resnames=[group["resname"] for group in component_manifest["chemistry_groups"]],
                       components_config=str(Path(components_config).resolve()),
                       component_manifest=inputs["files"]["input-manifest.json"])
-        from ..delivery import creation_context
+        from charmm_gui_cli.store.delivery import creation_context
         manifest = {"schema_version": 2, "created_at": now(), "updated_at": now(), "state": "inputs_ready", "config": config, "inputs": inputs,
                     "delivery_context": creation_context()}
         _new_json(directory / "full-run.json", manifest)
@@ -569,8 +569,8 @@ def _compiler_identity(gmx):
 
 def _archive_binding(manifest, archive, *, create_receipt=False):
     """Bind immutable archive provenance to both full-build and API job lineage."""
-    from ..api import job_id
-    from ..workflow import verify_archive_provenance
+    from charmm_gui_cli.remote.api import job_id
+    from charmm_gui_cli.pipeline.workflow import verify_archive_provenance
 
     archive = Path(archive)
     bilayer_directory = (archive.parent / ".charmm-gui/bilayer"
@@ -713,7 +713,7 @@ def _cached_model_missing(directory, report):
 
 def _verify_cached_model(directory, archive, report):
     """Bind cached conclusions to model bytes, not just their source tarball."""
-    from ..delivery import verify_model
+    from charmm_gui_cli.store.delivery import verify_model
     if _cached_model_missing(directory, report):
         raise FileNotFoundError(2, "Missing extracted model", report["extracted_directory"])
     model = Path(report["extracted_directory"])
@@ -754,7 +754,7 @@ def finalize_managed_build(directory, *, grompp=False, gmx="gmx"):
         # Retain one extracted model across compiler checks and client upgrades.
         # Verify its bytes against the archive before reusing user-visible files.
         if modern(directory) and model.exists():
-            from ..delivery import verify_model
+            from charmm_gui_cli.store.delivery import verify_model
             verify_model(archive, model)
             extracted = model
         else:

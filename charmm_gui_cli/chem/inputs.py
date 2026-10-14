@@ -14,9 +14,9 @@ import math
 from pathlib import Path
 import re
 
-from ..auth import ToolError
-from ..pdb_normalization import normalize_lines
-from ..i18n import t
+from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.chem.pdb_normalization import normalize_lines
+from charmm_gui_cli.locales.i18n import t
 
 
 @dataclass
@@ -268,7 +268,7 @@ def _validate_ligand(ligand):
         report["explicit_hydrogen_atoms"] = sum(atom.element == "H" for atom in atoms)
         if implicit:
             report.setdefault("chemistry_warnings", []).append({"key": "input.implicit_hydrogens", "params": {"count": implicit}})
-            from ..i18n import MESSAGES
+            from charmm_gui_cli.locales.i18n import MESSAGES
             report["warnings"].append(MESSAGES["input.implicit_hydrogens"]["en"].format(count=implicit))
         report["warnings"].append("RDKit sanitization is not a force-field quality or protonation-state assessment.")
     return report

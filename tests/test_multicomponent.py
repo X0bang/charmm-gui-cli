@@ -5,9 +5,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from charmm_gui_cli.auth import ToolError
-from charmm_gui_cli.inputs import Atom, _conect, _sdf, read_ligand
-from charmm_gui_cli.multicomponent import load_components_config, prepare_build_components, prepare_multicomponent, validate_components
+from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.chem.inputs import Atom, _conect, _sdf, read_ligand
+from charmm_gui_cli.chem.multicomponent import load_components_config, prepare_build_components, prepare_multicomponent, validate_components
 
 
 def pdb_atom(serial, name, element, resname, chain, resid, xyz, record="HETATM", icode=" "):
@@ -173,12 +173,12 @@ class MulticomponentTests(unittest.TestCase):
         manifest = self.prepare()["report"]
         validation = {"passed": True, "checks": {"ligand_topology_presence": {"copies": 1}, "ligand_coordinate_retention": {"copies": 1}}}
         pose = {"passed": True, "rotation_row_vector": [[1, 0, 0], [0, 1, 0], [0, 0, 1]], "translation_A": [1, 2, 3]}
-        with patch("charmm_gui_cli.validation.validate_system", return_value=validation) as check, patch("charmm_gui_cli.pose_validation.validate_bound_pose", return_value=pose):
+        with patch("charmm_gui_cli.chem.validation.validate_system", return_value=validation) as check, patch("charmm_gui_cli.chem.pose_validation.validate_bound_pose", return_value=pose):
             result = validate_components(self.root, manifest, self.source, run_grompp=True)
         self.assertTrue(result["passed"])
         self.assertEqual([call.kwargs["run_grompp"] for call in check.call_args_list], [True, False])
         validation["checks"]["ligand_topology_presence"]["copies"] = 2
-        with patch("charmm_gui_cli.validation.validate_system", return_value=validation), patch("charmm_gui_cli.pose_validation.validate_bound_pose", return_value=pose):
+        with patch("charmm_gui_cli.chem.validation.validate_system", return_value=validation), patch("charmm_gui_cli.chem.pose_validation.validate_bound_pose", return_value=pose):
             self.assertFalse(validate_components(self.root, manifest, self.source)["passed"])
 
     def test_aggregate_refuses_repeated_copy_pose_ambiguity(self):
@@ -193,7 +193,7 @@ class MulticomponentTests(unittest.TestCase):
         manifest = self.prepare()["report"]
         validation = {"passed": True, "checks": {"ligand_topology_presence": {"copies": 1}, "ligand_coordinate_retention": {"copies": 1}}}
         poses = [{"passed": True, "rotation_row_vector": [[1, 0, 0], [0, 1, 0], [0, 0, 1]], "translation_A": [i, 0, 0]} for i in (0, 1)]
-        with patch("charmm_gui_cli.validation.validate_system", return_value=validation), patch("charmm_gui_cli.pose_validation.validate_bound_pose", side_effect=poses):
+        with patch("charmm_gui_cli.chem.validation.validate_system", return_value=validation), patch("charmm_gui_cli.chem.pose_validation.validate_bound_pose", side_effect=poses):
             result = validate_components(self.root, manifest, self.source)
         self.assertFalse(result["passed"])
         self.assertFalse(result["checks"]["same_protein_transform"]["passed"])
@@ -237,7 +237,7 @@ class MulticomponentTests(unittest.TestCase):
                                           out=self.root / "build", hydrogens="preserve", allow_distant_pose=True)
         self.assertEqual(result["manifest"]["output_complex_atoms"], 7)
         self.assertEqual(result["manifest"]["hydrogens_added"], 0)
-        from charmm_gui_cli.inputs import _pdb
+        from charmm_gui_cli.chem.inputs import _pdb
         atoms, bonds = _pdb(result["files"]["complex.pdb"])
         self.assertEqual([atom.serial for atom in atoms], list(range(1, 8)))
         self.assertEqual([(a.line[21], int(a.line[22:26])) for a in atoms[3:]], [("B", 1), ("B", 1), ("C", 2), ("C", 2)])
@@ -251,7 +251,7 @@ class MulticomponentTests(unittest.TestCase):
         result = prepare_build_components(components_config=self.config(), complex_pdb=self.source,
                                           out=self.root / "build", hydrogens="add_missing", allow_distant_pose=True)
         self.assertEqual(result["manifest"]["hydrogens_added"], 4)
-        from charmm_gui_cli.inputs import _pdb
+        from charmm_gui_cli.chem.inputs import _pdb
         atoms, bonds = _pdb(result["files"]["complex.pdb"])
         self.assertEqual(len(atoms), 11)
         heavy = [a for a in atoms if a.element != "H"]

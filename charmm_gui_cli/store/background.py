@@ -1,6 +1,6 @@
 """Detached, locked workers and read-only log following (POSIX platforms)."""
 
-from ..layout import modern, task_root, inputs_path, log_path, full_archive_path
+from charmm_gui_cli.store.layout import modern, task_root, inputs_path, log_path, full_archive_path
 
 import argparse
 import contextlib
@@ -16,8 +16,8 @@ import math
 import shutil
 from .paths import read_value
 
-from ..auth import ToolError, atomic_json, load_token, resolve_cookie_path
-from ..i18n import set_language, t
+from charmm_gui_cli.store.auth import ToolError, atomic_json, load_token, resolve_cookie_path
+from charmm_gui_cli.locales.i18n import set_language, t
 
 
 def claim(directory):
@@ -71,8 +71,8 @@ def write_lock(fd, value):
 
 
 def launch(args):
-    from ..build_command import execute
-    from .. import managed
+    from charmm_gui_cli.pipeline.build_command import execute
+    from charmm_gui_cli.store import managed
     if (getattr(args, "interval", 30) < 10 or getattr(args, "max_wait", 21600) <= 0
             or not math.isfinite(getattr(args, "post_timeout", 900)) or getattr(args, "post_timeout", 900) <= 0):
         raise ToolError(key="background.runtime_invalid", next_step="charmm-gui-cli jobs resume -h")
@@ -88,7 +88,7 @@ def launch(args):
         directory = Path(result["directory"])
     else:
         directory = managed.resolve_run(args.directory)
-        from ..full_build import _read
+        from charmm_gui_cli.pipeline.full_build import _read
         manifest = _read(directory)
         result = {"directory": str(directory), "state": manifest.get("state", "unknown")}
     fd = claim(directory)
@@ -98,7 +98,7 @@ def launch(args):
         offline = local_archive and manifest.get("state") in ("ligands_present", "downloaded_unverified", "validation_failed", "validated", "complete", "completed")
         if not offline:
             token, source = load_token(args.token_file)
-            from ..api import Client
+            from charmm_gui_cli.remote.api import Client
             from ..remote.sessions import bind, warn_expiry, session_cookie_path
             api = Client(token)
             cookies = session_cookie_path(args.cookies, source)
@@ -110,7 +110,7 @@ def launch(args):
             except ToolError:
                 pass
         if not offline and not (directory / "bilayer" / "run.json").exists() and "reused_preparation" not in manifest:
-            from ..web import WebClient, soup_for
+            from charmm_gui_cli.remote.web import WebClient, soup_for
             web = WebClient(cookies, post_timeout=args.post_timeout)
             bind(web, source, cookies, manager)
             web.validate_auth()
@@ -130,7 +130,7 @@ def launch(args):
         env["PYTHONPATH"] = str(Path(__file__).resolve().parents[2]) + os.pathsep + env.get("PYTHONPATH", "")
         with open(log_path(directory), "a", encoding="utf-8") as log:
             os.chmod(log_path(directory), 0o600)
-            process = subprocess.Popen([sys.executable, "-m", "charmm_gui_cli.background", str(directory), str(fd)],
+            process = subprocess.Popen([sys.executable, "-m", "charmm_gui_cli.store.background", str(directory), str(fd)],
                 stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True, pass_fds=(fd,), env=env)
         initial["pid"] = process.pid
         if sys.platform == "darwin":
@@ -147,7 +147,7 @@ def launch(args):
 
 
 def watch(directory, *, interval=1):
-    from ..progress import clear_line, terminal_frame
+    from charmm_gui_cli.presentation.progress import clear_line, terminal_frame
     directory = Path(directory)
     offset = 0
     phase = "charmm-gui-cli"
@@ -191,8 +191,8 @@ def watch(directory, *, interval=1):
 
 
 def worker(directory, fd):
-    from ..build_command import execute
-    from ..terminal_output import format_build
+    from charmm_gui_cli.pipeline.build_command import execute
+    from charmm_gui_cli.presentation.terminal_output import format_build
     directory = Path(directory)
     values = read_value(directory / "worker-options.json")
     for key in ("directory", "token_file", "cookies", "out", "config"):

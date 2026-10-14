@@ -1,6 +1,6 @@
 """Offline, escaped result presentation; never submits or repairs a model."""
 
-from ..layout import full_archive_path, modern, task_root
+from charmm_gui_cli.store.layout import full_archive_path, modern, task_root
 
 import base64
 import hashlib
@@ -9,9 +9,9 @@ import json
 from pathlib import Path
 import tarfile
 
-from ..auth import ToolError
-from ..progress import official_links
-from ..i18n import MESSAGES, get_language, t
+from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.presentation.progress import official_links
+from charmm_gui_cli.locales.i18n import MESSAGES, get_language, t
 
 
 def _hash(path):

@@ -1,6 +1,6 @@
-"""High-level CLI build orchestration; legacy YAML remains an advanced input."""
+"""Build orchestration; command adapters delegate here without owning state."""
 
-from ..layout import modern, task_root, inputs_path, log_path, full_archive_path
+from charmm_gui_cli.store.layout import modern, task_root, inputs_path, log_path, full_archive_path
 
 from pathlib import Path
 import shutil
@@ -9,10 +9,10 @@ import math
 import os
 import time
 
-from ..api import Client
-from ..auth import ToolError, load_token, resolve_cookie_path
-from ..i18n import t
-from ..progress import emit_progress, ProgressReporter, result_presentation
+from charmm_gui_cli.remote.api import Client
+from charmm_gui_cli.store.auth import ToolError, load_token, resolve_cookie_path
+from charmm_gui_cli.locales.i18n import t
+from charmm_gui_cli.presentation.progress import emit_progress, ProgressReporter, result_presentation
 
 
 def progress(event):
@@ -33,14 +33,14 @@ def failed_checks(report):
 
 
 def execute(args):
-    from .. import managed
+    from charmm_gui_cli.store import managed
     holder = []
     original_stderr = sys.stderr
     execution_code = 2
     try:
         result, execution_code = _execute(args, holder)
         if sys.stderr is not original_stderr and (not getattr(args, "_progress_callback", None) or result.get("state") in ("validated", "validation_failed")):
-            from ..terminal_output import format_build
+            from charmm_gui_cli.presentation.terminal_output import format_build
             sys.stderr.log.write(format_build(result) + "\n")
         return result, execution_code
     except ToolError as exc:
@@ -50,7 +50,7 @@ def execute(args):
             if holder:
                 try:
                     saved = managed._read_json(holder[0] / "full-run.json")
-                    from ..progress import describe_progress
+                    from charmm_gui_cli.presentation.progress import describe_progress
                     stage = describe_progress({"state": saved.get("state")}, localized=True)["label"]
                     ids = {key: value for key, value in saved.items() if key in ("source_job_id", "build_job_id")
                            and isinstance(value, str) and value.isdecimal() and len(value) <= 32}
@@ -88,8 +88,8 @@ def execute(args):
             args._reporter.close()
             args._reporter = None
         if getattr(args, "_run_lock_fd", None) is not None:
-            from ..background import metadata, write_lock
-            from ..workflow import now
+            from charmm_gui_cli.store.background import metadata, write_lock
+            from charmm_gui_cli.store.locking import now
             record = metadata(holder[-1])
             record.update(finished_at=now(), exit_code=execution_code)
             write_lock(args._run_lock_fd, record)
@@ -101,9 +101,9 @@ def execute(args):
 
 
 def _execute(args, holder):
-    from .. import managed
-    from ..full_build import initialize, advance
-    from ..web import WebClient
+    from charmm_gui_cli.store import managed
+    from charmm_gui_cli.pipeline.full_build import initialize, advance
+    from charmm_gui_cli.remote.web import WebClient
 
     reporter = getattr(args, "_progress_callback", None) or ProgressReporter()
     args._reporter = reporter
@@ -141,7 +141,7 @@ def _execute(args, holder):
         directory = managed.resolve_run(args.directory) if args.directory is not None else managed.latest_run()
         holder.append(Path(directory).resolve())
         if not getattr(args, "_worker", False):
-            from ..background import metadata
+            from charmm_gui_cli.store.background import metadata
             if metadata(directory)["running"]:
                 raise ToolError(key="background.running", next_step="charmm-gui-cli jobs list")
     if args.command == "build" and getattr(args, "name", None):
@@ -149,7 +149,7 @@ def _execute(args, holder):
         if args.out is None:
             args.out = managed.new_run_path(args.name)
     if args.command == "build" and args.out is not None:
-        from ..layout import task_path
+        from charmm_gui_cli.store.layout import task_path
         args.out = task_path(args.out)
     local_complete = False
     if directory is not None and (directory / "full-run.json").is_file() and (full_archive_path(directory)).is_file():
@@ -222,7 +222,7 @@ def _execute(args, holder):
     if (directory / "full-run.json").is_file():
         managed.remember_run(directory)
         if args.command == "build":
-            from ..delivery import check_destination
+            from charmm_gui_cli.store.delivery import check_destination
             check_destination(directory)
     if dry_run:
         prepared_manifest = (managed._read_json(directory / "full-run.json").get("inputs", {}).get("manifest", {})
@@ -234,11 +234,11 @@ def _execute(args, holder):
                 **({"name": args.name} if getattr(args, "name", None) else {}),
                 "next_step": "charmm-gui-cli login; charmm-gui-cli build-resume"}, 0
     if directory.is_dir() and not getattr(args, "_worker", False):
-        from ..background import claim, write_lock
-        from ..workflow import now
+        from charmm_gui_cli.store.background import claim, write_lock
+        from charmm_gui_cli.store.locking import now
         args._run_lock_fd = claim(directory)
         write_lock(args._run_lock_fd, {"pid": os.getpid(), "started_at": now()})
-        from ..run_logging import LogStream
+        from charmm_gui_cli.store.run_logging import LogStream
         sys.stderr = LogStream(sys.stderr, log_path(directory))
     if not getattr(args, "_progress_callback", None):
         print(f"[charmm-gui-cli] run={directory}", file=sys.stderr, flush=True)
@@ -255,7 +255,7 @@ def _execute(args, holder):
         from ..remote.http_retry import long_get_retries
         def waiting(event):
             from ..store.auth import atomic_json
-            from ..workflow import now
+            from charmm_gui_cli.store.locking import now
             if event["event"] == "waiting":
                 atomic_json(directory / "network-wait.json", {**event, "active": True, "updated_at": now(),
                             "next_retry_unix": time.time() + event["retry_in_seconds"]})
@@ -300,13 +300,13 @@ def _execute(args, holder):
         if getattr(args, "no_preview", False):
             summary["preview"] = {"status": "disabled"}
         else:
-            from ..preview import preview_run
+            from charmm_gui_cli.chem.preview import preview_run
             try:
                 summary["preview"] = preview_run(directory, report=report)
             except (ToolError, OSError) as error:
                 summary["preview"] = {"status": "failed", "message": str(error) if isinstance(error, ToolError) else "Local preview output could not be generated."}
         if report.get("validation_complete") is True:
-            from ..delivery import auto_export
+            from charmm_gui_cli.store.delivery import auto_export
             summary["delivery"] = auto_export(directory)
         return summary, 0 if report.get("passed") else 2
     summary["next_step"] = "charmm-gui-cli build-resume"

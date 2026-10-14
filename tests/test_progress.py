@@ -9,9 +9,10 @@ import unittest
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
-from charmm_gui_cli import build_command, managed
-from charmm_gui_cli.i18n import t, translate_literal
-from charmm_gui_cli.progress import (
+from charmm_gui_cli.pipeline import build_command
+from charmm_gui_cli.store import managed
+from charmm_gui_cli.locales.i18n import t, translate_literal
+from charmm_gui_cli.presentation.progress import (
     ProgressReporter, describe_progress, emit_progress, format_progress,
     official_links, result_presentation,
 )
@@ -149,7 +150,7 @@ class ProgressTests(unittest.TestCase):
         links = official_links(source_job_id="123", build_job_id="234")
         for url in links.values():
             self.assertEqual(output.getvalue().count(url), 1)
-        from charmm_gui_cli.progress import UI_NOTE
+        from charmm_gui_cli.presentation.progress import UI_NOTE
         self.assertNotIn(translate_literal(UI_NOTE, prefix="progress."), output.getvalue())
 
     def test_offline_build_summary_keeps_json_and_adds_presentation(self):

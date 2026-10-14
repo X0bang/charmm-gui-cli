@@ -6,8 +6,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from charmm_gui_cli.archive_transport import normalize_download, cleanup_download_duplicates
-from charmm_gui_cli.auth import ToolError
+from charmm_gui_cli.remote.archive_transport import normalize_download, cleanup_download_duplicates
+from charmm_gui_cli.store.auth import ToolError
 
 
 def packed_tar(payload=b"test\n"):
@@ -108,7 +108,7 @@ class ArchiveTransportTests(unittest.TestCase):
 
     def test_gzip_and_decimal_footer_across_tiny_chunk_boundaries(self):
         data = packed_tar(b"abc123" * 100)
-        with patch("charmm_gui_cli.archive_transport.CHUNK_SIZE", 13):
+        with patch("charmm_gui_cli.remote.archive_transport.CHUNK_SIZE", 13):
             report = self.normalize(data + str(len(data)).encode())
         self.assertEqual(report["compressed_bytes"], len(data))
         self.assertEqual(self.destination.read_bytes(), data)

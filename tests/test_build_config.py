@@ -8,8 +8,8 @@ from unittest.mock import Mock, patch
 
 import yaml
 
-from charmm_gui_cli.auth import ToolError, atomic_json, atomic_write
-from charmm_gui_cli.build_config import api_config, load_build_config
+from charmm_gui_cli.store.auth import ToolError, atomic_json, atomic_write
+from charmm_gui_cli.pipeline.build_config import api_config, load_build_config
 from charmm_gui_cli.cli import main
 
 
@@ -87,9 +87,9 @@ class BuildConfigTests(unittest.TestCase):
         (directory / "bilayer").mkdir(parents=True)
         atomic_json(directory / "bilayer" / "run.json", {"job_id": "456"})
         output = io.StringIO()
-        with patch("charmm_gui_cli.build_command.load_token", return_value=("secret", "mock")), \
-                patch("charmm_gui_cli.full_build.advance", return_value={"state": "complete", "build_job_id": "456"}) as advance, \
-                patch("charmm_gui_cli.web.WebClient") as web, contextlib.redirect_stdout(output):
+        with patch("charmm_gui_cli.pipeline.build_command.load_token", return_value=("secret", "mock")), \
+                patch("charmm_gui_cli.pipeline.full_build.advance", return_value={"state": "complete", "build_job_id": "456"}) as advance, \
+                patch("charmm_gui_cli.remote.web.WebClient") as web, contextlib.redirect_stdout(output):
             code = main(["--foreground", "build-resume", str(directory), "--cookies", str(self.root / "missing-cookie.json")])
         self.assertEqual(code, 0)
         web.assert_not_called()
@@ -101,8 +101,8 @@ class BuildConfigTests(unittest.TestCase):
         self.load()
         directory = self.root / "not-created"
         errors = io.StringIO()
-        with patch("charmm_gui_cli.build_command.load_token", return_value=("secret", "mock")), \
-                patch("charmm_gui_cli.full_build.initialize") as initialize, contextlib.redirect_stderr(errors):
+        with patch("charmm_gui_cli.pipeline.build_command.load_token", return_value=("secret", "mock")), \
+                patch("charmm_gui_cli.pipeline.full_build.initialize") as initialize, contextlib.redirect_stderr(errors):
             code = main(["--foreground", "build", str(self.path), "--out", str(directory), "--cookies", str(self.root / "missing-cookie.json")])
         self.assertEqual(code, 2)
         initialize.assert_not_called()

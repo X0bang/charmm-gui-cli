@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from charmm_gui_cli import full_build
-from charmm_gui_cli.auth import ToolError, atomic_json, atomic_write
+from charmm_gui_cli.pipeline import full_build
+from charmm_gui_cli.store.auth import ToolError, atomic_json, atomic_write
 
 
 def rendered(stop=0, complete=True, errors="", next_step="2", identifier="123"):
@@ -130,7 +130,7 @@ class FullBuildTests(unittest.TestCase):
             self.assertEqual(value["state"], "inputs_ready")
             self.assertFalse((directory / "preparation").exists())
         with patch.object(full_build, "api_config", return_value={}), patch.object(full_build, "start_api", side_effect=start) as start_mock, \
-                patch("charmm_gui_cli.sweep.seal_preparation", side_effect=seal) as seal_mock:
+                patch("charmm_gui_cli.pipeline.sweep.seal_preparation", side_effect=seal) as seal_mock:
             result = full_build.advance(self.root, self.web, Mock())
             self.assertEqual(result["state"], "bilayer_submitted")
             self.assertEqual(self.web.submit_snapshot.call_count, 2)
@@ -184,7 +184,7 @@ class FullBuildTests(unittest.TestCase):
     def test_reused_source_clones_without_web_or_cookies(self):
         self.manifest.update(state="prepared_reused", reused_preparation={"certificate": "mocked"})
         atomic_json(self.root / "full-run.json", self.manifest)
-        with patch("charmm_gui_cli.sweep.reuse_api_config", return_value={"source_job_id": "123"}) as verify, \
+        with patch("charmm_gui_cli.pipeline.sweep.reuse_api_config", return_value={"source_job_id": "123"}) as verify, \
                 patch.object(full_build, "start_api", return_value={"job_id": "456"}) as start:
             result = full_build.advance(self.root, None, Mock(), wait=False)
         verify.assert_called_once()
@@ -196,7 +196,7 @@ class FullBuildTests(unittest.TestCase):
     def test_reuse_failure_does_not_fallback_to_upload(self):
         self.manifest.update(state="prepared_reused", reused_preparation={})
         atomic_json(self.root / "full-run.json", self.manifest)
-        with patch("charmm_gui_cli.sweep.reuse_api_config", side_effect=ToolError("Changed source evidence")), \
+        with patch("charmm_gui_cli.pipeline.sweep.reuse_api_config", side_effect=ToolError("Changed source evidence")), \
                 patch.object(full_build, "start_api") as start, self.assertRaises(ToolError):
             full_build.advance(self.root, self.web, Mock())
         start.assert_not_called()
@@ -207,7 +207,7 @@ class FullBuildTests(unittest.TestCase):
         atomic_json(self.root / "full-run.json", self.manifest)
         (self.root / "bilayer").mkdir()
         atomic_json(self.root / "bilayer/run.json", {"job_id": "456"})
-        with patch("charmm_gui_cli.sweep.reuse_api_config", side_effect=AssertionError("No source dependency")), \
+        with patch("charmm_gui_cli.pipeline.sweep.reuse_api_config", side_effect=AssertionError("No source dependency")), \
                 patch.object(full_build, "resume_api", return_value={"job_id": "456", "state": "running"}):
             result = full_build.advance(self.root, None, Mock())
         self.assertEqual(result["state"], "running")

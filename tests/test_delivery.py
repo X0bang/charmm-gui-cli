@@ -6,11 +6,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from charmm_gui_cli import delivery, managed
-from charmm_gui_cli.auth import ToolError, atomic_json
+from charmm_gui_cli.store import delivery, managed
+from charmm_gui_cli.store.auth import ToolError, atomic_json
 from charmm_gui_cli.cli import main
-from charmm_gui_cli.terminal_output import format_build
-from charmm_gui_cli.validation import extract_for_validation
+from charmm_gui_cli.presentation.terminal_output import format_build
+from charmm_gui_cli.chem.validation import extract_for_validation
 from tests import test_managed_provenance as provenance
 
 
@@ -146,7 +146,7 @@ class DeliveryTests(unittest.TestCase):
         self.assertNotIn(str(self.project), text)
 
     def test_incomplete_stale_and_active_tasks_are_rejected(self):
-        with patch("charmm_gui_cli.background.metadata", return_value={"running": True}):
+        with patch("charmm_gui_cli.store.background.metadata", return_value={"running": True}):
             with self.assertRaises(ToolError) as error:
                 delivery.export_run(self.run)
             self.assertEqual(error.exception.key, "background.running")
@@ -213,11 +213,11 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(json.loads(Path(result["report"]).read_text())["evidence"]["tool_version"], "0.5.2")
 
     def test_new_initialization_records_creation_directory_before_remote_work(self):
-        from charmm_gui_cli.full_build import initialize
+        from charmm_gui_cli.pipeline.full_build import initialize
         config = {"protein": "protein.pdb", "ligand": "ligand.sdf", "ligand_resname": "LIG", "ligand_hydrogens": "preserve",
                   "preparation": {"n_terminal": "NTER", "c_terminal": "CTER", "orientation": "ppm"}}
-        with patch("charmm_gui_cli.full_build.load_build_config", return_value=config), \
-                patch("charmm_gui_cli.full_build.prepare_inputs", return_value={"files": {}}):
+        with patch("charmm_gui_cli.pipeline.full_build.load_build_config", return_value=config), \
+                patch("charmm_gui_cli.pipeline.full_build.prepare_inputs", return_value={"files": {}}):
             result = initialize(self.root / "config.yaml", self.root / "new-run")
         context = result["delivery_context"]
         self.assertEqual(context["creation_directory"], str(self.project))

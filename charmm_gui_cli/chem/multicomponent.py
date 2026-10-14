@@ -12,9 +12,9 @@ import math
 from pathlib import Path
 import re
 
-from ..auth import ToolError
-from ..input_sources import _chemical_sdf_in_complex, _internal
-from ..inputs import Ligand, _apply_hydrogen_policy, _conect, _pdb, _protein_pdb_lines, _sdf, _validate_ligand, _validate_protein, read_ligand
+from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.chem.input_sources import _chemical_sdf_in_complex, _internal
+from charmm_gui_cli.chem.inputs import Ligand, _apply_hydrogen_policy, _conect, _pdb, _protein_pdb_lines, _sdf, _validate_ligand, _validate_protein, read_ligand
 from .residues import SIDECHAINS, ALIASES, WATERS, validate_input_options
 from .input_safety import validate_cgenff, validate_contact, validate_ligand_name
 
@@ -311,8 +311,8 @@ def validate_components(system_dir, input_manifest, reference_pdb, run_grompp=Fa
     retained input solvent/ions fail explicitly until residue-level lineage can
     be proved; merely finding the same number of bulk waters is not such proof.
     """
-    from ..pose_validation import validate_bound_pose, derive_server_atom_mapping
-    from ..validation import validate_system
+    from charmm_gui_cli.chem.pose_validation import validate_bound_pose, derive_server_atom_mapping
+    from charmm_gui_cli.chem.validation import validate_system
 
     report = {"passed": False, "scientific_correctness_verified": False, "checks": {}, "components": {}, "errors": [],
               "scope": "Exact component counts, heavy-atom chemistry retention and protein-frame relative poses; optional single grompp"}
@@ -406,7 +406,7 @@ def validate_components(system_dir, input_manifest, reference_pdb, run_grompp=Fa
 def load_components_config(path):
     """Read strict version-1 YAML; resolve chemical files relative to the YAML."""
     import yaml
-    from ..config import UniqueLoader
+    from charmm_gui_cli.store.configuration import UniqueLoader
 
     path = _file(path, "Components configuration")
     try:

@@ -5,7 +5,9 @@ import re
 import unittest
 from unittest.mock import patch
 
-from charmm_gui_cli import cli, i18n, progress, reporting
+from charmm_gui_cli import cli
+from charmm_gui_cli.locales import i18n
+from charmm_gui_cli.presentation import progress, reporting
 
 
 class LocalizedHelpTests(unittest.TestCase):

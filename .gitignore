@@ -22,6 +22,7 @@
 !/charmm_gui_cli/chem/
 !/charmm_gui_cli/store/
 !/charmm_gui_cli/locales/
+!/charmm_gui_cli/presentation/
 /charmm_gui_cli/*/*
 !/charmm_gui_cli/*/*.py
 !/tests/
@@ -35,6 +36,7 @@
 /docs/*
 !/docs/INSTALL.md
 !/docs/ADVANCED.md
+!/docs/ARCHITECTURE.md
 !/docs/TESTING.md
 !/docs/USAGE.md
 !/docs/BATCH.md

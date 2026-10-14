@@ -14,8 +14,8 @@ import requests
 from charmm_gui_cli.remote import http_retry
 from charmm_gui_cli.store import managed
 from charmm_gui_cli.store.auth import atomic_json
-from charmm_gui_cli.commands import build_command
-from charmm_gui_cli.commands.terminal_output import format_job_status
+from charmm_gui_cli.pipeline import build_command
+from charmm_gui_cli.presentation.terminal_output import format_job_status
 from tests.test_recovery import response, token
 
 
@@ -148,12 +148,12 @@ class LongGetRetryTests(unittest.TestCase):
 
         output = io.StringIO()
         with patch("requests.Session", return_value=self.session), \
-                patch("charmm_gui_cli.build_command.load_token", return_value=(token(), "fixture")), \
-                patch("charmm_gui_cli.managed._registry", return_value=root / "index"), \
-                patch("charmm_gui_cli.full_build.advance", side_effect=advance), \
+                patch("charmm_gui_cli.pipeline.build_command.load_token", return_value=(token(), "fixture")), \
+                patch("charmm_gui_cli.store.managed._registry", return_value=root / "index"), \
+                patch("charmm_gui_cli.pipeline.full_build.advance", side_effect=advance), \
                 patch.dict("os.environ", {"CHARMM_GUI_GET_RETRY_SECONDS": "1200", "CHARMM_GUI_CLI_LANG": "en"}), \
                 redirect_stderr(output):
-            from charmm_gui_cli.i18n import set_language
+            from charmm_gui_cli.locales.i18n import set_language
             set_language("en")
             result, code = build_command.execute(args)
         self.assertEqual(code, 0)

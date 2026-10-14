@@ -7,8 +7,8 @@ from pathlib import Path, PurePosixPath
 import re
 import tarfile
 
-from ..auth import ToolError
-from ..validation import compare_bound_pose, element_from_natural_mass, validate_atom_name_map
+from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.chem.validation import compare_bound_pose, element_from_natural_mass, validate_atom_name_map
 
 
 def derive_server_atom_mapping(system_dir, reference_pdb, expected, *, archive_path):
@@ -18,7 +18,7 @@ def derive_server_atom_mapping(system_dir, reference_pdb, expected, *, archive_p
     elements, so their matching unmodified source PSF supplies natural masses.
     The caller must additionally revalidate mapped final elements and bonds.
     """
-    from ..workflow import verify_archive_provenance
+    from charmm_gui_cli.pipeline.workflow import verify_archive_provenance
     if archive_path is None:
         raise ToolError("Automatic atom-name mapping requires a job-bound source archive.")
     archive_path = Path(archive_path).resolve()

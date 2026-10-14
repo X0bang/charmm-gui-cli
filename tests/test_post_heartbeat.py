@@ -6,14 +6,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from charmm_gui_cli.web import WebClient
+from charmm_gui_cli.remote.web import WebClient
 
 
 class PostHeartbeatTests(unittest.TestCase):
     def test_post_and_get_timeouts_are_distinct(self):
         client = WebClient(post_timeout=123)
         result = Mock(is_redirect=False, status_code=200)
-        with patch("charmm_gui_cli.web.request_with_retry", return_value=result) as request:
+        with patch("charmm_gui_cli.remote.web.request_with_retry", return_value=result) as request:
             client.request("POST", "?doc=input/pdbreader")
             self.assertEqual(request.call_args.kwargs["timeout"], (15, 123))
             client.request("GET", "?doc=input/pdbreader")

@@ -3,15 +3,12 @@
 
 
 def execute(args):
-    from ..cli import (
-        emit,
-        ToolError,
-        atomic_json,
-    )
-    from ..validation import extract_for_validation, inspect_environment, validate_system
+    from charmm_gui_cli.cli import emit
+    from charmm_gui_cli.store.auth import ToolError, atomic_json
+    from charmm_gui_cli.chem.validation import extract_for_validation, inspect_environment, validate_system
     build_config = None
     if args.build_config:
-        from ..build_config import load_build_config
+        from charmm_gui_cli.pipeline.build_config import load_build_config
         build_config = load_build_config(args.build_config)
     if args.out.exists():
         raise ToolError(key="cli.validation_exists")
@@ -36,13 +33,13 @@ def execute(args):
                 environment = {"passed": False, "error": str(exc)}
         report["environment_validation"] = environment
         report["passed"] = bool(report["passed"] and environment["passed"])
-        from ..acceptance import assess_acceptance
+        from charmm_gui_cli.pipeline.acceptance import assess_acceptance
         acceptance = assess_acceptance(system, membrane=build_config["membrane"], ligand_resname=build_config["ligand_resname"])
         report.update(acceptance_validation=acceptance, review_required=acceptance.get("review_required", False),
                       review_warnings=acceptance.get("warnings", []))
         report["passed"] = bool(report["passed"] and acceptance["passed"])
     if args.reference_pdb is not None:
-        from ..pose_validation import validate_bound_pose
+        from charmm_gui_cli.chem.pose_validation import validate_bound_pose
         pose = validate_bound_pose(system, args.input_manifest, args.reference_pdb)
         report["bound_pose_validation"] = pose
         report["passed"] = bool(report["passed"] and pose["passed"])

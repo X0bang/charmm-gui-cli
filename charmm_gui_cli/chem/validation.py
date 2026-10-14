@@ -16,7 +16,7 @@ import subprocess
 import tarfile
 import tempfile
 
-from ..auth import ToolError
+from charmm_gui_cli.store.auth import ToolError
 
 
 def validate_charmm_source(pdb, psf, rtf, prm, manifest):

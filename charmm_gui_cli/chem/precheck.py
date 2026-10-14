@@ -11,10 +11,10 @@ import json
 import math
 from pathlib import Path
 
-from ..auth import ToolError
-from ..input_sources import prepare_sources
-from ..inputs import _pdb, inspect_ligand, prepare_inputs, read_ligand
-from ..pdb_normalization import normalize_lines
+from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.chem.input_sources import prepare_sources
+from charmm_gui_cli.chem.inputs import _pdb, inspect_ligand, prepare_inputs, read_ligand
+from charmm_gui_cli.chem.pdb_normalization import normalize_lines
 from .residues import BACKBONE as _BACKBONE, SIDECHAINS as _SIDECHAINS, ALIASES as _ALIASES, MODIFIED, validate_input_options
 
 
@@ -296,7 +296,7 @@ def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_res
                 report["input_evidence"][role] = _file_evidence(value)
         if components is not None:
             report["input_evidence"]["components_config"] = _file_evidence(components)
-            from ..multicomponent import load_components_config
+            from charmm_gui_cli.chem.multicomponent import load_components_config
             component_config = load_components_config(components)
             for index, component in enumerate(component_config["components"], 1):
                 if component.get("sdf") is not None:
@@ -357,7 +357,7 @@ def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_res
             if complex_pdb is None or any(value is not None for value in (protein, ligand, ligand_smiles)) or accept_conect_bond_orders:
                 raise ToolError("Component precheck requires complex_pdb and per-component chemical definitions; do not mix single-ligand inputs/options.")
             _record_spatial_review(report, _complex_spatial_review(complex_pdb, component_config["components"], input_options=options, role=role))
-            from ..multicomponent import prepare_build_components
+            from charmm_gui_cli.chem.multicomponent import prepare_build_components
             prepared = prepare_build_components(complex_pdb=complex_pdb, components_config=components,
                                                 out=directory / "prepared", hydrogens=hydrogens, input_options=options)
             report.update(prepared_complex=prepared["files"]["complex.pdb"], prepared_files=prepared["files"],

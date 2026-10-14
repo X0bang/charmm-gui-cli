@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from charmm_gui_cli import managed
-from charmm_gui_cli.auth import ToolError, atomic_json, atomic_write
+from charmm_gui_cli.store import managed
+from charmm_gui_cli.store.auth import ToolError, atomic_json, atomic_write
 
 
 class ManagedTests(unittest.TestCase):
@@ -23,7 +23,7 @@ class ManagedTests(unittest.TestCase):
         self.provenance_patch = patch.object(managed, "_archive_binding", side_effect=lambda manifest, archive, **kwargs:
                                              {"archive_provenance": {"archive_sha256": managed._digest(archive)}})
         self.provenance_patch.start()
-        self.model_patch = patch("charmm_gui_cli.delivery.verify_model")
+        self.model_patch = patch("charmm_gui_cli.store.delivery.verify_model")
         self.model_patch.start()  # Synthetic bytes here; real model binding is tested separately.
         self.directory = self.root / "run"
 
@@ -338,7 +338,7 @@ class ManagedTests(unittest.TestCase):
             # The reservation is exclusively owned by this preparation.
             destination.rename(destination.with_name("reserved-sources"))
             self.make_run(state="inputs_ready", directory=destination)
-        with patch("charmm_gui_cli.input_sources.prepare_sources", side_effect=sources) as prepare, \
+        with patch("charmm_gui_cli.chem.input_sources.prepare_sources", side_effect=sources) as prepare, \
                 patch.object(managed, "initialize", side_effect=initialize), \
                 patch("pathlib.Path.cwd", return_value=self.root):
             directory = managed.create_managed_build(complex_pdb="complex.pdb", accept_conect_bond_orders=True)
@@ -349,7 +349,7 @@ class ManagedTests(unittest.TestCase):
 
     def test_create_does_not_overwrite_or_register_failed_initialization(self):
         self.directory.mkdir()
-        with patch("charmm_gui_cli.input_sources.prepare_sources") as prepare:
+        with patch("charmm_gui_cli.chem.input_sources.prepare_sources") as prepare:
             with self.assertRaisesRegex(ToolError, "already exists"):
                 managed.create_managed_build(output=self.directory)
         prepare.assert_not_called()
@@ -359,7 +359,7 @@ class ManagedTests(unittest.TestCase):
         def sources(**kwargs):
             kwargs["out"].mkdir(parents=True)
             return {"protein": "/unused-protein.pdb", "ligand": "/unused-ligand.sdf", "report": {"input_options": {}}}
-        with patch("charmm_gui_cli.input_sources.prepare_sources", side_effect=sources), \
+        with patch("charmm_gui_cli.chem.input_sources.prepare_sources", side_effect=sources), \
                 patch.object(managed, "initialize", side_effect=ToolError("invalid input chemistry")):
             with self.assertRaisesRegex(ToolError, "invalid input chemistry"):
                 managed.create_managed_build(output=self.directory)

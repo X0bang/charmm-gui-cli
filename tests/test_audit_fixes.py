@@ -8,13 +8,16 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from charmm_gui_cli import cli, managed, full_build, i18n, updater, workflow
-from charmm_gui_cli.api import Client, SubmissionUnknown
-from charmm_gui_cli.auth import ToolError, atomic_json
-from charmm_gui_cli.build_config import validate_preparation, validate_terminal_residues, load_build_config
-from charmm_gui_cli.config import composition
-from charmm_gui_cli.inputs import _pdb, read_ligand, inspect_ligand, _sdf, Atom
-from charmm_gui_cli.terminal_output import format_check, format_job_status
+from charmm_gui_cli import cli
+from charmm_gui_cli.store import managed
+from charmm_gui_cli.pipeline import full_build, updater, workflow
+from charmm_gui_cli.locales import i18n
+from charmm_gui_cli.remote.api import Client, SubmissionUnknown
+from charmm_gui_cli.store.auth import ToolError, atomic_json
+from charmm_gui_cli.pipeline.build_config import validate_preparation, validate_terminal_residues, load_build_config
+from charmm_gui_cli.pipeline.config import composition
+from charmm_gui_cli.chem.inputs import _pdb, read_ligand, inspect_ligand, _sdf, Atom
+from charmm_gui_cli.presentation.terminal_output import format_check, format_job_status
 from tests.test_pdb_boundaries import atom
 
 
@@ -55,7 +58,7 @@ class AuditFixTests(unittest.TestCase):
 
     def test_invalid_model_options_leave_no_named_directory(self):
         run = self.root / "same-name/.charmm-gui"
-        with patch("charmm_gui_cli.input_sources.prepare_sources") as prepare:
+        with patch("charmm_gui_cli.chem.input_sources.prepare_sources") as prepare:
             with self.assertRaises(ToolError):
                 managed.create_managed_build(protein="unused", ligand="unused", output=run,
                     membrane={"upper": "POPC:CHL1=3", "lower": "POPC=1", "margin_A": 20})
@@ -68,7 +71,7 @@ class AuditFixTests(unittest.TestCase):
             kwargs["out"].mkdir()
             (kwargs["out"] / "partial.pdb").write_text("partial")
             raise ToolError("Bad local input")
-        with patch("charmm_gui_cli.input_sources.prepare_sources", side_effect=fail):
+        with patch("charmm_gui_cli.chem.input_sources.prepare_sources", side_effect=fail):
             for _ in range(2):
                 with self.assertRaisesRegex(ToolError, "Bad local input"):
                     managed.create_managed_build(protein="unused", ligand="unused", output=run)

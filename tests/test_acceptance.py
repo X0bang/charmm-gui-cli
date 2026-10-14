@@ -3,9 +3,9 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from charmm_gui_cli.acceptance import (assess_acceptance, check_leaflets,
+from charmm_gui_cli.pipeline.acceptance import (assess_acceptance, check_leaflets,
                                        extract_cgenff_penalties, summarize_charmm_minimization)
-from charmm_gui_cli.auth import ToolError
+from charmm_gui_cli.store.auth import ToolError
 
 
 WORKSPACE = Path(__file__).resolve().parents[1]
