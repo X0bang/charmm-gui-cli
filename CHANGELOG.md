@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.8.4
+
+### Improvements
 
 - Add locale-independent semantic parameter summaries alongside unchanged raw requested/applied JSON. Show per-chain requested/submitted terminal patches, Gly/Pro fallback changes, lipid fractions and API-recorded settings in terminal, text/HTML reports and deliveries.
 - Distinguish response records, uncertain submissions, copied historical values, adjustment-only and missing/conflicting records; reject foreign job IDs or plan/config disagreements as confirmed settings without changing submission/recovery behavior. Bound chain rendering while retaining complete machine-readable rows.
@@ -10,7 +12,11 @@
 
 - Submit explicit protein-state and disulfide requests through validated, literal-catalogue PDB Reader controls, preserving established nonconflicting default rows and recording the exact repeated form pairs sent.
 - Verify actual same-job source PDB/PSF atom identities, CHARMM36 state-distinguishing types/charges, proton attachment and explicit disulfide bonds before membrane submission. Bind proof receipts to sealed inputs, saved POST evidence and source reuse; interrupted proof GETs resume without repeating POSTs.
-- Require the requested states in both PDB Reader and final-assembly archive files before accepting a model; retain verification across task moves and completed-source-independent child validation. Show verified state counts in summaries and reports. New live provider acceptance remains to be measured separately from local and mocked-transport regressions.
+- Require the requested states in both PDB Reader and final-assembly archive files before accepting a model; retain verification across task moves and completed-source-independent child validation. Show verified state counts in summaries and reports.
+
+### Validation scope
+
+Local and mocked-transport regressions cover explicit protein-state evidence, interrupted GET recovery, PDBQT chemistry/stereo preservation, parameter-record provenance and legacy JSON compatibility. Source and wheel distributions are tested separately. Fresh live provider acceptance of the new protein-state and converted-ligand paths remains pending; this release does not claim completion of the audit, automatic pH selection, docking or force-field-conversion equivalence.
 
 ## 0.8.3
 
