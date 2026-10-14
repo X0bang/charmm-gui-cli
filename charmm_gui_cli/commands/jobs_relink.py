@@ -3,6 +3,6 @@
 
 def execute(args):
     from ..store.discovery import relink
-    from ..cli import emit
+    from charmm_gui_cli.cli import emit
     emit(relink(args.target, args.path), command="jobs.relink")
     return 0

@@ -5,8 +5,8 @@ from pathlib import Path
 import re
 import string
 
-from ..auth import ToolError
-from ..i18n import MESSAGES, t
+from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.locales.i18n import MESSAGES, t
 
 
 N_TERMINALS = ("NTER", "NNEU", "ACE", "ACP", "NONE", "GLYP", "PROP")
@@ -39,7 +39,10 @@ def normalize_lines(path, report=None, *, options=None, role="generic"):
                                       and line.startswith("HETATM") and (line[17:21].strip() in policy["drop_hetero"]
                                       or policy["drop_additives"] and line[17:21].strip() in ADDITIVES))
     repairs = []
-    lines = select_model(lines, policy.get("model") if policy else None, repairs)
+    line_numbers = list(range(1, len(lines) + 1))
+    lines = select_model(lines, policy.get("model") if policy else None, repairs, line_numbers=line_numbers)
+    from .pdb_layout import validate_layout
+    validate_layout(lines, line_numbers=line_numbers)
     indexes = [i for i, line in enumerate(lines) if line.startswith(("ATOM  ", "HETATM"))]
     serials = []
     overflow = 0
@@ -51,7 +54,7 @@ def normalize_lines(path, report=None, *, options=None, role="generic"):
         try:
             serials.append(int(lines[i][6:11]))
         except ValueError:
-            raise ToolError(key="input.atom_record", params={"line": i + 1}, next_step=t("input.inspect")) from None
+            raise ToolError(key="input.atom_record", params={"line": line_numbers[i]}, next_step=t("input.inspect")) from None
     if overflow:
         if any(line.startswith("CONECT") for line in lines):
             raise ToolError(key="input.overflow_conect", next_step=t("input.fix_serials"))
@@ -137,7 +140,7 @@ def normalize_lines(path, report=None, *, options=None, role="generic"):
                     if element not in ("C", "N", "O", "S", "H", "Se"):
                         element = None
             if element is None:
-                raise ToolError(key="input.element_unknown", params={"line": i + 1, "atom": name}, next_step=t("input.inspect"))
+                raise ToolError(key="input.element_unknown", params={"line": line_numbers[i], "atom": name}, next_step=t("input.inspect"))
             line = line[:76] + f"{element:>2}" + line[78:]
             elements += 1
         if not line[21:22].strip():

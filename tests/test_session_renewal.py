@@ -98,7 +98,7 @@ class SessionRenewalTests(unittest.TestCase):
 
     def test_cli_remember_saves_os_secret_but_no_password_in_profile_or_output(self):
         self.login_mocks()
-        with patch("charmm_gui_cli.cli.getpass", return_value=self.password):
+        with patch("getpass.getpass", return_value=self.password):
             code, output, error = self.call(["--lang", "zh", "login", "--email", self.email, "--save-to", str(self.token), "--remember"], tty=True)
         self.assertEqual(code, 0, error)
         self.assertIn("系统凭据库", output)
@@ -113,7 +113,7 @@ class SessionRenewalTests(unittest.TestCase):
     def test_cli_headless_password_command_and_command_not_stored(self):
         self.login_mocks()
         command = shlex.join([sys.executable, "-c", f"print({self.password!r})"])
-        with patch.dict(os.environ, {"CHARMM_GUI_PASSWORD_COMMAND": command}), patch("charmm_gui_cli.cli.getpass") as prompt:
+        with patch.dict(os.environ, {"CHARMM_GUI_PASSWORD_COMMAND": command}), patch("getpass.getpass") as prompt:
             code, output, error = self.call(["login", "--email", self.email, "--save-to", str(self.token), "--json"])
         self.assertEqual(code, 0, error)
         prompt.assert_not_called()
@@ -269,7 +269,7 @@ class SessionRenewalTests(unittest.TestCase):
             web.validate_auth()
             self.assertEqual(web.session.cookies.get("sid"), "fixture-new-cookie")
             return {"state": "bilayer_submitted", "source_job_id": "123", "build_job_id": "456"}
-        with patch("charmm_gui_cli.full_build.advance", side_effect=advance):
+        with patch("charmm_gui_cli.pipeline.full_build.advance", side_effect=advance):
             code, output, error = self.call(["--foreground", "--token-file", str(self.token), "build", "--protein", str(fixture.protein),
                 "--ligand", str(fixture.ligand), "--out", str(self.root / "foreground-task"), "--hydrogens", "preserve", "--no-grompp", "--no-preview", "--json"])
         self.assertEqual(code, 0, error)
@@ -427,7 +427,7 @@ class SessionRenewalTests(unittest.TestCase):
     def test_web_only_login_cannot_overwrite_a_paired_session(self):
         self.profile(token=self.new)
         before = self.cookies.read_bytes()
-        with patch("charmm_gui_cli.cli.getpass") as password:
+        with patch("getpass.getpass") as password:
             code, output, error = self.call(["--token-file", str(self.token), "web-login", "--email", self.email])
         self.assertEqual(code, 2)
         password.assert_not_called()

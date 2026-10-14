@@ -7,8 +7,9 @@ import tarfile
 import unittest
 from unittest.mock import patch
 
-from charmm_gui_cli.auth import ToolError, atomic_write
-from charmm_gui_cli.preview import read_scene, render_model, preview_run, _primitives
+from charmm_gui_cli.store.auth import ToolError, atomic_write
+from charmm_gui_cli.chem.preview import read_scene, render_model, _primitives
+from charmm_gui_cli.pipeline.preview import preview_run
 
 
 def atom(index, name, residue, xyz, *, segment="", chain="A", resid=1, element="C", altloc=" "):
@@ -124,7 +125,7 @@ class PreviewTests(unittest.TestCase):
 
     def test_final_preview_cache_preserves_old_images_and_repairs_changed_artifact(self):
         run, _ = self.final_fixture()
-        with patch("charmm_gui_cli.managed._final_summary", return_value={"report_file": "validation.json"}):
+        with patch("charmm_gui_cli.pipeline.managed._final_summary", return_value={"report_file": "validation.json"}):
             first = preview_run(run, width=640)
             self.assertEqual(first["scope"], "final_simulation_input")
             self.assertEqual(preview_run(run, width=640), first)
@@ -136,14 +137,14 @@ class PreviewTests(unittest.TestCase):
     def test_changed_extracted_coordinates_rejected_without_rendering(self):
         run, pdb = self.final_fixture()
         atomic_write(pdb, pdb.read_text() + "REMARK changed\n")
-        with patch("charmm_gui_cli.managed._final_summary", return_value={"report_file": "validation.json"}), \
+        with patch("charmm_gui_cli.pipeline.managed._final_summary", return_value={"report_file": "validation.json"}), \
                 self.assertRaisesRegex(ToolError, "differ from"):
             preview_run(run)
         self.assertFalse((run / "results/previews").exists())
 
     def test_stale_validation_rejected_before_render(self):
         run, _ = self.final_fixture()
-        with patch("charmm_gui_cli.managed._final_summary", return_value={"validation_status": "stale_or_unreadable"}), \
+        with patch("charmm_gui_cli.pipeline.managed._final_summary", return_value={"validation_status": "stale_or_unreadable"}), \
                 self.assertRaisesRegex(ToolError, "current final"):
             preview_run(run)
 
@@ -152,7 +153,7 @@ class PreviewTests(unittest.TestCase):
         with tarfile.open(run / "bilayer/charmm-gui.tgz", "w:gz") as archive:
             archive.add(pdb, arcname="one/gromacs/step5_input.pdb")
             archive.add(pdb, arcname="two/gromacs/step5_input.pdb")
-        with patch("charmm_gui_cli.managed._final_summary", return_value={"report_file": "validation.json"}), \
+        with patch("charmm_gui_cli.pipeline.managed._final_summary", return_value={"report_file": "validation.json"}), \
                 self.assertRaisesRegex(ToolError, "unique matching"):
             preview_run(run)
 

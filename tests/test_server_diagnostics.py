@@ -1,5 +1,7 @@
 """Sanitized remote failures are useful, durable and never trigger a replay."""
 
+import charmm_gui_cli.store.tasks as _task_store
+
 from contextlib import redirect_stderr
 import io
 import json
@@ -12,9 +14,9 @@ import requests
 
 from charmm_gui_cli.remote.diagnostics import diagnostic
 from charmm_gui_cli.remote.api import Client, SubmissionUnknown
-from charmm_gui_cli.store import managed
+from charmm_gui_cli.pipeline import managed
 from charmm_gui_cli.store.auth import ToolError, atomic_json
-from charmm_gui_cli.commands.terminal_output import format_job_status
+from charmm_gui_cli.presentation.terminal_output import format_job_status
 from charmm_gui_cli.cli import main
 from charmm_gui_cli.locales.i18n import set_language
 from tests.test_recovery import token, response
@@ -102,7 +104,7 @@ class DiagnosticTests(unittest.TestCase):
         atomic_json(run / "full-run.json", {"schema_version": 2, "state": "submission_unknown"})
         atomic_json(run / "job.json", {"name": "sample"})
         error = SubmissionUnknown("Uncertain response", cause_category="api_error", server_message="Unknown lipid POPX")
-        managed.record_recovery(run, error)
+        _task_store.record_recovery(run, error)
         value = managed.inspect_run(str(run))
         self.assertEqual(value["recovery"]["error"]["server_message"], "Unknown lipid POPX")
         self.assertNotIn(" NAME", value["recovery"]["error"]["next_step"])
@@ -123,7 +125,7 @@ class DiagnosticTests(unittest.TestCase):
         session = Mock(spec=requests.Session)
         session.request.return_value = response(value={"error": "Unknown lipid POPX"})
         output = io.StringIO()
-        with patch("charmm_gui_cli.auth.load_token", return_value=(token(), "fixture")), \
+        with patch("charmm_gui_cli.store.auth.load_token", return_value=(token(), "fixture")), \
                 patch("requests.Session", return_value=session), redirect_stderr(output):
             self.assertEqual(main(["jobs", "status", str(run), "--remote-check", "--lang", "en"]), 2)
         self.assertIn("Unknown lipid POPX", output.getvalue())
@@ -150,7 +152,7 @@ class DiagnosticTests(unittest.TestCase):
     def test_build_error_log_contains_safe_remote_reason_and_stage_ids(self):
         from argparse import Namespace
         import sys
-        from charmm_gui_cli.commands import build_command
+        from charmm_gui_cli.pipeline import build_command
         from charmm_gui_cli.store.run_logging import LogStream
         root = Path(tempfile.mkdtemp(prefix="cgui-error-log-"))
         run = root / "sample/.charmm-gui"

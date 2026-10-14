@@ -1,18 +1,19 @@
 """sweep command handler."""
 
+import charmm_gui_cli.store.tasks as _task_store
+
 
 
 def execute(args):
-    from ..cli import (
-        emit,
-        atomic_write,
-        Path,
-    )
-    from .. import sweep, batch as batching, managed
+    from charmm_gui_cli.cli import emit
+    from charmm_gui_cli.store.auth import atomic_write
+    from pathlib import Path
+    from charmm_gui_cli.pipeline import sweep, batch as batching
+    pass
     if args.command == "sweep":
         if args.name is not None:
-            managed.validate_name(args.name)
-        directory = args.out or managed.new_batch_path(args.name, kind="sweep", source=args.config)
+            _task_store.validate_name(args.name)
+        directory = args.out or _task_store.new_batch_path(args.name, kind="sweep", source=args.config)
     else:
         directory = args.directory
     from ..pipeline.batch_progress import BatchReporter
@@ -42,7 +43,7 @@ def execute(args):
 
 def _advance(args, directory, reporter):
     from pathlib import Path
-    from ..cli import emit
+    from charmm_gui_cli.cli import emit
     from ..store.auth import atomic_write
     from ..pipeline import sweep, batch as batching
     saved = sweep.read(directory)

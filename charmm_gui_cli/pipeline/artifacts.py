@@ -4,8 +4,8 @@ from pathlib import PurePosixPath
 import re
 import tarfile
 
-from ..auth import ToolError
-from ..config import pdb_residues
+from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.pipeline.config import pdb_residues
 
 MAX_PDB_BYTES = 512 * 1024 * 1024
 

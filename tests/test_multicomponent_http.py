@@ -6,9 +6,9 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from charmm_gui_cli import full_build
-from charmm_gui_cli.auth import ToolError, atomic_json, atomic_write
-from charmm_gui_cli.inputs import Atom, _sdf
+from charmm_gui_cli.pipeline import full_build
+from charmm_gui_cli.store.auth import ToolError, atomic_json, atomic_write
+from charmm_gui_cli.chem.inputs import Atom, _sdf
 
 
 def form(names=("LIG", "COF")):

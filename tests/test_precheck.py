@@ -10,9 +10,9 @@ from unittest.mock import patch
 
 import yaml
 
-from charmm_gui_cli.auth import ToolError
-from charmm_gui_cli.inputs import Atom, _sdf, read_ligand
-from charmm_gui_cli.precheck import check_inputs, inspect_protein, inspect_spatial_review
+from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.chem.inputs import Atom, _sdf, read_ligand
+from charmm_gui_cli.chem.precheck import check_inputs, inspect_protein, inspect_spatial_review
 
 
 def atom_line(serial, name, resname="ALA", resid=1, chain="A", insertion=" ", altloc=" ",
@@ -51,8 +51,8 @@ class PrecheckTests(unittest.TestCase):
         self.assertEqual(json.loads((self.out / "check.json").read_text()), report)
 
     def test_no_registration_or_login_calls(self):
-        with patch("charmm_gui_cli.managed.remember_run") as remember, \
-                patch("charmm_gui_cli.auth.load_token") as credentials, \
+        with patch("charmm_gui_cli.store.tasks.remember_run") as remember, \
+                patch("charmm_gui_cli.store.auth.load_token") as credentials, \
                 patch("requests.sessions.Session.request") as network:
             self.assertTrue(self.check()["passed"])
         remember.assert_not_called()

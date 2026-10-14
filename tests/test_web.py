@@ -12,9 +12,9 @@ from unittest.mock import Mock, patch
 
 import requests
 
-from charmm_gui_cli.auth import ToolError, atomic_json
-from charmm_gui_cli.api import SubmissionUnknown
-from charmm_gui_cli.web import WEB_BASE, WebClient, describe_page, form_data, modeling_target, soup_for
+from charmm_gui_cli.store.auth import ToolError, atomic_json
+from charmm_gui_cli.remote.api import SubmissionUnknown
+from charmm_gui_cli.remote.web import WEB_BASE, WebClient, describe_page, form_data, modeling_target, soup_for
 
 
 def response(body="ok", status=200, location=None):
@@ -199,7 +199,7 @@ class WebClientTests(unittest.TestCase):
             except ToolError:
                 return "blocked"
 
-        with patch("charmm_gui_cli.web.form_data", side_effect=synchronized_form_data):
+        with patch("charmm_gui_cli.remote.web.form_data", side_effect=synchronized_form_data):
             with ThreadPoolExecutor(max_workers=2) as executor:
                 results = list(executor.map(lambda _: attempt(), range(2)))
         self.assertCountEqual(results, ["posted", "blocked"])

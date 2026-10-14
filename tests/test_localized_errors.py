@@ -5,9 +5,10 @@ from unittest.mock import Mock, patch
 
 import requests
 
-from charmm_gui_cli import cli, i18n
-from charmm_gui_cli.api import AuthError, Client, SubmissionUnknown
-from charmm_gui_cli.auth import ToolError, recovery_guidance
+from charmm_gui_cli import cli
+from charmm_gui_cli.locales import i18n
+from charmm_gui_cli.remote.api import AuthError, Client, SubmissionUnknown
+from charmm_gui_cli.store.auth import ToolError, recovery_guidance
 
 
 class LocalizedErrorTests(unittest.TestCase):

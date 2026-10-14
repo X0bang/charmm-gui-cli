@@ -1,5 +1,7 @@
 """Public batch/sweep plans, nested configuration, retries and terminal logs."""
 
+import charmm_gui_cli.store.tasks as _task_store
+
 import io
 import json
 from pathlib import Path
@@ -10,7 +12,7 @@ import yaml
 
 from charmm_gui_cli.pipeline import batch
 from charmm_gui_cli.pipeline.batch_progress import BatchReporter
-from charmm_gui_cli.commands import build_command
+from charmm_gui_cli.pipeline import build_command
 from charmm_gui_cli.store.auth import ToolError, atomic_json
 from charmm_gui_cli.store.paths import read_value
 from charmm_gui_cli.locales.i18n import set_language
@@ -184,7 +186,7 @@ class BatchWorkflowTests(unittest.TestCase):
         self.assertNotIn(b"\x1b", raw)
         self.assertEqual(log.count("jobid=123"), 1)
         self.assertEqual(log.count("jobid=456"), 1)
-        from charmm_gui_cli.pipeline.progress import format_progress
+        from charmm_gui_cli.presentation.progress import format_progress
         expected = format_progress({"state": "running ffconverter", "source_job_id": "123", "build_job_id": "456"})
         self.assertEqual(log.count(expected), 1)
         self.assertNotIn("run=", stream.getvalue())
@@ -204,12 +206,12 @@ class BatchWorkflowTests(unittest.TestCase):
     def test_completed_elapsed_time_is_frozen_even_when_resumed_again(self):
         self.assertEqual(self.plan()[0], 0)
         with patch.object(build_command, "execute", return_value=({"state": "validated"}, 0)), \
-                patch("charmm_gui_cli.store.managed._final_summary", return_value={"state": "validated"}):
+                patch("charmm_gui_cli.pipeline.managed._final_summary", return_value={"state": "validated"}):
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
         self.assertEqual(result["completed"], 2)
         old = json.loads((self.directory / "batch.json").read_text())["finished_at"]
         with patch.object(build_command, "execute") as execute, \
-                patch("charmm_gui_cli.store.managed._final_summary", return_value={"state": "validated"}):
+                patch("charmm_gui_cli.pipeline.managed._final_summary", return_value={"state": "validated"}):
             repeated, code = batch.advance(self.directory, wait=False, submit_interval=0)
             execute.assert_not_called()
         self.assertEqual(json.loads((self.directory / "batch.json").read_text())["finished_at"], old)
@@ -257,9 +259,9 @@ class BatchWorkflowTests(unittest.TestCase):
         self.assertTrue((self.root / "from-yaml/batch.json").is_file())
 
     def test_real_local_name_lock_is_deferred_and_complete_inputs_are_adopted(self):
-        from charmm_gui_cli.store import managed
+        pass
         from charmm_gui_cli.pipeline.workflow import run_lock
-        assign = managed.assign_name
+        assign = _task_store.assign_name
         calls = []
         def contended(directory, name):
             if not calls:
@@ -267,7 +269,7 @@ class BatchWorkflowTests(unittest.TestCase):
                 with run_lock(Path(directory)):
                     return assign(directory, name)
             return assign(directory, name)
-        with patch.object(managed, "assign_name", side_effect=contended):
+        with patch.object(_task_store, "assign_name", side_effect=contended):
             code, output, error = self.plan()
         self.assertEqual(code, 0, error)
         report = batch.status(self.directory)

@@ -1,5 +1,7 @@
 """Named task lookup, recovery evidence, and read-only status regression tests."""
 
+import charmm_gui_cli.store.tasks as _task_store
+
 import contextlib
 import io
 import json
@@ -8,8 +10,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from charmm_gui_cli import managed
-from charmm_gui_cli.auth import ToolError, atomic_json, atomic_write
+from charmm_gui_cli.pipeline import managed
+from charmm_gui_cli.store.auth import ToolError, atomic_json, atomic_write
 from charmm_gui_cli.cli import main
 
 
@@ -38,35 +40,35 @@ class JobsTests(unittest.TestCase):
         return code, json.loads(output.getvalue()) if output.getvalue() else None, error.getvalue()
 
     def test_name_is_unique_idempotent_and_resolves_outside_working_directory(self):
-        managed.assign_name(self.directory, "protein-a")
-        managed.assign_name(self.directory, "protein-a")
-        self.assertEqual(managed.resolve_run("protein-a"), self.directory)
+        _task_store.assign_name(self.directory, "protein-a")
+        _task_store.assign_name(self.directory, "protein-a")
+        self.assertEqual(_task_store.resolve_run("protein-a"), self.directory)
         self.assertEqual(managed.list_runs()[0]["name"], "protein-a")
         other = self.root / "other"
         self.make_run(other)
         with self.assertRaisesRegex(ToolError, "already registered"):
-            managed.assign_name(other, "protein-a")
+            _task_store.assign_name(other, "protein-a")
         with self.assertRaisesRegex(ToolError, "different name"):
-            managed.assign_name(self.directory, "different")
-        self.assertEqual(managed.resolve_run("protein-a"), self.directory)
+            _task_store.assign_name(self.directory, "different")
+        self.assertEqual(_task_store.resolve_run("protein-a"), self.directory)
 
     def test_names_cannot_escape_registry(self):
         for value in ("../escape", "/absolute", ".hidden", "", "a b", "a/b", "x" * 129):
             with self.subTest(value=value), self.assertRaises(ToolError):
-                managed.assign_name(self.directory, value)
+                _task_store.assign_name(self.directory, value)
         self.assertFalse((self.home / ".config/charmm-gui-cli/names").exists())
 
     def test_unknown_or_moved_named_run_is_actionable_error(self):
         with self.assertRaisesRegex(ToolError, "Unknown job"):
-            managed.resolve_run("missing")
-        managed.assign_name(self.directory, "example")
+            _task_store.resolve_run("missing")
+        _task_store.assign_name(self.directory, "example")
         self.directory.rename(self.root / "retained-moved-run")
         with self.assertRaisesRegex(ToolError, "unavailable"):
-            managed.resolve_run("example")
+            _task_store.resolve_run("example")
 
     def test_status_and_list_are_local_by_default_and_show_recovery(self):
-        managed.assign_name(self.directory, "example")
-        managed.record_recovery(self.directory, ToolError("Session expired", category="authentication"))
+        _task_store.assign_name(self.directory, "example")
+        _task_store.record_recovery(self.directory, ToolError("Session expired", category="authentication"))
         code, result, _ = self.call(["jobs", "status", "example"])
         self.assertEqual(code, 0)
         self.assertFalse(result["server_checked"])
@@ -76,12 +78,12 @@ class JobsTests(unittest.TestCase):
         self.assertEqual(self.call(["jobs", "list"])[1]["jobs"][0]["name"], "example")
 
     def test_remote_status_does_not_write_or_claim_final_validation(self):
-        managed.assign_name(self.directory, "example")
+        _task_store.assign_name(self.directory, "example")
         (self.directory / "bilayer").mkdir()
         atomic_json(self.directory / "bilayer/run.json", {"job_id": "123", "state": "running"})
         before = (self.directory / "bilayer/run.json").read_bytes()
-        with patch("charmm_gui_cli.auth.load_token", return_value=("test-token", "mock")), \
-                patch("charmm_gui_cli.api.Client.status", return_value={"status": "done", "hasTarFile": True}) as status:
+        with patch("charmm_gui_cli.store.auth.load_token", return_value=("test-token", "mock")), \
+                patch("charmm_gui_cli.remote.api.Client.status", return_value={"status": "done", "hasTarFile": True}) as status:
             result = managed.inspect_run("example", remote_check=True)
         status.assert_called_once_with("123")
         self.assertTrue(result["server_checked"])
@@ -91,19 +93,19 @@ class JobsTests(unittest.TestCase):
         self.assertEqual((self.directory / "bilayer/run.json").read_bytes(), before)
 
     def test_named_resume_routes_to_existing_directory(self):
-        managed.assign_name(self.directory, "example")
-        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "running"}, 0)) as execute:
+        _task_store.assign_name(self.directory, "example")
+        with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "running"}, 0)) as execute:
             self.assertEqual(self.call(["jobs", "resume", "example", "--no-wait"])[0], 0)
         self.assertEqual(execute.call_args.args[0].directory, self.directory)
         self.assertFalse(execute.call_args.args[0].wait)
 
     def test_remote_compressing_is_readonly_and_guides_original_job_recovery(self):
-        managed.assign_name(self.directory, "example")
+        _task_store.assign_name(self.directory, "example")
         (self.directory / "bilayer").mkdir()
         atomic_json(self.directory / "bilayer/run.json", {"job_id": "123", "state": "done"})
         before = (self.directory / "bilayer/run.json").read_bytes()
-        with patch("charmm_gui_cli.auth.load_token", return_value=("test-token", "mock")), \
-                patch("charmm_gui_cli.api.Client.status", return_value={"status": "compressing", "hasTarFile": False}):
+        with patch("charmm_gui_cli.store.auth.load_token", return_value=("test-token", "mock")), \
+                patch("charmm_gui_cli.remote.api.Client.status", return_value={"status": "compressing", "hasTarFile": False}):
             result = managed.inspect_run("example", remote_check=True)
         self.assertEqual(result["remote_status"], "archive_preparing")
         self.assertFalse(result["archive_available"])
@@ -114,9 +116,9 @@ class JobsTests(unittest.TestCase):
         self.assertEqual((self.directory / "bilayer/run.json").read_bytes(), before)
 
     def test_recovery_history_is_retained_and_resolved_success_is_not_active(self):
-        managed.assign_name(self.directory, "example")
-        managed.record_recovery(self.directory, ToolError("Temporary network failure", category="transient_network", retryable=True))
-        managed.record_recovery(self.directory, state="running")
+        _task_store.assign_name(self.directory, "example")
+        _task_store.record_recovery(self.directory, ToolError("Temporary network failure", category="transient_network", retryable=True))
+        _task_store.record_recovery(self.directory, state="running")
         self.assertEqual(len(list((self.directory / "recovery-history").glob("*.json"))), 2)
         self.assertNotIn("recovery", managed.inspect_run("example"))
         self.assertFalse(json.loads((self.directory / "recovery.json").read_text())["active"])
@@ -126,9 +128,9 @@ class JobsTests(unittest.TestCase):
         atomic_json(self.directory / "full-run.json", manifest)
         (self.directory / "bilayer").mkdir()
         atomic_write(self.directory / "bilayer/charmm-gui.tgz", "mock archive")
-        managed.assign_name(self.directory, "example")
-        with patch("charmm_gui_cli.build_command.load_token") as auth, \
-                patch("charmm_gui_cli.full_build.advance") as advance, \
+        _task_store.assign_name(self.directory, "example")
+        with patch("charmm_gui_cli.pipeline.build_command.load_token") as auth, \
+                patch("charmm_gui_cli.pipeline.full_build.advance") as advance, \
                 patch.object(managed, "finalize_managed_build", return_value={"passed": True, "checks": {}}):
             code, result, _ = self.call(["jobs", "resume", "example", "--no-grompp"])
         self.assertEqual(code, 0)
@@ -141,8 +143,8 @@ class JobsTests(unittest.TestCase):
         (self.directory / "bilayer").mkdir()
         atomic_json(self.directory / "bilayer/run.json", {"schema_version": 1, "job_id": "123", "state": "ligands_present"})
         atomic_write(self.directory / "bilayer/charmm-gui.tgz", "mock archive")
-        with patch("charmm_gui_cli.build_command.load_token") as auth, \
-                patch("charmm_gui_cli.full_build.advance", return_value={"state": "ligands_present"}) as advance, \
+        with patch("charmm_gui_cli.pipeline.build_command.load_token") as auth, \
+                patch("charmm_gui_cli.pipeline.full_build.advance", return_value={"state": "ligands_present"}) as advance, \
                 patch.object(managed, "finalize_managed_build", return_value={"passed": True, "checks": {}}):
             code, result, _ = self.call(["build-resume", str(self.directory), "--no-grompp"])
         self.assertEqual(code, 0)
@@ -154,19 +156,19 @@ class JobsTests(unittest.TestCase):
         path = self.home / ".config/charmm-gui-cli/names/broken.json"
         atomic_json(path, {"directory": None})
         with self.assertRaisesRegex(ToolError, "unreadable directory"):
-            managed.resolve_run("broken")
+            _task_store.resolve_run("broken")
 
     def test_report_rejects_stale_evidence_without_emitting_old_success(self):
-        managed.assign_name(self.directory, "example")
+        _task_store.assign_name(self.directory, "example")
         atomic_json(self.directory / "results/validation.json", {"passed": True, "status": "validated"})
         code, result, error = self.call(["jobs", "report", "example"])
         self.assertEqual(code, 2)
         self.assertIsNone(result)
-        from charmm_gui_cli.i18n import t
+        from charmm_gui_cli.locales.i18n import t
         self.assertIn(t("cli.stale_report"), error)
 
     def test_report_exposes_warnings_and_full_report_without_network(self):
-        managed.assign_name(self.directory, "example")
+        _task_store.assign_name(self.directory, "example")
         report = {"passed": True, "status": "validated", "review_required": True,
                   "acceptance_validation": {"passed": True, "warnings": ["Step limit reached"]},
                   "checks": {"grompp": {"passed": True}}, "compilation": {"status": "checked"}}

@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from charmm_gui_cli.auth import atomic_json, atomic_write
+from charmm_gui_cli.store.auth import atomic_json, atomic_write
 from charmm_gui_cli.cli import main
 
 
@@ -46,7 +46,7 @@ class PoseValidationCliTests(unittest.TestCase):
         args = ["validate", str(self.system), "--input-manifest", str(self.manifest), "--out", str(self.report_dir)]
         if reference:
             args.extend(["--reference-pdb", str(self.reference)])
-        with patch("charmm_gui_cli.validation.validate_system", return_value={"passed": base_passed}), \
+        with patch("charmm_gui_cli.chem.validation.validate_system", return_value={"passed": base_passed}), \
                 contextlib.redirect_stdout(io.StringIO()):
             status = main(args)
         return status, json.loads((self.report_dir / "validation.json").read_text())

@@ -5,12 +5,12 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from charmm_gui_cli.auth import ToolError
-from charmm_gui_cli.inputs import Atom, _pdb, _protein_pdb_lines, _sdf, prepare_inputs, split_complex
-from charmm_gui_cli.input_sources import prepare_sources
-from charmm_gui_cli.multicomponent import prepare_build_components
-from charmm_gui_cli.web import assert_nonpolymer_parameterization, soup_for
-from charmm_gui_cli.full_build import _preparation_fields
+from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.chem.inputs import Atom, _pdb, _protein_pdb_lines, _sdf, prepare_inputs, split_complex
+from charmm_gui_cli.chem.input_sources import prepare_sources
+from charmm_gui_cli.chem.multicomponent import prepare_build_components
+from charmm_gui_cli.remote.web import assert_nonpolymer_parameterization, soup_for
+from charmm_gui_cli.pipeline.full_build import _preparation_fields
 
 
 def atom(serial, resname, resid, xyz, *, chain="A", segment="", record="ATOM", name="CA", element="C"):

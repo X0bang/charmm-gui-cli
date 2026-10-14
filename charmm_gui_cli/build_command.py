@@ -1,4 +1,3 @@
-"""Compatibility import; implementation lives in commands.build_command."""
-import sys
-from .commands import build_command as _implementation
-sys.modules[__name__] = _implementation
+"""Legacy import shim; targets are centralized in _compat.MODULE_ALIASES."""
+from ._compat import install_alias
+install_alias(__name__)

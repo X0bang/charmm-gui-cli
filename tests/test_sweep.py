@@ -1,7 +1,7 @@
 """Offline scan expansion and sealed-source reuse; retained synthetic fixtures."""
 
 import json
-from charmm_gui_cli.layout import inputs_path
+from charmm_gui_cli.store.layout import inputs_path
 from pathlib import Path
 import tempfile
 import unittest
@@ -9,12 +9,12 @@ from unittest.mock import patch
 
 import yaml
 
-from charmm_gui_cli import batch, sweep
-from charmm_gui_cli.auth import ToolError, atomic_json
-from charmm_gui_cli.config import payload_for
-from charmm_gui_cli.full_build import _chains, _preparation_fields
-from charmm_gui_cli.inputs import Atom, _sdf
-from charmm_gui_cli.web import soup_for, form_data, modeling_target
+from charmm_gui_cli.pipeline import batch, sweep
+from charmm_gui_cli.store.auth import ToolError, atomic_json
+from charmm_gui_cli.pipeline.config import payload_for
+from charmm_gui_cli.pipeline.full_build import _chains, _preparation_fields
+from charmm_gui_cli.chem.inputs import Atom, _sdf
+from charmm_gui_cli.remote.web import soup_for, form_data, modeling_target
 
 
 UPLOAD = '''<form method="post" action="?doc=input/pdbreader&step=2"><input name="jobid" value="123">
@@ -219,8 +219,8 @@ class SweepTests(unittest.TestCase):
         self.raw["inputs"] = {"protein": str(template / "inputs/protein.pdb"), "ligand": str(template / "inputs/ligand.sdf")}
         self.raw["axes"] = {"margin": [20, 25]}
         self.write()
-        with patch("charmm_gui_cli.managed._registry", return_value=self.root / "registry"), \
-                patch("charmm_gui_cli.build_command.load_token", side_effect=AssertionError("No auth")), \
+        with patch("charmm_gui_cli.store.tasks._registry", return_value=self.root / "registry"), \
+                patch("charmm_gui_cli.pipeline.build_command.load_token", side_effect=AssertionError("No auth")), \
                 patch("requests.Session.request", side_effect=AssertionError("No network")):
             result = sweep.prepare(self.path, self.root / "scan")
         self.assertEqual(result["failed"], 0)
@@ -238,17 +238,17 @@ class SweepTests(unittest.TestCase):
         self.raw["inputs"] = {"protein": str(template / "inputs/protein.pdb"), "ligand": str(template / "inputs/ligand.sdf"), "hydrogens": "preserve"}
         self.raw["axes"] = {"margin": [20, 25, 30]}
         self.write()
-        with patch("charmm_gui_cli.managed._registry", return_value=self.root / "registry"), \
+        with patch("charmm_gui_cli.store.tasks._registry", return_value=self.root / "registry"), \
                 patch("requests.Session.request", side_effect=AssertionError("No remote tasks")):
             result = sweep.prepare(self.path, self.root / "scan")
             batch_dir = Path(result["batch_directory"])
-            with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "preparation_running"}, 0)) as execute:
+            with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "preparation_running"}, 0)) as execute:
                 summary, code = batch.advance(batch_dir, wait=False, max_active=4, submit_interval=0)
             self.assertEqual(execute.call_count, 1)
             self.assertEqual(summary["counts"]["waiting_preparation"], 2)
             source = Path(result["leader"])
             self.complete_source(source)
-            with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "running"}, 0)) as execute:
+            with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "running"}, 0)) as execute:
                 summary, code = batch.advance(batch_dir, wait=False, max_active=2, submit_interval=0)
             self.assertEqual(execute.call_count, 2)
             third = json.loads((batch_dir / "jobs/scan-0003/.charmm-gui/full-run.json").read_text())
@@ -287,7 +287,7 @@ class SweepTests(unittest.TestCase):
         self.complete_source(source)
         sweep.bind_source(child, source)
         rows = [{"name": path.name, "directory": str(path), "state": "running", "started": True} for path in (source, child)]
-        with patch("charmm_gui_cli.sweep.certify_source", side_effect=AssertionError("No new binding needed")):
+        with patch("charmm_gui_cli.pipeline.sweep.certify_source", side_effect=AssertionError("No new binding needed")):
             result = sweep.bind_ready_sources(self.root, {"config": {"reuse_preparation": True}, "jobs": rows})
         self.assertEqual(result, {"bound": 0, "waiting": 0})
 

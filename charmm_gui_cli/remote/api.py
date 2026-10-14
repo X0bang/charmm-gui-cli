@@ -7,10 +7,10 @@ import tempfile
 
 import requests
 
-from ..auth import ToolError, normalize_token, token_info, recovery_guidance
-from ..i18n import t
+from charmm_gui_cli.store.auth import ToolError, normalize_token, token_info, recovery_guidance
+from charmm_gui_cli.locales.i18n import t
 from .archive_transport import normalize_download, staging_directory
-from ..http_retry import request as request_with_retry, retry_delay, transient_exception, RETRY_STATUSES
+from charmm_gui_cli.remote.http_retry import request as request_with_retry, retry_delay, transient_exception, RETRY_STATUSES
 from .diagnostics import diagnostic, secret_values
 
 API_BASE = "https://charmm-gui.org/api"
@@ -20,6 +20,8 @@ ARCHIVE_PREPARING_MESSAGES = (
     b"Still running compressing process, please download after 1-2 minutes",
 )
 
+
+from charmm_gui_cli.store.identifiers import job_id
 
 class AuthError(ToolError):
     def __init__(self, message=None, **kwargs):
@@ -35,10 +37,6 @@ class SubmissionUnknown(ToolError):
         super().__init__(message, **kwargs)
 
 
-def job_id(value):
-    if not isinstance(value, str) or not re.fullmatch(r"[0-9]{1,32}", value):
-        raise ToolError(key="api.invalid_jobid")
-    return value
 
 
 class Client:

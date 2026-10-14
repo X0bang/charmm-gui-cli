@@ -36,14 +36,38 @@ def bind_input_error(error, *, protein=None, ligand=None, complex_pdb=None, liga
     elif error.key in ("input.ligand_poses", "input.ligand_pose_range", "input.ligand_pose_option"):
         options["ligand_pose"] = 1
     removable = sorted({detail["resname"] for detail in error.details if detail.get("resname") not in MODIFIED and detail.get("kind")})
+    duplicates = sorted({detail["resname"] for detail in error.details if detail.get("matching_ligand_coordinates")})
+    partial = []
+    for name in duplicates:
+        entries = [detail for detail in error.details if detail.get("kind") and detail.get("resname") == name]
+        matched = sum(bool(detail.get("matching_ligand_coordinates")) for detail in entries)
+        if matched != len(entries):
+            partial.append({"key": "input.duplicate_drop_scope", "params": {"name": name, "total": len(entries), "matched": matched}})
+    if duplicates:
+        removable = duplicates  # Resolve duplicate poses first; other cofactors remain blocked.
     if error.key == "input.protein_hetero" and removable:
         options["drop_hetero"] = sorted(set(options.get("drop_hetero", [])) | set(removable))
         error.next_step = check_command(protein=protein, ligand=ligand, complex_pdb=complex_pdb,
                                         ligand_resname=ligand_resname, input_options=options)
+        if partial:
+            unchanged = check_command(protein=protein, ligand=ligand, complex_pdb=complex_pdb,
+                                      ligand_resname=ligand_resname, input_options=input_options)
+            error.next_step = t("input.duplicate_partial_next", command=unchanged)
     else:
         command = check_command(protein=protein, ligand=ligand, complex_pdb=complex_pdb,
                                 ligand_resname="LIG" if error.key == "input.reserved_name" else ligand_resname, input_options=options)
-        error.next_step = command if error.key in ("input.models", "input.model_range", "input.reserved_name", "input.ligand_poses", "input.ligand_pose_range", "input.ligand_pose_option") else t("input.recheck", command=command)
+        if error.key in ("input.pdb_columns", "input.pdb_coordinates", "input.pdb_no_atoms"):
+            error.next_step = t("input.pdb_recheck", command=command)
+        elif error.key in ("input.pdb_hybrid36", "input.pdb_residue_width", "input.serial_limit"):
+            error.next_step = t("input.pdb_large_recheck", command=command)
+        else:
+            error.next_step = command if error.key in ("input.models", "input.model_range", "input.reserved_name", "input.ligand_poses", "input.ligand_pose_range", "input.ligand_pose_option") else t("input.recheck", command=command)
+    if duplicates:
+        error.details = [detail for detail in error.details if detail.get("key") != "input.duplicate_drop_scope"]
+        error.details.extend(partial)
+        error.details = [detail for detail in error.details if detail.get("key") != "input.duplicate_complex_route"]
+        error.details.append({"key": "input.duplicate_complex_route", "params": {"command": check_command(
+            ligand=ligand, complex_pdb=protein, ligand_resname=duplicates[0], input_options=input_options)}})
     if error.key == "input.protein_hetero":
         error.details = [detail for detail in error.details if detail.get("key") != "input.retain_via_check"]
         error.details.append({"key": "input.retain_via_check", "params": {"command": check_command(

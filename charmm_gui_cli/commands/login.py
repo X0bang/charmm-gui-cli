@@ -3,18 +3,13 @@
 
 
 def execute(args):
-    from ..cli import (
-        emit,
-        Client,
-        ToolError,
-        atomic_write,
-        default_token_path,
-        resolve_cookie_path,
-        t,
-        getpass,
-        os,
-    )
-    from ..web import WebClient
+    from charmm_gui_cli.cli import emit
+    from charmm_gui_cli.remote.api import Client
+    from charmm_gui_cli.store.auth import ToolError, default_token_path, resolve_cookie_path
+    from charmm_gui_cli.locales.i18n import t
+    from getpass import getpass
+    import os
+    from charmm_gui_cli.remote.web import WebClient
     destination = (args.save_to or args.token_file or default_token_path()).expanduser()
     cookies = resolve_cookie_path(args.cookies, str(destination))
     if destination.resolve() == cookies.resolve():

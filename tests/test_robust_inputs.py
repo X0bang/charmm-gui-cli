@@ -4,11 +4,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from charmm_gui_cli.auth import ToolError
-from charmm_gui_cli.inputs import _pdb, _protein_pdb_lines
-from charmm_gui_cli.full_build import _chains, _preparation_fields
-from charmm_gui_cli.pdb_normalization import N_TERMINALS, normalize_lines
-from charmm_gui_cli.web import snapshot_error
+from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.chem.inputs import _pdb, _protein_pdb_lines
+from charmm_gui_cli.pipeline.full_build import _chains, _preparation_fields
+from charmm_gui_cli.chem.pdb_normalization import N_TERMINALS, normalize_lines
+from charmm_gui_cli.remote.web import snapshot_error
 from tests.test_pdb_boundaries import atom
 
 
@@ -61,7 +61,7 @@ class RobustInputTests(unittest.TestCase):
         self.assertEqual([a.serial for a in atoms], [2, 1])
 
     def test_all_requested_single_atom_ion_aliases(self):
-        from charmm_gui_cli.pdb_normalization import _IONS
+        from charmm_gui_cli.chem.pdb_normalization import _IONS
         for residue, element in _IONS.items():
             with self.subTest(residue=residue):
                 atoms, _ = _pdb(self.pdb([atom(1, residue, 1, (0, 0, 0), record="HETATM", name=residue, element="")]))

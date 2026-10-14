@@ -4,13 +4,13 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 import uuid
 
-from ..api import job_id
-from ..auth import ToolError, atomic_json, atomic_write
-from ..i18n import t
-from ..progress import official_links
-from ..web import soup_for
-from ..web_state import parse_page_state
-from ..workflow import run_lock
+from charmm_gui_cli.store.identifiers import job_id
+from charmm_gui_cli.store.auth import ToolError, atomic_json, atomic_write
+from charmm_gui_cli.locales.i18n import t
+from charmm_gui_cli.presentation.progress import official_links
+from charmm_gui_cli.remote.web import soup_for
+from charmm_gui_cli.remote.web_state import parse_page_state
+from charmm_gui_cli.store.locking import run_lock
 from ..store.paths import read_value
 
 

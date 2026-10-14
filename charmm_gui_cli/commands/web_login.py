@@ -3,14 +3,11 @@
 
 
 def execute(args):
-    from ..cli import (
-        emit,
-        ToolError,
-        resolve_cookie_path,
-        t,
-        getpass,
-    )
-    from ..web import WebClient
+    from charmm_gui_cli.cli import emit
+    from charmm_gui_cli.store.auth import ToolError
+    from charmm_gui_cli.locales.i18n import t
+    from getpass import getpass
+    from charmm_gui_cli.remote.web import WebClient
     from ..store.auth import default_token_path
     from ..remote.sessions import SessionManager, bind
     manager = SessionManager(str(args.token_file or default_token_path()), args.cookies)

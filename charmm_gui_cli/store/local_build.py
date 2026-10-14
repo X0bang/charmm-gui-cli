@@ -5,7 +5,7 @@ from pathlib import Path
 import json
 import shutil
 
-from ..auth import ToolError
+from charmm_gui_cli.store.auth import ToolError
 from .layout import modern, task_root
 
 

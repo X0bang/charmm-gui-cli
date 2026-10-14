@@ -11,9 +11,9 @@ from unittest.mock import Mock, patch
 import yaml
 
 from charmm_gui_cli.cli import main, parser
-from charmm_gui_cli import batch, full_build, sweep
-from charmm_gui_cli.auth import ToolError, atomic_json, atomic_write
-from charmm_gui_cli.workflow import run_lock
+from charmm_gui_cli.pipeline import batch, full_build, sweep
+from charmm_gui_cli.store.auth import ToolError, atomic_json, atomic_write
+from charmm_gui_cli.pipeline.workflow import run_lock
 import test_sweep as fixtures
 
 
@@ -104,7 +104,7 @@ class AuditV2Tests(unittest.TestCase):
                                       "ligand": str(template / "inputs/ligand.sdf")}
         self.fixture.raw["axes"] = {"margin": [20, 25]}
         self.fixture.write()
-        with patch("charmm_gui_cli.managed._registry", return_value=self.root / "registry"):
+        with patch("charmm_gui_cli.store.tasks._registry", return_value=self.root / "registry"):
             result = sweep.prepare(self.fixture.path, self.root / "scan")
         return result, Path(result["batch_directory"])
 
@@ -116,7 +116,7 @@ class AuditV2Tests(unittest.TestCase):
             with run_lock(args.directory):
                 return {"state": "preparation_running"}, 0
 
-        with run_lock(leader), patch("charmm_gui_cli.build_command.execute", side_effect=advance_under_lock):
+        with run_lock(leader), patch("charmm_gui_cli.pipeline.build_command.execute", side_effect=advance_under_lock):
             summary, code = batch.advance(queue, wait=False, submit_interval=0)
         self.assertEqual(summary["jobs"][0]["state"], "waiting_lock")
         self.assertEqual(summary["failed"], 0)
@@ -124,12 +124,12 @@ class AuditV2Tests(unittest.TestCase):
         manifest = json.loads((queue / "batch.json").read_text())
         manifest["jobs"][0]["next_retry_unix"] = 0
         atomic_json(queue / "batch.json", manifest)
-        with patch("charmm_gui_cli.build_command.execute", side_effect=advance_under_lock) as advance:
+        with patch("charmm_gui_cli.pipeline.build_command.execute", side_effect=advance_under_lock) as advance:
             summary, code = batch.advance(queue, wait=False, submit_interval=0)
         self.assertEqual(advance.call_count, 1)
         self.assertEqual(Path(advance.call_args.args[0].directory), leader)
         self.fixture.complete_source(leader)
-        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "running"}, 0)):
+        with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "running"}, 0)):
             summary, code = batch.advance(queue, wait=False, submit_interval=0, max_active=2)
         child = Path(summary["jobs"][1]["directory"])
         self.assertIn("reused_preparation", json.loads((child / "full-run.json").read_text()))
@@ -163,7 +163,7 @@ class AuditV2Tests(unittest.TestCase):
         self.assertEqual(result["waiting"], 0)
 
     def test_sweep_guidance_uses_original_scan_not_nested_batch(self):
-        from charmm_gui_cli.i18n import set_language
+        from charmm_gui_cli.locales.i18n import set_language
         prepared, queue = self.prepare_scan()
         for language in ("en", "zh"):
             set_language(language)
@@ -177,8 +177,8 @@ class AuditV2Tests(unittest.TestCase):
                     self.assertFalse(any("\u4e00" <= character <= "\u9fff" for character in next_step))
 
     def test_job_list_terminal_outcomes_and_duration(self):
-        from charmm_gui_cli.terminal_output import format_jobs
-        from charmm_gui_cli.i18n import set_language
+        from charmm_gui_cli.presentation.terminal_output import format_jobs
+        from charmm_gui_cli.locales.i18n import set_language
         set_language("en")
         jobs = [{"name": name, "directory": str(self.root / name), "state": state,
                  "execution_state": execution, "passed": passed,
@@ -193,8 +193,8 @@ class AuditV2Tests(unittest.TestCase):
             self.assertIn(expected, output)
 
     def test_final_status_omits_obsolete_remote_stage(self):
-        from charmm_gui_cli.terminal_output import format_build
-        from charmm_gui_cli.i18n import set_language
+        from charmm_gui_cli.presentation.terminal_output import format_build
+        from charmm_gui_cli.locales.i18n import set_language
         set_language("en")
         output = format_build({"state": "validated", "passed": True, "remote_status": "archive_preparing"})
         self.assertNotIn("Remote state:", output)
@@ -208,8 +208,8 @@ class AuditV2Tests(unittest.TestCase):
         self.assertNotIn("build-resume", output.getvalue())
 
     def test_c_terminal_help_and_invalid_patch_name_the_correct_end(self):
-        from charmm_gui_cli.build_config import validate_preparation
-        from charmm_gui_cli.i18n import set_language
+        from charmm_gui_cli.pipeline.build_config import validate_preparation
+        from charmm_gui_cli.locales.i18n import set_language
         set_language("en")
         with self.assertRaises(ToolError) as caught:
             validate_preparation({"c_terminal": "GLYP"})

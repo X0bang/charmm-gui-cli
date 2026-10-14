@@ -8,10 +8,10 @@ from unittest.mock import Mock, patch
 
 import requests
 
-from charmm_gui_cli import workflow
-from charmm_gui_cli.api import ARCHIVE_PREPARING_MESSAGE, ARCHIVE_PREPARING_MESSAGES, Client
-from charmm_gui_cli.auth import ToolError
-from charmm_gui_cli.progress import describe_progress
+from charmm_gui_cli.pipeline import workflow
+from charmm_gui_cli.remote.api import ARCHIVE_PREPARING_MESSAGE, ARCHIVE_PREPARING_MESSAGES, Client
+from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.presentation.progress import describe_progress
 from tests.test_client import archive_bytes, config, pdb, token
 
 
@@ -74,7 +74,7 @@ class ArchivePreparingTests(unittest.TestCase):
         self.setup_run()
         self.client.download.side_effect = self.pending
         events = []
-        with patch("charmm_gui_cli.workflow.time.time", return_value=1000), self.assertRaises(ToolError) as caught:
+        with patch("charmm_gui_cli.pipeline.workflow.time.time", return_value=1000), self.assertRaises(ToolError) as caught:
             workflow.resume(self.client, self.run, progress=events.append)
         self.assertEqual(caught.exception.category, "archive_preparing")
         saved = workflow.read(self.run)
@@ -82,13 +82,13 @@ class ArchivePreparingTests(unittest.TestCase):
         self.assertEqual(saved["archive_retry_at_unix"], 1120)
         self.assertEqual(saved["last_error"]["category"], "archive_preparing")
         self.assertEqual(events[-1]["state"], "archive_preparing")
-        with patch("charmm_gui_cli.workflow.time.time", return_value=1100), self.assertRaises(ToolError) as caught:
+        with patch("charmm_gui_cli.pipeline.workflow.time.time", return_value=1100), self.assertRaises(ToolError) as caught:
             workflow.resume(self.client, self.run)
         self.assertEqual(caught.exception.retry_after_seconds, 20)
         self.assertEqual(self.client.status.call_count, 1)
         self.assertEqual(self.client.download.call_count, 1)
         self.client.download.side_effect = self.publish
-        with patch("charmm_gui_cli.workflow.time.time", return_value=1121):
+        with patch("charmm_gui_cli.pipeline.workflow.time.time", return_value=1121):
             result = workflow.resume(self.client, self.run)
         self.assertEqual(result["state"], "ligands_present")
         self.assertNotIn("archive_retry_at_unix", result)
@@ -110,9 +110,9 @@ class ArchivePreparingTests(unittest.TestCase):
             self.assertLessEqual(delay, 30)
             self.clock[0] += delay
         self.client.download.side_effect = download
-        with patch("charmm_gui_cli.workflow.time.time", side_effect=lambda: self.clock[0]), \
-                patch("charmm_gui_cli.workflow.time.monotonic", side_effect=lambda: self.clock[0]), \
-                patch("charmm_gui_cli.workflow.time.sleep", side_effect=sleep):
+        with patch("charmm_gui_cli.pipeline.workflow.time.time", side_effect=lambda: self.clock[0]), \
+                patch("charmm_gui_cli.pipeline.workflow.time.monotonic", side_effect=lambda: self.clock[0]), \
+                patch("charmm_gui_cli.pipeline.workflow.time.sleep", side_effect=sleep):
             result = workflow.resume(self.client, self.run, wait=True, max_wait=300)
         self.assertEqual(attempts, [1000, 1120])
         self.assertEqual(result["state"], "ligands_present")
@@ -121,9 +121,9 @@ class ArchivePreparingTests(unittest.TestCase):
     def test_wait_budget_stops_before_early_download_and_retains_retry_time(self):
         self.setup_run()
         self.client.download.side_effect = self.pending
-        with patch("charmm_gui_cli.workflow.time.time", side_effect=lambda: self.clock[0]), \
-                patch("charmm_gui_cli.workflow.time.monotonic", side_effect=lambda: self.clock[0]), \
-                patch("charmm_gui_cli.workflow.time.sleep", side_effect=lambda delay: self.clock.__setitem__(0, self.clock[0] + delay)), \
+        with patch("charmm_gui_cli.pipeline.workflow.time.time", side_effect=lambda: self.clock[0]), \
+                patch("charmm_gui_cli.pipeline.workflow.time.monotonic", side_effect=lambda: self.clock[0]), \
+                patch("charmm_gui_cli.pipeline.workflow.time.sleep", side_effect=lambda delay: self.clock.__setitem__(0, self.clock[0] + delay)), \
                 self.assertRaises(ToolError) as caught:
             workflow.resume(self.client, self.run, wait=True, max_wait=45)
         self.assertEqual(caught.exception.category, "archive_preparing")
@@ -134,7 +134,7 @@ class ArchivePreparingTests(unittest.TestCase):
     def test_observed_compressing_status_waits_then_downloads_same_job(self):
         self.setup_run()
         self.client.status.return_value = {"status": "compressing", "hasTarFile": False}
-        with patch("charmm_gui_cli.workflow.time.time", return_value=1000), self.assertRaises(ToolError) as caught:
+        with patch("charmm_gui_cli.pipeline.workflow.time.time", return_value=1000), self.assertRaises(ToolError) as caught:
             workflow.resume(self.client, self.run)
         self.assertEqual(caught.exception.category, "archive_preparing")
         saved = workflow.read(self.run)
@@ -142,7 +142,7 @@ class ArchivePreparingTests(unittest.TestCase):
         self.assertEqual(saved["state"], "archive_preparing")
         self.client.download.assert_not_called()
         self.client.download.side_effect = self.publish
-        with patch("charmm_gui_cli.workflow.time.time", return_value=1121):
+        with patch("charmm_gui_cli.pipeline.workflow.time.time", return_value=1121):
             self.assertEqual(workflow.resume(self.client, self.run)["state"], "ligands_present")
         self.assertEqual(self.client.status.call_count, 1)
         self.assertEqual(self.client.download.call_count, 1)

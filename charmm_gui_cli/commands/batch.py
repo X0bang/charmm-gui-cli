@@ -1,13 +1,14 @@
 """batch command handler."""
 
+import charmm_gui_cli.store.tasks as _task_store
+
 
 
 def execute(args):
-    from ..cli import (
-        emit,
-        atomic_write,
-    )
-    from .. import batch as batching, managed
+    from charmm_gui_cli.cli import emit
+    from charmm_gui_cli.store.auth import atomic_write
+    from charmm_gui_cli.pipeline import batch as batching
+    pass
     if args.command == "batch-status":
         report = batching.status(args.directory, remote_check=args.remote_check, token_file=args.token_file)
         if args.csv:
@@ -18,8 +19,8 @@ def execute(args):
     if args.command == "batch":
         name = args.name or batching.load_batch(args.config).get("name")
         if name is not None:
-            managed.validate_name(name)
-        directory = args.out or managed.new_batch_path(name, source=args.config)
+            _task_store.validate_name(name)
+        directory = args.out or _task_store.new_batch_path(name, source=args.config)
     else:
         directory = args.directory
     from ..pipeline.batch_progress import BatchReporter

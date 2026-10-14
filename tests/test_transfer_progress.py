@@ -15,7 +15,7 @@ from charmm_gui_cli.locales.transfers import transfer_text
 from charmm_gui_cli.pipeline import workflow
 from charmm_gui_cli.remote.api import Client, ARCHIVE_PREPARING_MESSAGE
 from charmm_gui_cli.store.auth import ToolError, atomic_json
-from charmm_gui_cli.pipeline.progress import ProgressReporter
+from charmm_gui_cli.presentation.progress import ProgressReporter
 from test_client import archive_bytes, config, pdb, token
 
 
@@ -178,14 +178,14 @@ class TransferTests(unittest.TestCase):
         self.assertFalse((run / "charmm-gui.tgz").exists())
 
     def test_watch_renders_live_bytes_without_signaling_or_changing_the_task(self):
-        from charmm_gui_cli.store.background import watch
+        from charmm_gui_cli.pipeline.background import watch
         from test_input_policy import Terminal
         from contextlib import redirect_stdout
         atomic_json(self.root / "download-progress.json", {"active": True, "downloaded_bytes": 1048576, "total_bytes": 2097152, "job_id": "234"})
         before = (self.root / "download-progress.json").read_bytes()
         stream = Terminal()
-        with redirect_stdout(stream), patch("charmm_gui_cli.store.background.metadata", side_effect=[{"running": True, "elapsed_seconds": 4}, {"running": False, "exit_code": 0}]), \
-                patch("charmm_gui_cli.store.background.time.sleep"), patch("os.kill") as kill:
+        with redirect_stdout(stream), patch("charmm_gui_cli.store.workers.metadata", side_effect=[{"running": True, "elapsed_seconds": 4}, {"running": False, "exit_code": 0}]), \
+                patch("charmm_gui_cli.pipeline.background.time.sleep"), patch("os.kill") as kill:
             self.assertEqual(watch(self.root), 0)
         self.assertIn("1.0 MiB / 2.0 MiB", stream.getvalue())
         self.assertEqual((self.root / "download-progress.json").read_bytes(), before)

@@ -1,6 +1,8 @@
-"""High-level CLI build orchestration; legacy YAML remains an advanced input."""
+"""Build orchestration; command adapters delegate here without owning state."""
 
-from ..layout import modern, task_root, inputs_path, log_path, full_archive_path
+import charmm_gui_cli.store.tasks as _task_store
+
+from charmm_gui_cli.store.layout import modern, task_root, inputs_path, log_path, full_archive_path
 
 from pathlib import Path
 import shutil
@@ -9,10 +11,10 @@ import math
 import os
 import time
 
-from ..api import Client
-from ..auth import ToolError, load_token, resolve_cookie_path
-from ..i18n import t
-from ..progress import emit_progress, ProgressReporter, result_presentation
+from charmm_gui_cli.remote.api import Client
+from charmm_gui_cli.store.auth import ToolError, load_token, resolve_cookie_path
+from charmm_gui_cli.locales.i18n import t
+from charmm_gui_cli.presentation.progress import emit_progress, ProgressReporter, result_presentation
 
 
 def progress(event):
@@ -33,24 +35,24 @@ def failed_checks(report):
 
 
 def execute(args):
-    from .. import managed
+    from charmm_gui_cli.pipeline import managed
     holder = []
     original_stderr = sys.stderr
     execution_code = 2
     try:
         result, execution_code = _execute(args, holder)
         if sys.stderr is not original_stderr and (not getattr(args, "_progress_callback", None) or result.get("state") in ("validated", "validation_failed")):
-            from ..terminal_output import format_build
+            from charmm_gui_cli.presentation.terminal_output import format_build
             sys.stderr.log.write(format_build(result) + "\n")
         return result, execution_code
     except ToolError as exc:
         if holder and (holder[0] / "full-run.json").is_file():
-            exc.for_task(managed._job_metadata(holder[0]).get("name") or str(task_root(holder[0])))
+            exc.for_task(_task_store._job_metadata(holder[0]).get("name") or str(task_root(holder[0])))
         if sys.stderr is not original_stderr:
             if holder:
                 try:
-                    saved = managed._read_json(holder[0] / "full-run.json")
-                    from ..progress import describe_progress
+                    saved = _task_store._read_json(holder[0] / "full-run.json")
+                    from charmm_gui_cli.presentation.progress import describe_progress
                     stage = describe_progress({"state": saved.get("state")}, localized=True)["label"]
                     ids = {key: value for key, value in saved.items() if key in ("source_job_id", "build_job_id")
                            and isinstance(value, str) and value.isdecimal() and len(value) <= 32}
@@ -61,7 +63,7 @@ def execute(args):
             sys.stderr.log.write(t("cli.next", action=exc.next_step) + "\n")
         if exc.key != "background.running" and exc.category != "lock_busy" and holder and (holder[0] / "full-run.json").is_file():
             try:
-                managed.record_recovery(holder[0], exc)
+                _task_store.record_recovery(holder[0], exc)
             except (ToolError, OSError):
                 pass
         raise
@@ -69,7 +71,7 @@ def execute(args):
         execution_code = 130
         if holder and (holder[0] / "full-run.json").is_file():
             try:
-                managed.record_recovery(holder[0], ToolError(
+                _task_store.record_recovery(holder[0], ToolError(
                     "Local process interrupted; recorded remote jobs are retained.",
                     category="interrupted", retryable=True,
                     next_step="Use jobs resume or build-resume for the existing task."))
@@ -79,7 +81,7 @@ def execute(args):
     except OSError:
         if holder and (holder[0] / "full-run.json").is_file():
             try:
-                managed.record_recovery(holder[0], ToolError(key="cli.filesystem", category="filesystem_error"))
+                _task_store.record_recovery(holder[0], ToolError(key="cli.filesystem", category="filesystem_error"))
             except (ToolError, OSError):
                 pass
         raise
@@ -88,8 +90,8 @@ def execute(args):
             args._reporter.close()
             args._reporter = None
         if getattr(args, "_run_lock_fd", None) is not None:
-            from ..background import metadata, write_lock
-            from ..workflow import now
+            from charmm_gui_cli.store.workers import metadata, write_lock
+            from charmm_gui_cli.store.locking import now
             record = metadata(holder[-1])
             record.update(finished_at=now(), exit_code=execution_code)
             write_lock(args._run_lock_fd, record)
@@ -101,9 +103,9 @@ def execute(args):
 
 
 def _execute(args, holder):
-    from .. import managed
-    from ..full_build import initialize, advance
-    from ..web import WebClient
+    from charmm_gui_cli.pipeline import managed
+    from charmm_gui_cli.pipeline.full_build import initialize, advance
+    from charmm_gui_cli.remote.web import WebClient
 
     reporter = getattr(args, "_progress_callback", None) or ProgressReporter()
     args._reporter = reporter
@@ -138,30 +140,30 @@ def _execute(args, holder):
 
     directory = None
     if args.command == "build-resume":
-        directory = managed.resolve_run(args.directory) if args.directory is not None else managed.latest_run()
+        directory = _task_store.resolve_run(args.directory) if args.directory is not None else managed.latest_run()
         holder.append(Path(directory).resolve())
         if not getattr(args, "_worker", False):
-            from ..background import metadata
+            from charmm_gui_cli.store.workers import metadata
             if metadata(directory)["running"]:
                 raise ToolError(key="background.running", next_step="charmm-gui-cli jobs list")
     if args.command == "build" and getattr(args, "name", None):
-        managed.check_name_available(args.name)
+        _task_store.check_name_available(args.name)
         if args.out is None:
-            args.out = managed.new_run_path(args.name)
+            args.out = _task_store.new_run_path(args.name)
     if args.command == "build" and args.out is not None:
-        from ..layout import task_path
+        from charmm_gui_cli.store.layout import task_path
         args.out = task_path(args.out)
     local_complete = False
     if directory is not None and (directory / "full-run.json").is_file() and (full_archive_path(directory)).is_file():
-        local_manifest = managed._read_json(directory / "full-run.json")
+        local_manifest = _task_store._read_json(directory / "full-run.json")
         local_complete = local_manifest.get("state") in ("ligands_present", "downloaded_unverified", "validation_failed", "validated", "complete", "completed")
     api_only = directory is not None and (directory / "bilayer" / "run.json").is_file()
     if not api_only and directory is not None and (directory / "full-run.json").is_file():
-        api_only = "reused_preparation" in managed._read_json(directory / "full-run.json")
+        api_only = "reused_preparation" in _task_store._read_json(directory / "full-run.json")
     offline_recovery = False
     if directory is not None and api_only and not local_complete and (directory / "bilayer" / "run.json").is_file() and (full_archive_path(directory)).is_file():
-        bilayer = managed._read_json(directory / "bilayer" / "run.json")
-        full = managed._read_json(directory / "full-run.json")
+        bilayer = _task_store._read_json(directory / "bilayer" / "run.json")
+        full = _task_store._read_json(directory / "full-run.json")
         offline_recovery = (bilayer.get("schema_version") == 1 and bool(bilayer.get("job_id"))
                             and bilayer.get("state") not in ("submission_unknown", "submitting", "remote_error")
                             and full.get("state") not in ("submission_unknown", "remote_error", "preparation_failed"))
@@ -182,7 +184,7 @@ def _execute(args, holder):
     if args.command == "build":
         reporter({"state": "preparing_inputs (local)"})
         if args.config:
-            directory = args.out or managed.new_run_path()
+            directory = args.out or _task_store.new_run_path()
             initialize(args.config, directory)
         else:
             default = lambda value, fallback: fallback if value is None else value
@@ -207,25 +209,25 @@ def _execute(args, holder):
     holder.append(directory)
     if args.command == "build" and getattr(args, "_managed_cli", False) and not getattr(args, "name", None) and (directory / "full-run.json").is_file():
         try:
-            managed.validate_name(task_root(directory).name)
+            _task_store.validate_name(task_root(directory).name)
         except ToolError:
             pass
         else:
             args.name = task_root(directory).name
             try:
-                managed.check_name_available(args.name, directory)
+                _task_store.check_name_available(args.name, directory)
             except ToolError:
                 import uuid
                 args.name = task_root(directory).name[:110] + "-" + uuid.uuid4().hex[:10]
     if getattr(args, "name", None) and (directory / "full-run.json").is_file():
-        managed.assign_name(directory, args.name)
+        _task_store.assign_name(directory, args.name)
     if (directory / "full-run.json").is_file():
-        managed.remember_run(directory)
+        _task_store.remember_run(directory)
         if args.command == "build":
-            from ..delivery import check_destination
+            from charmm_gui_cli.store.result_files import check_destination
             check_destination(directory)
     if dry_run:
-        prepared_manifest = (managed._read_json(directory / "full-run.json").get("inputs", {}).get("manifest", {})
+        prepared_manifest = (_task_store._read_json(directory / "full-run.json").get("inputs", {}).get("manifest", {})
                              if (directory / "full-run.json").is_file() else {})
         return {"directory": str(directory), "state": "inputs_ready", "server_submitted": False,
                 "automatic_repairs": prepared_manifest.get("automatic_repairs", []),
@@ -234,16 +236,16 @@ def _execute(args, holder):
                 **({"name": args.name} if getattr(args, "name", None) else {}),
                 "next_step": "charmm-gui-cli login; charmm-gui-cli build-resume"}, 0
     if directory.is_dir() and not getattr(args, "_worker", False):
-        from ..background import claim, write_lock
-        from ..workflow import now
+        from charmm_gui_cli.store.workers import claim, write_lock
+        from charmm_gui_cli.store.locking import now
         args._run_lock_fd = claim(directory)
         write_lock(args._run_lock_fd, {"pid": os.getpid(), "started_at": now()})
-        from ..run_logging import LogStream
+        from charmm_gui_cli.store.run_logging import LogStream
         sys.stderr = LogStream(sys.stderr, log_path(directory))
     if not getattr(args, "_progress_callback", None):
         print(f"[charmm-gui-cli] run={directory}", file=sys.stderr, flush=True)
     if (directory / "full-run.json").is_file() and not getattr(args, "_progress_callback", None):
-        saved = managed._read_json(directory / "full-run.json")
+        saved = _task_store._read_json(directory / "full-run.json")
         reporter.close()
         reporter = ProgressReporter(source_job_id=saved.get("source_job_id"), build_job_id=saved.get("build_job_id"))
         args._reporter = reporter
@@ -251,18 +253,18 @@ def _execute(args, holder):
         result = local_manifest
     else:
         if (directory / "full-run.json").is_file():
-            managed.record_recovery(directory, state="running")
+            _task_store.record_recovery(directory, state="running")
         from ..remote.http_retry import long_get_retries
         def waiting(event):
             from ..store.auth import atomic_json
-            from ..workflow import now
+            from charmm_gui_cli.store.locking import now
             if event["event"] == "waiting":
                 atomic_json(directory / "network-wait.json", {**event, "active": True, "updated_at": now(),
                             "next_retry_unix": time.time() + event["retry_in_seconds"]})
                 reporter(event)
             else:
                 atomic_json(directory / "network-wait.json", {"active": False, "updated_at": now()})
-                reporter({"state": managed._read_json(directory / "full-run.json").get("state", "running")})
+                reporter({"state": _task_store._read_json(directory / "full-run.json").get("state", "running")})
         with long_get_retries(retry_window, on_wait=waiting):
             from ..remote.sessions import bind
             api = Client(token)
@@ -274,7 +276,7 @@ def _execute(args, holder):
                              interval=args.interval, max_wait=args.max_wait, progress=reporter)
     summary = {"directory": str(directory), **{key: result[key] for key in
                ("state", "source_job_id", "build_job_id") if key in result}}
-    summary.update(managed._job_metadata(directory))
+    summary.update(_task_store._job_metadata(directory))
     if result.get("state") in ("ligands_present", "validation_failed", "downloaded_unverified", "validated") or local_complete:
         reporter({"state": "validating_final_archive (local)",
                   **{key: result[key] for key in ("source_job_id", "build_job_id") if key in result}})
@@ -294,24 +296,24 @@ def _execute(args, holder):
         if not use_grompp:
             summary["gromacs_note"] = "GROMACS compilation was not run; install gmx and build-resume --grompp to add it."
         if (directory / "full-run.json").is_file():
-            managed.record_recovery(directory, state=summary["state"])
+            _task_store.record_recovery(directory, state=summary["state"])
         summary["presentation"] = result_presentation(summary, report)
         summary["official_links"] = summary["presentation"]["official_links"]
         if getattr(args, "no_preview", False):
             summary["preview"] = {"status": "disabled"}
         else:
-            from ..preview import preview_run
+            from charmm_gui_cli.pipeline.preview import preview_run
             try:
                 summary["preview"] = preview_run(directory, report=report)
             except (ToolError, OSError) as error:
                 summary["preview"] = {"status": "failed", "message": str(error) if isinstance(error, ToolError) else "Local preview output could not be generated."}
         if report.get("validation_complete") is True:
-            from ..delivery import auto_export
+            from charmm_gui_cli.pipeline.delivery import auto_export
             summary["delivery"] = auto_export(directory)
         return summary, 0 if report.get("passed") else 2
     summary["next_step"] = "charmm-gui-cli build-resume"
     if (directory / "full-run.json").is_file():
-        managed.record_recovery(directory, state=summary.get("state"))
+        _task_store.record_recovery(directory, state=summary.get("state"))
     summary["presentation"] = result_presentation(summary)
     summary["official_links"] = summary["presentation"]["official_links"]
     return summary, 0

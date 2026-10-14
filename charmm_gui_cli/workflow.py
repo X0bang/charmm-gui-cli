@@ -1,4 +1,3 @@
-"""Compatibility import; implementation lives in pipeline.workflow."""
-import sys
-from .pipeline import workflow as _implementation
-sys.modules[__name__] = _implementation
+"""Legacy import shim; targets are centralized in _compat.MODULE_ALIASES."""
+from ._compat import install_alias
+install_alias(__name__)

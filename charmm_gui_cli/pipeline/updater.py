@@ -20,8 +20,8 @@ from urllib.parse import urlparse
 import requests
 
 from .. import __version__
-from ..auth import ToolError
-from ..i18n import t
+from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.locales.i18n import t
 
 
 REPOSITORY = "X0bang/charmm-gui-cli"

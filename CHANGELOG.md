@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.8.2
+
+### Improvements
+
+- Diagnose possible embedded duplicate ligand poses by bounded, unfitted, element-preserving heavy-coordinate matching; retain the blocking heterogen decision and chemical-identity caveat, with explicit removal/complex routes and protection against name-wide removal of unmatched copies.
+- Validate PDB column boundaries before serial/residue interpretation, retain physical source line numbers after explicit model selection, and report unsupported hybrid-36/column overflow without truncation. A malformed unselected model no longer blocks a valid explicitly selected model; original inspection failures remain recorded.
+- Separate task records/process locks/owned files from managed build, worker, delivery and completed-preview orchestration. Preserve historical module entry points while enforcing no upper-layer imports from chemistry, HTTP and storage.
+- Extract strict run/configuration and archive-receipt primitives without bypassing legacy validation or creating receipts from read-only consumers; cover real inherited-lock offline workers through new and historical module paths.
+- Use canonical subpackage imports throughout implementation and regression mocks; centralize historical import targets without making internal code depend on them.
+- Move build/update libraries out of command adapters and isolate progress, summaries and reports in `presentation/`; keep original top-level module identities compatible.
+- Share task locking and strict YAML loading below orchestration; delivery no longer imports CLI report helpers. Add fresh-process alias blocking and package-boundary checks.
+- Fix `inspect` command dispatch, which referenced a missing import despite successful module/handler smoke tests; cover actual read-only archive/configuration/status/report invocations.
+
+### Validation scope
+
+Local regressions cover bilingual input diagnostics, original-file preservation, explicit model selection, insertion codes, bounded duplicate-pose matching, canonical package boundaries, historical import identities and offline workers. Source and wheel distributions are tested separately. This release does not add hybrid-36/mmCIF import, chemical-identity inference or automatic embedded-ligand removal; no new live provider submission or scientific-equivalence acceptance is claimed.
+
 ## 0.8.1
 
 ### Compatibility changes

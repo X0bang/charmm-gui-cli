@@ -10,12 +10,13 @@ from urllib.parse import parse_qs, urlparse
 
 import yaml
 
-from .. import batch
-from ..api import job_id
-from ..auth import ToolError, atomic_json
-from ..config import UniqueLoader, mapping, payload_for
-from ..workflow import run_lock, now
-from ..layout import inputs_path
+from charmm_gui_cli.pipeline import batch
+from charmm_gui_cli.store.identifiers import job_id
+from charmm_gui_cli.store.auth import ToolError, atomic_json
+from charmm_gui_cli.pipeline.config import UniqueLoader, payload_for
+from charmm_gui_cli.store.configuration import mapping
+from charmm_gui_cli.store.locking import run_lock, now
+from charmm_gui_cli.store.layout import inputs_path
 
 
 AXES = ("upper", "lower", "salt", "salt_concentration", "margin", "water_padding")
@@ -157,7 +158,7 @@ def read(directory):
 
 
 def _file(directory, path, expected=None):
-    from ..layout import inputs_path
+    from charmm_gui_cli.store.layout import inputs_path
     if not isinstance(path, (str, Path)) or not str(path):
         raise ToolError("Preparation evidence path must be a nonempty local file path.")
     path = Path(path)
@@ -175,7 +176,7 @@ def _file(directory, path, expected=None):
 
 def preparation_identity(directory, manifest=None):
     """Exact coordinate/chemistry/settings identity, independent of membrane axes."""
-    from ..inputs import read_ligand
+    from charmm_gui_cli.chem.inputs import read_ligand
     directory = Path(directory).expanduser().resolve()
     manifest = _json(directory / "full-run.json") if manifest is None else manifest
     try:
@@ -225,13 +226,13 @@ def seal_preparation(directory):
             or manifest.get("state") != "inputs_ready"):
         raise ToolError("Cannot retroactively seal an uploaded/unknown preparation; start a new evidence-tracked source run.")
     seal = {"version": 1, "created_at": now(), "identity": identity, "fingerprint": batch._canonical(identity)}
-    from ..managed import _new_json
+    from charmm_gui_cli.store.tasks import _new_json
     _new_json(seal_path, seal)
     return seal
 
 
 def _check_intent(directory, source_name, destination_name, overrides, upload_fields=()):
-    from ..web import soup_for, form_data, modeling_target
+    from charmm_gui_cli.remote.web import soup_for, form_data, modeling_target
     source = _file(directory, "preparation/" + source_name)
     target = _file(directory, "preparation/" + destination_name)
     intent_path = _file(directory, str(target.with_suffix(".intent.json")))
@@ -249,8 +250,8 @@ def _check_intent(directory, source_name, destination_name, overrides, upload_fi
 
 def certify_source(directory):
     """Read-only verification of a finished PDB Reader/CGenFF source run."""
-    from ..full_build import _source_id, _chains, _preparation_fields
-    from ..web_state import parse_page_state
+    from charmm_gui_cli.pipeline.full_build import _source_id, _chains, _preparation_fields
+    from charmm_gui_cli.remote.web_state import parse_page_state
     directory = Path(directory).expanduser().resolve()
     manifest = _json(directory / "full-run.json")
     if manifest.get("reused_preparation"):
@@ -363,7 +364,7 @@ def validate_reuse(directory, manifest=None):
 
 def reuse_api_config(directory, manifest=None):
     """Validated API config; clone_job=true is enforced by existing payload code."""
-    from ..build_config import api_config
+    from charmm_gui_cli.pipeline.build_config import api_config
     directory = Path(directory).resolve()
     manifest = _json(directory / "full-run.json") if manifest is None else manifest
     identifier = validate_reuse(directory, manifest)

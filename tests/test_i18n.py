@@ -3,7 +3,7 @@ import string
 import unittest
 from unittest.mock import patch
 
-from charmm_gui_cli import i18n
+from charmm_gui_cli.locales import i18n
 
 
 class LanguageTests(unittest.TestCase):

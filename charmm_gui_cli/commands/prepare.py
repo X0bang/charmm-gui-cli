@@ -3,15 +3,11 @@
 
 
 def execute(args):
-    from ..cli import (
-        emit,
-        ToolError,
-        atomic_json,
-        atomic_write,
-        plan,
-        validate_config,
-        yaml,
-    )
+    from charmm_gui_cli.cli import emit
+    from charmm_gui_cli.store.auth import ToolError, atomic_json, atomic_write
+    from charmm_gui_cli.pipeline.config import plan
+    from charmm_gui_cli.store.configuration import validate_config
+    import yaml
     config = validate_config({
         "version": 1, "source_job_id": None, "input_pdb": str(args.pdb.resolve()),
         "expected_ligands": args.ligand,

@@ -1,5 +1,7 @@
 """Moved task regression tests retain evidence and never replay unknown POSTs."""
 
+import charmm_gui_cli.store.tasks as _task_store
+
 from contextlib import ExitStack, redirect_stdout, redirect_stderr
 import io
 import json
@@ -8,7 +10,7 @@ import shutil
 import unittest
 from unittest.mock import Mock, patch
 
-from charmm_gui_cli.store import managed, delivery
+from charmm_gui_cli.pipeline import managed, delivery
 from charmm_gui_cli.store.auth import ToolError, atomic_json, atomic_write
 from charmm_gui_cli.store.paths import read_value, encode, decode
 from charmm_gui_cli.store.discovery import relink
@@ -30,7 +32,7 @@ class PortableTaskTests(unittest.TestCase):
         self.addCleanup(self.stack.close)
         self.stack.enter_context(patch("pathlib.Path.cwd", return_value=self.base))
         self.stack.enter_context(patch("requests.Session.request", side_effect=AssertionError("No live network")))
-        self.stack.enter_context(patch("charmm_gui_cli.managed._registries", return_value=(self.base / "index",)))
+        self.stack.enter_context(patch("charmm_gui_cli.store.tasks._registries", return_value=(self.base / "index",)))
 
     def portable(self):
         atomic_json(self.run / "path-mode.json", {"version": 1})
@@ -64,10 +66,10 @@ class PortableTaskTests(unittest.TestCase):
         self.assertEqual(json.loads((self.run / "job.json").read_text())["directory"], ".charmm-gui")
         before = {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob("*.json")}
         self.move()
-        self.assertEqual(managed.resolve_run("receptor-a"), self.run)
+        self.assertEqual(_task_store.resolve_run("receptor-a"), self.run)
         self.assertTrue(managed.inspect_run("receptor-a")["passed"])
         self.assertEqual(managed.list_runs()[0]["directory"], str(self.run))
-        self.assertEqual(managed._read_json(self.run / "results/validation.json")["fingerprint"], original["fingerprint"])
+        self.assertEqual(_task_store._read_json(self.run / "results/validation.json")["fingerprint"], original["fingerprint"])
         self.assertEqual(before, {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob("*.json")})
 
     def test_actual_status_report_export_and_offline_resume_commands_after_move(self):
@@ -102,10 +104,10 @@ class PortableTaskTests(unittest.TestCase):
     def test_legacy_absolute_paths_read_without_rewriting_or_resealing_evidence(self):
         old = self.run
         before = {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob("*.json")}
-        fingerprint = managed._read_json(self.run / "results/validation.json")["fingerprint"]
+        fingerprint = _task_store._read_json(self.run / "results/validation.json")["fingerprint"]
         self.move()
         self.assertTrue(managed.inspect_run(str(self.root))["passed"])
-        self.assertEqual(managed._read_json(self.run / "results/validation.json")["fingerprint"], fingerprint)
+        self.assertEqual(_task_store._read_json(self.run / "results/validation.json")["fingerprint"], fingerprint)
         self.assertEqual(before, {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob("*.json")})
         self.assertIn(str(old), (self.run / "job.json").read_text())
         code, _, error = self.call(["--foreground", "jobs", "resume", "receptor-a", "--no-preview", "--no-grompp"])
@@ -118,13 +120,13 @@ class PortableTaskTests(unittest.TestCase):
         outside.mkdir()
         with patch("pathlib.Path.cwd", return_value=outside):
             with self.assertRaises(ToolError) as caught:
-                managed.resolve_run("receptor-a")
+                _task_store.resolve_run("receptor-a")
             self.assertIn("jobs relink receptor-a", caught.exception.next_step)
             before = {p: p.read_bytes() for p in self.root.rglob("*.json")}
             code, output, error = self.call(["jobs", "relink", "receptor-a", str(self.root), "--json"])
             self.assertEqual(code, 0, error)
             self.assertEqual(json.loads(output)["state"], "relinked")
-            self.assertEqual(managed.resolve_run("receptor-a"), self.run)
+            self.assertEqual(_task_store.resolve_run("receptor-a"), self.run)
             self.assertEqual(before, {p: p.read_bytes() for p in self.root.rglob("*.json")})
 
     def test_two_copies_are_ambiguous_and_foreign_task_id_is_rejected(self):
@@ -133,7 +135,7 @@ class PortableTaskTests(unittest.TestCase):
         duplicate = self.base / "duplicate"
         shutil.copytree(self.root, duplicate)
         with self.assertRaises(ToolError) as caught:
-            managed.resolve_run("receptor-a")
+            _task_store.resolve_run("receptor-a")
         self.assertEqual(caught.exception.key, "jobs.discovery_ambiguous")
         updated = relink("receptor-a", self.root)
         self.assertEqual(updated["directory"], str(self.root))
@@ -151,7 +153,7 @@ class PortableTaskTests(unittest.TestCase):
 
     def test_relink_refuses_a_worker_with_a_real_held_lock(self):
         import os
-        from charmm_gui_cli.store.background import claim
+        from charmm_gui_cli.store.workers import claim
         self.portable()
         self.move()
         record = (self.base / "index/names/receptor-a.json").read_bytes()
@@ -247,12 +249,12 @@ class PortableTaskTests(unittest.TestCase):
             old.pop("task_id", None)
             path.write_text(json.dumps(old))
         self.move()
-        self.assertEqual(managed.resolve_run("receptor-a"), self.run)
+        self.assertEqual(_task_store.resolve_run("receptor-a"), self.run)
         self.assertEqual(managed.list_runs()[0]["directory"], str(self.run))
         job["created_at"] = "different registration"
         (self.run / "job.json").write_text(json.dumps(job))
         with self.assertRaises(ToolError) as caught:
-            managed.resolve_run("receptor-a")
+            _task_store.resolve_run("receptor-a")
         self.assertEqual(caught.exception.key, "jobs.directory_missing")
 
 
@@ -263,8 +265,8 @@ class PreparedPortableTests(unittest.TestCase):
         self.base = self.fixture.root
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
-        self.stack.enter_context(patch("charmm_gui_cli.managed._registry", return_value=self.base / "index"))
-        self.stack.enter_context(patch("charmm_gui_cli.managed._registries", return_value=(self.base / "index",)))
+        self.stack.enter_context(patch("charmm_gui_cli.store.tasks._registry", return_value=self.base / "index"))
+        self.stack.enter_context(patch("charmm_gui_cli.store.tasks._registries", return_value=(self.base / "index",)))
         self.stack.enter_context(patch("pathlib.Path.cwd", return_value=self.base))
 
     def test_real_cli_dryrun_moved_then_upload_uses_new_local_inputs(self):
@@ -287,7 +289,7 @@ class PreparedPortableTests(unittest.TestCase):
         moved = self.base / "moved"
         root.rename(moved)
         run = moved / ".charmm-gui"
-        self.assertEqual(managed.resolve_run("portable"), run)
+        self.assertEqual(_task_store.resolve_run("portable"), run)
         web, api = Mock(), Mock()
         api.submit.return_value = "456"
 
@@ -316,7 +318,7 @@ class PreparedPortableTests(unittest.TestCase):
     def test_unknown_post_intent_survives_move_without_replay(self):
         directory = managed.create_managed_build(protein=self.fixture.protein, ligand=self.fixture.ligand,
                                                  output=self.base / "intent/.charmm-gui", hydrogens="preserve")
-        managed.assign_name(directory, "intent")
+        _task_store.assign_name(directory, "intent")
         preparation = directory / "preparation"
         preparation.mkdir()
         atomic_json(preparation / "web-run.json", {"state": "submission_unknown", "input_pdb": str(self.base / "intent/inputs/complex.pdb")})
@@ -336,7 +338,7 @@ class PreparedPortableTests(unittest.TestCase):
         for name in ("source", "child"):
             runs[name] = managed.create_managed_build(protein=self.fixture.protein, ligand=self.fixture.ligand,
                 output=self.base / name / ".charmm-gui", hydrogens="preserve")
-            managed.assign_name(runs[name], name)
+            _task_store.assign_name(runs[name], name)
         source, child = runs["source"], runs["child"]
         web, api = Mock(), Mock()
         api.submit.return_value = "456"

@@ -1,4 +1,4 @@
-from charmm_gui_cli.layout import inputs_path, task_root
+from charmm_gui_cli.store.layout import inputs_path, task_root
 """Batch tests use synthetic inputs and mocked transport; scratch data retained."""
 import csv
 import io
@@ -10,9 +10,9 @@ from unittest.mock import patch
 
 import yaml
 
-from charmm_gui_cli import batch
-from charmm_gui_cli.api import AuthError, SubmissionUnknown
-from charmm_gui_cli.auth import ToolError, atomic_json
+from charmm_gui_cli.pipeline import batch
+from charmm_gui_cli.remote.api import AuthError, SubmissionUnknown
+from charmm_gui_cli.store.auth import ToolError, atomic_json
 
 
 class BatchTests(unittest.TestCase):
@@ -35,8 +35,8 @@ class BatchTests(unittest.TestCase):
             args.out.mkdir(parents=True)
             atomic_json(args.out / "full-run.json", {"state": "inputs_ready"})
             return {"state": "inputs_ready"}, 0
-        with patch("charmm_gui_cli.build_command.execute", side_effect=execute), \
-                patch("charmm_gui_cli.managed.assign_name", create=True):
+        with patch("charmm_gui_cli.pipeline.build_command.execute", side_effect=execute), \
+                patch("charmm_gui_cli.store.tasks.assign_name", create=True):
             return batch.initialize(self.config, self.directory)
 
     def test_relative_paths_defaults_overrides_and_types(self):
@@ -76,7 +76,7 @@ class BatchTests(unittest.TestCase):
 
     def test_default_active_limit_includes_preparation(self):
         self.prepare()
-        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "preparation_running"}, 0)) as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "preparation_running"}, 0)) as execute:
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
             self.assertEqual(execute.call_count, 1)
             self.assertFalse(execute.call_args.args[0].wait)
@@ -87,7 +87,7 @@ class BatchTests(unittest.TestCase):
 
     def test_concurrency_limited_entire_lifecycle_and_no_reprepare(self):
         self.prepare()
-        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "bilayer_submitted"}, 0)) as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "bilayer_submitted"}, 0)) as execute:
             batch.advance(self.directory, wait=False, max_active=2, submit_interval=0)
             self.assertEqual(execute.call_count, 2)
             batch.advance(self.directory, wait=False, max_active=2, submit_interval=0)
@@ -96,8 +96,8 @@ class BatchTests(unittest.TestCase):
 
     def test_finished_jobs_release_slots(self):
         self.prepare()
-        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "validated"}, 0)) as execute, \
-                patch("charmm_gui_cli.managed._final_summary", return_value={"state": "validated"}):
+        with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "validated"}, 0)) as execute, \
+                patch("charmm_gui_cli.pipeline.managed._final_summary", return_value={"state": "validated"}):
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
             self.assertEqual(execute.call_count, 3)
             self.assertEqual(result["state"], "complete")
@@ -107,7 +107,7 @@ class BatchTests(unittest.TestCase):
 
     def test_auth_failure_pauses_whole_batch(self):
         self.prepare()
-        with patch("charmm_gui_cli.build_command.execute", side_effect=AuthError("Login expired")) as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute", side_effect=AuthError("Login expired")) as execute:
             result, code = batch.advance(self.directory, wait=False, max_active=4, submit_interval=0)
             self.assertEqual(execute.call_count, 1)
             self.assertEqual(result["state"], "paused_auth")
@@ -115,7 +115,7 @@ class BatchTests(unittest.TestCase):
 
     def test_auth_required_category_has_login_guidance(self):
         self.prepare()
-        with patch("charmm_gui_cli.build_command.execute", side_effect=ToolError("Expired", category="auth_required")) as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute", side_effect=ToolError("Expired", category="auth_required")) as execute:
             result, code = batch.advance(self.directory, wait=False, max_active=4, submit_interval=0)
         self.assertEqual(execute.call_count, 1)
         self.assertEqual(result["state"], "paused_auth")
@@ -126,7 +126,7 @@ class BatchTests(unittest.TestCase):
         self.prepare()
         first = self.directory / "jobs" / "first" / ".charmm-gui"
         atomic_json(first / "full-run.json", {"state": "bilayer_submitted", "build_job_id": "234"})
-        with patch("charmm_gui_cli.build_command.execute", side_effect=ToolError("GET TLS failure", category="transport_error")) as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute", side_effect=ToolError("GET TLS failure", category="transport_error")) as execute:
             result, code = batch.advance(self.directory, wait=True, max_active=4, submit_interval=0)
         self.assertEqual(execute.call_count, 1)
         self.assertEqual(code, 2)
@@ -134,7 +134,7 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(result["jobs"][0]["build_job_id"], "234")
         self.assertIn("TLS", result["next_step"])
         self.assertEqual(batch.status(self.directory)["jobs"][0]["state"], "paused_network")
-        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "running"}, 0)) as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "running"}, 0)) as execute:
             result, code = batch.advance(self.directory, wait=False, max_active=1, submit_interval=0)
         self.assertEqual(execute.call_count, 1)
         self.assertEqual(execute.call_args.args[0].directory, first)
@@ -144,11 +144,11 @@ class BatchTests(unittest.TestCase):
     def test_unknown_post_transport_error_never_becomes_retryable_network_pause(self):
         self.prepare()
         error = SubmissionUnknown("Uncertain POST", cause_category="transport_error")
-        with patch("charmm_gui_cli.build_command.execute", side_effect=error):
+        with patch("charmm_gui_cli.pipeline.build_command.execute", side_effect=error):
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
         self.assertEqual(result["state"], "paused_inspection")
         self.assertIn("attach", result["next_step"])
-        with patch("charmm_gui_cli.build_command.execute") as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute") as execute:
             batch.advance(self.directory, wait=False, submit_interval=0)
         execute.assert_not_called()
 
@@ -159,14 +159,14 @@ class BatchTests(unittest.TestCase):
             bilayer.mkdir()
             atomic_json(bilayer / "run.json", {"state": "submission_unknown", "job_id": None})
             raise KeyboardInterrupt
-        with patch("charmm_gui_cli.build_command.execute", side_effect=interrupted), self.assertRaises(KeyboardInterrupt):
+        with patch("charmm_gui_cli.pipeline.build_command.execute", side_effect=interrupted), self.assertRaises(KeyboardInterrupt):
             batch.advance(self.directory, wait=False, max_active=4, submit_interval=0)
         saved = json.loads((self.directory / "batch.json").read_text())
         self.assertEqual(saved["state"], "interrupted")
         self.assertEqual(saved["jobs"][0]["error_category"], "submission_unknown")
         self.assertTrue(saved["jobs"][0]["started"])
         self.assertIn("attach", json.loads((self.directory / "summary.json").read_text())["next_step"])
-        with patch("charmm_gui_cli.build_command.execute") as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute") as execute:
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
         execute.assert_not_called()
         self.assertEqual(result["state"], "paused_inspection")
@@ -175,13 +175,13 @@ class BatchTests(unittest.TestCase):
         self.prepare()
         first = self.directory / "jobs" / "first" / ".charmm-gui"
         atomic_json(first / "full-run.json", {"state": "bilayer_submitted", "build_job_id": "234"})
-        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "running", "build_job_id": "234"}, 0)), \
-                patch("charmm_gui_cli.batch.time.sleep", side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
+        with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "running", "build_job_id": "234"}, 0)), \
+                patch("charmm_gui_cli.pipeline.batch.time.sleep", side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
             batch.advance(self.directory, wait=True, submit_interval=0)
         saved = json.loads((self.directory / "batch.json").read_text())
         self.assertEqual(saved["state"], "interrupted")
         self.assertEqual(saved["jobs"][0]["build_job_id"], "234")
-        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "running"}, 0)) as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "running"}, 0)) as execute:
             batch.advance(self.directory, wait=False, submit_interval=0)
         self.assertEqual(execute.call_count, 1)
         self.assertEqual(execute.call_args.args[0].directory, first)
@@ -194,18 +194,18 @@ class BatchTests(unittest.TestCase):
             atomic_json(args.directory / "full-run.json", {"state": "uploading"})
             atomic_json(preparation / "web-run.json", {"state": "submission_unknown"})
             raise KeyboardInterrupt
-        with patch("charmm_gui_cli.build_command.execute", side_effect=interrupted), self.assertRaises(KeyboardInterrupt):
+        with patch("charmm_gui_cli.pipeline.build_command.execute", side_effect=interrupted), self.assertRaises(KeyboardInterrupt):
             batch.advance(self.directory, wait=False, submit_interval=0)
-        with patch("charmm_gui_cli.build_command.execute") as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute") as execute:
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
         execute.assert_not_called()
         self.assertEqual(result["state"], "paused_inspection")
-        from charmm_gui_cli.i18n import t
+        from charmm_gui_cli.locales.i18n import t
         self.assertIn(t("recovery.submission_unknown"), result["next_step"])
 
     def test_uncertain_submission_preserves_active_slot(self):
         self.prepare()
-        with patch("charmm_gui_cli.build_command.execute", side_effect=SubmissionUnknown("Submission uncertain")) as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute", side_effect=SubmissionUnknown("Submission uncertain")) as execute:
             result, code = batch.advance(self.directory, wait=False, max_active=4, submit_interval=0)
             self.assertEqual(execute.call_count, 1)
             self.assertEqual(result["state"], "paused_inspection")
@@ -213,7 +213,7 @@ class BatchTests(unittest.TestCase):
 
     def test_terminal_failure_does_not_block_other_jobs(self):
         self.prepare(failure="second")
-        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "validation_failed"}, 2)) as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "validation_failed"}, 2)) as execute:
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
             self.assertEqual(execute.call_count, 2)
             self.assertEqual(code, 2)
@@ -221,7 +221,7 @@ class BatchTests(unittest.TestCase):
 
     def test_submission_interval_survives_resume(self):
         self.prepare()
-        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "preparation_running"}, 0)) as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "preparation_running"}, 0)) as execute:
             batch.advance(self.directory, wait=False, max_active=4, submit_interval=30)
             self.assertEqual(execute.call_count, 1)
             batch.advance(self.directory, wait=False, max_active=4, submit_interval=30)
@@ -230,7 +230,7 @@ class BatchTests(unittest.TestCase):
     def test_source_fingerprint_detects_even_comment_changes(self):
         self.prepare()
         self.config.write_text(self.config.read_text() + "\n# change\n")
-        with patch("charmm_gui_cli.build_command.execute") as execute, self.assertRaisesRegex(ToolError, "changed"):
+        with patch("charmm_gui_cli.pipeline.build_command.execute") as execute, self.assertRaisesRegex(ToolError, "changed"):
             batch.advance(self.directory, wait=False)
         execute.assert_not_called()
 
@@ -247,7 +247,7 @@ class BatchTests(unittest.TestCase):
         self.prepare()
         before = (self.directory / "batch.json").read_bytes()
         reports_before = {name: (self.directory / name).read_bytes() for name in ("summary.json", "summary.csv")}
-        with patch("charmm_gui_cli.build_command.execute") as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute") as execute:
             result = batch.status(self.directory)
         execute.assert_not_called()
         self.assertEqual(before, (self.directory / "batch.json").read_bytes())
@@ -264,8 +264,8 @@ class BatchTests(unittest.TestCase):
         full = self.directory / "jobs" / "first" / ".charmm-gui" / "full-run.json"
         atomic_json(full, {"state": "preparation_running", "source_job_id": "123"})
         before = (self.directory / "batch.json").read_bytes()
-        with patch("charmm_gui_cli.auth.load_token", return_value=("fake", "fake")), \
-                patch("charmm_gui_cli.api.Client") as client:
+        with patch("charmm_gui_cli.store.auth.load_token", return_value=("fake", "fake")), \
+                patch("charmm_gui_cli.remote.api.Client") as client:
             client.return_value.status.return_value = {"status": None, "hasTarFile": False, "private": "omit"}
             result = batch.status(self.directory, remote_check=True)
             client.return_value.status.assert_called_once_with("123")
@@ -289,7 +289,7 @@ class BatchTests(unittest.TestCase):
         value = json.loads(path.read_text())
         value["jobs"][0]["state"] = "preparing_local"
         atomic_json(path, value)
-        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "validated"}, 0)) as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "validated"}, 0)) as execute:
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
         self.assertEqual(execute.call_count, 2)
         self.assertEqual(result["jobs"][0]["state"], "local_failed")
@@ -300,12 +300,12 @@ class BatchTests(unittest.TestCase):
             import rdkit  # noqa: F401
         except ImportError:
             self.skipTest("RDKit required for real synthetic preparation")
-        from charmm_gui_cli.inputs import Atom, _sdf
+        from charmm_gui_cli.chem.inputs import Atom, _sdf
         (self.root / "protein.pdb").write_text("ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C\nEND\n")
         (self.root / "ligand.sdf").write_text(_sdf([Atom(1, "C1", "C", (3., 2., 1.)),
                                                    Atom(2, "O1", "O", (4.3, 2., 1.))], {(0, 1): 1}, "LIG"))
-        with patch("charmm_gui_cli.managed._registry", return_value=self.root / "registry"), \
-                patch("charmm_gui_cli.build_command.load_token", side_effect=AssertionError("No auth")), \
+        with patch("charmm_gui_cli.store.tasks._registry", return_value=self.root / "registry"), \
+                patch("charmm_gui_cli.pipeline.build_command.load_token", side_effect=AssertionError("No auth")), \
                 patch("requests.Session.request", side_effect=AssertionError("No network")):
             result = batch.initialize(self.config, self.directory)
         self.assertEqual(result["counts"], {"inputs_ready": 3})
@@ -324,8 +324,8 @@ class BatchTests(unittest.TestCase):
             file.write_text("synthetic")
             files[name] = str(file)
         atomic_json(output / "full-run.json", {"schema_version": 2, "state": "inputs_ready", "inputs": {"files": files}})
-        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "validated"}, 0)) as execute, \
-                patch("charmm_gui_cli.managed.assign_name") as assign:
+        with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "validated"}, 0)) as execute, \
+                patch("charmm_gui_cli.store.tasks.assign_name") as assign:
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
         self.assertEqual(execute.call_count, 3)
         self.assertTrue(all(call.args[0].command == "build-resume" for call in execute.call_args_list))
@@ -334,26 +334,26 @@ class BatchTests(unittest.TestCase):
 
     def test_retryable_get_exhaustion_keeps_slot_and_can_resume(self):
         self.prepare()
-        with patch("charmm_gui_cli.build_command.execute", side_effect=ToolError("GET exhausted", category="transient_network", retryable=True)):
+        with patch("charmm_gui_cli.pipeline.build_command.execute", side_effect=ToolError("GET exhausted", category="transient_network", retryable=True)):
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
         self.assertEqual(result["state"], "waiting_network")
         self.assertEqual(result["jobs"][0]["state"], "waiting_network")
-        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "preparation_running"}, 0)) as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "preparation_running"}, 0)) as execute:
             batch.advance(self.directory, wait=False, submit_interval=0)
             self.assertEqual(execute.call_count, 1)
 
     def test_unknown_submission_requires_attach_before_resume(self):
         self.prepare()
-        with patch("charmm_gui_cli.build_command.execute", side_effect=SubmissionUnknown("Uncertain")):
+        with patch("charmm_gui_cli.pipeline.build_command.execute", side_effect=SubmissionUnknown("Uncertain")):
             batch.advance(self.directory, wait=False, submit_interval=0)
-        with patch("charmm_gui_cli.build_command.execute") as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute") as execute:
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
             execute.assert_not_called()
             self.assertEqual(result["state"], "paused_inspection")
         bilayer = self.directory / "jobs" / "first" / ".charmm-gui" / "bilayer"
         bilayer.mkdir()
         atomic_json(bilayer / "run.json", {"state": "submitted", "job_id": "12345"})
-        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "running"}, 0)) as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "running"}, 0)) as execute:
             batch.advance(self.directory, wait=False, submit_interval=0)
             self.assertEqual(execute.call_count, 1)
 
@@ -369,8 +369,8 @@ class BatchTests(unittest.TestCase):
 
     def test_required_gromacs_checked_before_any_remote_progress(self):
         self.prepare()
-        with patch("charmm_gui_cli.batch.shutil.which", return_value=None), \
-                patch("charmm_gui_cli.build_command.execute") as execute, self.assertRaisesRegex(ToolError, "GROMACS"):
+        with patch("charmm_gui_cli.pipeline.batch.shutil.which", return_value=None), \
+                patch("charmm_gui_cli.pipeline.build_command.execute") as execute, self.assertRaisesRegex(ToolError, "GROMACS"):
             batch.advance(self.directory, grompp=True)
         execute.assert_not_called()
 
@@ -378,35 +378,35 @@ class BatchTests(unittest.TestCase):
         self.prepare()
         error = ToolError("Backoff required", category="rate_limited", retryable=True)
         error.retry_after_seconds = 600
-        with patch("charmm_gui_cli.build_command.execute", side_effect=error), patch("charmm_gui_cli.batch.time.time", return_value=1000):
+        with patch("charmm_gui_cli.pipeline.build_command.execute", side_effect=error), patch("charmm_gui_cli.pipeline.batch.time.time", return_value=1000):
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
         self.assertEqual(result["jobs"][0]["next_retry_unix"], 1600)
-        with patch("charmm_gui_cli.build_command.execute") as execute, patch("charmm_gui_cli.batch.time.time", return_value=1200):
+        with patch("charmm_gui_cli.pipeline.build_command.execute") as execute, patch("charmm_gui_cli.pipeline.batch.time.time", return_value=1200):
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
         execute.assert_not_called()
         self.assertEqual(result["state"], "waiting_network")
-        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "running"}, 0)) as execute, patch("charmm_gui_cli.batch.time.time", return_value=1601):
+        with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "running"}, 0)) as execute, patch("charmm_gui_cli.pipeline.batch.time.time", return_value=1601):
             batch.advance(self.directory, wait=False, submit_interval=0)
         self.assertEqual(execute.call_count, 1)
 
     def test_archive_compression_pending_keeps_slot_and_waits_before_resume(self):
         self.prepare()
         error = ToolError("官网正在压缩归档", category="archive_preparing", retryable=True, retry_after_seconds=120)
-        with patch("charmm_gui_cli.build_command.execute", side_effect=error), patch("charmm_gui_cli.batch.time.time", return_value=1000):
+        with patch("charmm_gui_cli.pipeline.build_command.execute", side_effect=error), patch("charmm_gui_cli.pipeline.batch.time.time", return_value=1000):
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
         self.assertEqual(result["state"], "archive_preparing")
         self.assertEqual(result["jobs"][0]["state"], "archive_preparing")
         self.assertEqual(result["jobs"][0]["next_retry_unix"], 1120)
         self.assertEqual(result["failed"], 0)
         self.assertEqual(result["validated"], 0)
-        from charmm_gui_cli.i18n import t
+        from charmm_gui_cli.locales.i18n import t
         self.assertEqual(result["next_step"], t("batch.next.archive", resume="charmm-gui-cli batch-resume " + str(self.directory)))
-        with patch("charmm_gui_cli.build_command.execute") as execute, patch("charmm_gui_cli.batch.time.time", return_value=1100):
+        with patch("charmm_gui_cli.pipeline.build_command.execute") as execute, patch("charmm_gui_cli.pipeline.batch.time.time", return_value=1100):
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
         execute.assert_not_called()
         self.assertEqual(result["state"], "archive_preparing")
-        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "ligands_present"}, 0)) as execute, \
-                patch("charmm_gui_cli.batch.time.time", return_value=1121):
+        with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "ligands_present"}, 0)) as execute, \
+                patch("charmm_gui_cli.pipeline.batch.time.time", return_value=1121):
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
         self.assertEqual(execute.call_count, 1)
         self.assertEqual(execute.call_args.args[0].directory, self.directory / "jobs" / "first" / ".charmm-gui")
@@ -416,10 +416,10 @@ class BatchTests(unittest.TestCase):
         self.prepare()
         error = ToolError("Archive preparing", category="archive_preparing", retryable=True, retry_after_seconds=120)
         clock = [1000.0]
-        with patch("charmm_gui_cli.build_command.execute", side_effect=error) as execute, \
-                patch("charmm_gui_cli.batch.time.time", side_effect=lambda: clock[0]), \
-                patch("charmm_gui_cli.batch.time.monotonic", side_effect=lambda: clock[0]), \
-                patch("charmm_gui_cli.batch.time.sleep", side_effect=lambda delay: clock.__setitem__(0, clock[0] + delay)):
+        with patch("charmm_gui_cli.pipeline.build_command.execute", side_effect=error) as execute, \
+                patch("charmm_gui_cli.pipeline.batch.time.time", side_effect=lambda: clock[0]), \
+                patch("charmm_gui_cli.pipeline.batch.time.monotonic", side_effect=lambda: clock[0]), \
+                patch("charmm_gui_cli.pipeline.batch.time.sleep", side_effect=lambda delay: clock.__setitem__(0, clock[0] + delay)):
             result, code = batch.advance(self.directory, wait=True, max_wait=45, submit_interval=0)
         self.assertEqual(execute.call_count, 1)
         self.assertEqual(result["state"], "archive_preparing")
@@ -433,7 +433,7 @@ class BatchTests(unittest.TestCase):
         atomic_json(later / "full-run.json", {"state": "bilayer_submitted", "source_job_id": "123"})
         (later / "bilayer").mkdir()
         atomic_json(later / "bilayer" / "run.json", {"state": "pending", "job_id": "456"})
-        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "pending"}, 0)) as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "pending"}, 0)) as execute:
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
         self.assertEqual(execute.call_count, 1)
         self.assertEqual(execute.call_args.args[0].directory, later)
@@ -445,7 +445,7 @@ class BatchTests(unittest.TestCase):
         atomic_json(later / "full-run.json", {"state": "pending"})
         (later / "preparation").mkdir()
         atomic_json(later / "preparation" / "web-run.json", {"state": "upload_submitting"})
-        with patch("charmm_gui_cli.build_command.execute", return_value=({"state": "preparation_running"}, 0)) as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "preparation_running"}, 0)) as execute:
             batch.advance(self.directory, wait=False, submit_interval=0)
         self.assertEqual(execute.call_count, 1)
         self.assertEqual(execute.call_args.args[0].directory, later)
@@ -457,14 +457,14 @@ class BatchTests(unittest.TestCase):
         value["jobs"][0].update(state="validated", started=True)
         value["jobs"][1].update(state="validation_failed", started=True)
         atomic_json(path, value)
-        with patch("charmm_gui_cli.managed._final_summary", return_value={"validation_status": "stale_or_unreadable"}) as verify:
+        with patch("charmm_gui_cli.pipeline.managed._final_summary", return_value={"validation_status": "stale_or_unreadable"}) as verify:
             result = batch.status(self.directory)
         self.assertEqual(verify.call_count, 2)
         self.assertEqual(result["jobs"][0]["state"], "validation_stale")
         self.assertEqual(result["jobs"][1]["state"], "validation_stale")
         self.assertEqual(result["validated"], 0)
-        with patch("charmm_gui_cli.managed._final_summary", return_value={"validation_status": "stale_or_unreadable"}), \
-                patch("charmm_gui_cli.build_command.execute", return_value=({"state": "validated"}, 0)) as execute:
+        with patch("charmm_gui_cli.pipeline.managed._final_summary", return_value={"validation_status": "stale_or_unreadable"}), \
+                patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "validated"}, 0)) as execute:
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
         self.assertEqual(execute.call_count, 3)
         self.assertEqual(result["validated"], 3)
@@ -475,7 +475,7 @@ class BatchTests(unittest.TestCase):
         value = json.loads(path.read_text())
         value["jobs"][0].update(state="validation_failed", started=True)
         atomic_json(path, value)
-        with patch("charmm_gui_cli.managed._final_summary", return_value={"state": "validation_failed"}):
+        with patch("charmm_gui_cli.pipeline.managed._final_summary", return_value={"state": "validation_failed"}):
             result = batch.status(self.directory)
         self.assertEqual(result["failed"], 1)
 
@@ -483,13 +483,13 @@ class BatchTests(unittest.TestCase):
         self.prepare()
         error = SubmissionUnknown("POST outcome unknown")
         error.cause_category = "authentication"
-        with patch("charmm_gui_cli.build_command.execute", side_effect=error) as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute", side_effect=error) as execute:
             result, code = batch.advance(self.directory, wait=False, max_active=4, submit_interval=0)
         self.assertEqual(execute.call_count, 1)
         self.assertEqual(result["state"], "paused_auth")
         self.assertEqual(result["jobs"][0]["error_category"], "submission_unknown")
         self.assertEqual(result["jobs"][0]["cause_category"], "authentication")
-        with patch("charmm_gui_cli.build_command.execute") as execute:
+        with patch("charmm_gui_cli.pipeline.build_command.execute") as execute:
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
         execute.assert_not_called()
         self.assertEqual(result["state"], "paused_inspection")
@@ -498,7 +498,7 @@ class BatchTests(unittest.TestCase):
         self.prepare()
         result = {"state": "validated", "gromacs_compiled": False, "gromacs_note": "Not run",
                   "validation": {"passed": True, "review_required": True}, "report": "/tmp/report.json", "archive": "/tmp/system.tgz"}
-        with patch("charmm_gui_cli.build_command.execute", return_value=(result, 0)):
+        with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=(result, 0)):
             summary, code = batch.advance(self.directory, wait=False, submit_interval=0)
         row = summary["jobs"][0]
         self.assertEqual(row["compilation_status"], "not_run")

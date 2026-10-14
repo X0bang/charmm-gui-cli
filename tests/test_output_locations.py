@@ -5,10 +5,10 @@ from unittest.mock import patch
 import io
 import contextlib
 
-from charmm_gui_cli.auth import ToolError
-from charmm_gui_cli.build_config import load_build_config
-from charmm_gui_cli.managed import new_run_path, new_batch_path, validate_name
-from charmm_gui_cli.preview import new_preview_path
+from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.pipeline.build_config import load_build_config
+from charmm_gui_cli.store.tasks import new_run_path, new_batch_path, validate_name
+from charmm_gui_cli.chem.preview import new_preview_path
 
 
 class OutputLocationTests(unittest.TestCase):
@@ -50,13 +50,13 @@ class OutputLocationTests(unittest.TestCase):
         from charmm_gui_cli.cli import main
         report = {"passed": True, "preview": {"images": [{"file": "/tmp/example-preview.png"}]}}
         for platform, executable in (("darwin", "open"), ("linux", "xdg-open")):
-            with self.subTest(platform=platform), patch("charmm_gui_cli.precheck.check_inputs", return_value=report), \
+            with self.subTest(platform=platform), patch("charmm_gui_cli.chem.precheck.check_inputs", return_value=report), \
                     patch("sys.platform", platform), patch("shutil.which", return_value="/usr/bin/" + executable), \
                     patch("subprocess.Popen") as opener, contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(main(["check", "--protein", "p.pdb", "--ligand", "l.sdf", "--open", "--no-preview"]), 0)
             self.assertEqual(opener.call_args.args[0], ["/usr/bin/" + executable, "/tmp/example-preview.png"])
         stream = io.StringIO()
-        with patch("charmm_gui_cli.precheck.check_inputs", return_value=report), patch("shutil.which", return_value=None), \
+        with patch("charmm_gui_cli.chem.precheck.check_inputs", return_value=report), patch("shutil.which", return_value=None), \
                 patch("subprocess.Popen") as opener, contextlib.redirect_stdout(stream):
             self.assertEqual(main(["check", "--protein", "p.pdb", "--ligand", "l.sdf", "--open", "--no-preview"]), 0)
         opener.assert_not_called()

@@ -1,6 +1,6 @@
 """Dynamic localized workflow help; importing it never accesses the network."""
 
-from ..i18n import t
+from charmm_gui_cli.locales.i18n import t
 
 
 def __getattr__(name):

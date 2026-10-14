@@ -1,4 +1,3 @@
-"""Compatibility import; implementation lives in chem.input_sources."""
-import sys
-from .chem import input_sources as _implementation
-sys.modules[__name__] = _implementation
+"""Legacy import shim; targets are centralized in _compat.MODULE_ALIASES."""
+from ._compat import install_alias
+install_alias(__name__)

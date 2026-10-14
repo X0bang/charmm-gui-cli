@@ -11,8 +11,8 @@ import math
 from pathlib import Path
 import re
 
-from ..auth import ToolError
-from ..config import composition
+from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.store.configuration import composition
 
 
 def _evidence(path):

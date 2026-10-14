@@ -8,7 +8,7 @@ streams log text and never establishes success by itself.
 import re
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
-from ..web import WEB_BASE, soup_for
+from charmm_gui_cli.remote.web import WEB_BASE, soup_for
 
 
 def _script_value(scripts, name, number=False):

@@ -1,3 +1,5 @@
+
+import charmm_gui_cli.store.tasks as _task_store
 import json
 from pathlib import Path
 import stat
@@ -5,8 +7,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from charmm_gui_cli import managed
-from charmm_gui_cli.auth import ToolError, atomic_json, atomic_write
+from charmm_gui_cli.pipeline import managed
+from charmm_gui_cli.store.auth import ToolError, atomic_json, atomic_write
 
 
 class ManagedTests(unittest.TestCase):
@@ -23,7 +25,7 @@ class ManagedTests(unittest.TestCase):
         self.provenance_patch = patch.object(managed, "_archive_binding", side_effect=lambda manifest, archive, **kwargs:
                                              {"archive_provenance": {"archive_sha256": managed._digest(archive)}})
         self.provenance_patch.start()
-        self.model_patch = patch("charmm_gui_cli.delivery.verify_model")
+        self.model_patch = patch("charmm_gui_cli.store.result_files.verify_model")
         self.model_patch.start()  # Synthetic bytes here; real model binding is tested separately.
         self.directory = self.root / "run"
 
@@ -252,7 +254,7 @@ class ManagedTests(unittest.TestCase):
 
     def test_runs_list_shows_trustworthy_final_status_and_artifact_paths(self):
         manifest = self.make_run()
-        managed.remember_run(self.directory)
+        _task_store.remember_run(self.directory)
         a, b, c, d = self.validators()
         with a, b, c, d:
             report = managed.finalize_managed_build(self.directory)
@@ -268,7 +270,7 @@ class ManagedTests(unittest.TestCase):
 
     def test_runs_list_shows_live_local_bilayer_poll_state(self):
         self.make_run(state="bilayer_submitted")
-        managed.remember_run(self.directory)
+        _task_store.remember_run(self.directory)
         atomic_json(self.directory / "bilayer" / "run.json", {
             "state": "running", "job_id": "123", "remote_status": "running",
             "last_output_file": "step4_lipid.out", "lastOutLine": "NOT_FOR_SUMMARY"})
@@ -281,7 +283,7 @@ class ManagedTests(unittest.TestCase):
 
     def test_final_validation_precedes_intermediate_bilayer_state(self):
         self.make_run()
-        managed.remember_run(self.directory)
+        _task_store.remember_run(self.directory)
         a, b, c, d = self.validators()
         with a, b, c, d:
             managed.finalize_managed_build(self.directory)
@@ -299,13 +301,13 @@ class ManagedTests(unittest.TestCase):
 
     def test_recent_registry_is_private_and_selects_latest_readable_run(self):
         self.make_run()
-        managed.remember_run(self.directory)
+        _task_store.remember_run(self.directory)
         self.assertEqual(managed.latest_run(), self.directory)
-        registry = managed._registry()
+        registry = _task_store._registry()
         self.assertEqual(stat.S_IMODE((registry / "latest-run.json").stat().st_mode), 0o600)
         newer = self.root / "newer"
         self.make_run(directory=newer)
-        managed.remember_run(newer)
+        _task_store.remember_run(newer)
         self.assertEqual(managed.latest_run(), newer)
         newer.rename(self.root / "moved-newer")
         self.assertEqual(managed.latest_run(), self.directory)
@@ -318,7 +320,7 @@ class ManagedTests(unittest.TestCase):
             managed.latest_run()
 
     def test_new_run_path_creates_parent_but_not_run(self):
-        first, second = managed.new_run_path(), managed.new_run_path()
+        first, second = _task_store.new_run_path(), _task_store.new_run_path()
         self.assertNotEqual(first, second)
         self.assertTrue(first.parent.parent.is_dir())
         self.assertFalse(first.parent.exists())
@@ -338,7 +340,7 @@ class ManagedTests(unittest.TestCase):
             # The reservation is exclusively owned by this preparation.
             destination.rename(destination.with_name("reserved-sources"))
             self.make_run(state="inputs_ready", directory=destination)
-        with patch("charmm_gui_cli.input_sources.prepare_sources", side_effect=sources) as prepare, \
+        with patch("charmm_gui_cli.chem.input_sources.prepare_sources", side_effect=sources) as prepare, \
                 patch.object(managed, "initialize", side_effect=initialize), \
                 patch("pathlib.Path.cwd", return_value=self.root):
             directory = managed.create_managed_build(complex_pdb="complex.pdb", accept_conect_bond_orders=True)
@@ -349,7 +351,7 @@ class ManagedTests(unittest.TestCase):
 
     def test_create_does_not_overwrite_or_register_failed_initialization(self):
         self.directory.mkdir()
-        with patch("charmm_gui_cli.input_sources.prepare_sources") as prepare:
+        with patch("charmm_gui_cli.chem.input_sources.prepare_sources") as prepare:
             with self.assertRaisesRegex(ToolError, "already exists"):
                 managed.create_managed_build(output=self.directory)
         prepare.assert_not_called()
@@ -359,7 +361,7 @@ class ManagedTests(unittest.TestCase):
         def sources(**kwargs):
             kwargs["out"].mkdir(parents=True)
             return {"protein": "/unused-protein.pdb", "ligand": "/unused-ligand.sdf", "report": {"input_options": {}}}
-        with patch("charmm_gui_cli.input_sources.prepare_sources", side_effect=sources), \
+        with patch("charmm_gui_cli.chem.input_sources.prepare_sources", side_effect=sources), \
                 patch.object(managed, "initialize", side_effect=ToolError("invalid input chemistry")):
             with self.assertRaisesRegex(ToolError, "invalid input chemistry"):
                 managed.create_managed_build(output=self.directory)

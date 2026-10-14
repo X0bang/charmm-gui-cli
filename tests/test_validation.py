@@ -7,8 +7,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from charmm_gui_cli.auth import ToolError
-from charmm_gui_cli.validation import (extract_for_validation, inspect_coordinates, inspect_topology,
+from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.chem.validation import (extract_for_validation, inspect_coordinates, inspect_topology,
                                        run_grompp_check, validate_charmm_source, validate_system,
                                        compare_bound_pose, find_ion_settings, inspect_environment)
 
@@ -150,7 +150,7 @@ class ValidationTests(unittest.TestCase):
         def fake_run(command, **kwargs):
             Path(command[command.index("-o") + 1]).write_bytes(b"test tpr")
             return subprocess.CompletedProcess(command, 0)
-        with patch("charmm_gui_cli.validation.subprocess.run", side_effect=fake_run) as run:
+        with patch("charmm_gui_cli.chem.validation.subprocess.run", side_effect=fake_run) as run:
             result = validate_system(self.root, self.manifest, run_grompp=True, gmx="gmx")
         self.assertTrue(result["passed"], result)
         command = run.call_args.args[0]
@@ -159,7 +159,7 @@ class ValidationTests(unittest.TestCase):
         self.assertTrue(Path(result["checks"]["grompp"]["output_dir"], "command.json").exists())
 
     def test_grompp_failure_not_ignored(self):
-        with patch("charmm_gui_cli.validation.subprocess.run", return_value=subprocess.CompletedProcess([], 1)):
+        with patch("charmm_gui_cli.chem.validation.subprocess.run", return_value=subprocess.CompletedProcess([], 1)):
             result = validate_system(self.root, self.manifest, run_grompp=True, gmx="gmx")
         self.assertFalse(result["passed"])
         self.assertEqual(result["checks"]["grompp"]["returncode"], 1)
@@ -223,7 +223,7 @@ class ValidationTests(unittest.TestCase):
 
     def test_requested_kcl_distinguished_from_default_nacl(self):
         (self.root / "step4_ions.inp").write_text("set conc = 0.15 ! actual generated input\n")
-        with patch("charmm_gui_cli.validation.inspect_coordinates", return_value={"residue_counts": {
+        with patch("charmm_gui_cli.chem.validation.inspect_coordinates", return_value={"residue_counts": {
                 "POPC": 200, "TIP3": 55500, "SOD": 150, "CLA": 150}}):
             result = inspect_environment("unused.pdb", expected_lipids=["POPC"], ion_type="KCl", concentration_M=0.1, system_dir=self.root)
         self.assertFalse(result["passed"])
@@ -232,7 +232,7 @@ class ValidationTests(unittest.TestCase):
 
     def test_kcl_and_concentration_confirmed_with_counterions(self):
         (self.root / "step4_ions.inp").write_text("set conc 0.10\n")
-        with patch("charmm_gui_cli.validation.inspect_coordinates", return_value={"residue_counts": {
+        with patch("charmm_gui_cli.chem.validation.inspect_coordinates", return_value={"residue_counts": {
                 "POPC": 200, "TIP3": 55500, "POT": 108, "CLA": 100}}):
             result = inspect_environment("unused.pdb", expected_lipids=["POPC"], ion_type="KCl", concentration_M=0.1, system_dir=self.root)
         self.assertTrue(result["passed"], result)
@@ -240,7 +240,7 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(result["water_ratio_salt_estimate"]["excess_counterions"], 8)
 
     def test_concentration_estimate_does_not_replace_direct_evidence(self):
-        with patch("charmm_gui_cli.validation.inspect_coordinates", return_value={"residue_counts": {
+        with patch("charmm_gui_cli.chem.validation.inspect_coordinates", return_value={"residue_counts": {
                 "POPC": 200, "TIP3": 55500, "POT": 100, "CLA": 100}}):
             result = inspect_environment("unused.pdb", expected_lipids=["POPC"], ion_type="KCl", concentration_M=0.1)
         self.assertFalse(result["passed"])
@@ -257,7 +257,7 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(records[0]["concentration_M"], 0.15)
         self.assertEqual(records[0]["cation"], "SOD")
         self.assertEqual(records[0]["selected_index"], 1)
-        with patch("charmm_gui_cli.validation.inspect_coordinates", return_value={"residue_counts": {
+        with patch("charmm_gui_cli.chem.validation.inspect_coordinates", return_value={"residue_counts": {
                 "POPC": 200, "TIP3": 55500, "POT": 100, "CLA": 100}}):
             result = inspect_environment("unused.pdb", expected_lipids=["POPC"], ion_type="KCl", concentration_M=0.1, system_dir=self.root)
         self.assertFalse(result["checks"]["ion_species_direct_evidence"]["passed"])
@@ -273,7 +273,7 @@ class ValidationTests(unittest.TestCase):
             "if @IN1 .eq. 1 set conc = 0.10\nif @IN1 .eq. 2 set conc = 0.15\nset niontypes = 2\n")
         records = find_ion_settings(self.root)
         self.assertIsNone(records[0]["concentration_M"])
-        with patch("charmm_gui_cli.validation.inspect_coordinates", return_value={"residue_counts": {
+        with patch("charmm_gui_cli.chem.validation.inspect_coordinates", return_value={"residue_counts": {
                 "POPC": 200, "TIP3": 55500, "POT": 100, "CLA": 100}}):
             result = inspect_environment("unused.pdb", expected_lipids=["POPC"], ion_type="KCl", concentration_M=0.1, system_dir=self.root)
         self.assertFalse(result["passed"])

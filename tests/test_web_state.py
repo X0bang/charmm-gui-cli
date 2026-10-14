@@ -1,6 +1,6 @@
 import unittest
 
-from charmm_gui_cli.web_state import interpret_api_job_status, interpret_monitor, parse_page_state
+from charmm_gui_cli.remote.web_state import interpret_api_job_status, interpret_monitor, parse_page_state
 
 
 def page(stop=0, extra="", action="./?doc=input/pdbreader&step=3"):

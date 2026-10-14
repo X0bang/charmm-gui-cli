@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import yaml
 
-from charmm_gui_cli.auth import ToolError, atomic_write
+from charmm_gui_cli.store.auth import ToolError, atomic_write
 from charmm_gui_cli.cli import main
 
 
@@ -33,9 +33,9 @@ class ValidationCliTests(unittest.TestCase):
             report = {"passed": True, "files": {"coordinates": str(self.system / "step5_input.pdb")}}
         if environment is None:
             environment = {"passed": True, "checks": {}}
-        with patch("charmm_gui_cli.validation.validate_system", return_value=report), \
-                patch("charmm_gui_cli.acceptance.assess_acceptance", return_value={"passed": True, "review_required": False, "warnings": []}), \
-                patch("charmm_gui_cli.validation.inspect_environment", return_value=environment, side_effect=side_effect) as inspect, \
+        with patch("charmm_gui_cli.chem.validation.validate_system", return_value=report), \
+                patch("charmm_gui_cli.pipeline.acceptance.assess_acceptance", return_value={"passed": True, "review_required": False, "warnings": []}), \
+                patch("charmm_gui_cli.chem.validation.inspect_environment", return_value=environment, side_effect=side_effect) as inspect, \
                 contextlib.redirect_stdout(io.StringIO()):
             status = main([*self.base, *options])
         return status, inspect, json.loads((self.out / "validation.json").read_text())
@@ -82,7 +82,7 @@ class ValidationCliTests(unittest.TestCase):
         atomic_write(archive, "mock archive")
         self.base[1] = str(archive)
         extracted = self.out / "extracted"
-        with patch("charmm_gui_cli.validation.extract_for_validation", return_value=extracted) as extract:
+        with patch("charmm_gui_cli.chem.validation.extract_for_validation", return_value=extracted) as extract:
             status, inspect, _ = self.invoke(["--build-config", str(self.config)])
         self.assertEqual(status, 0)
         extract.assert_called_once_with(archive, extracted)

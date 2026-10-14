@@ -12,8 +12,8 @@ import time
 import unittest
 from unittest.mock import patch
 
-from charmm_gui_cli import auth
-from charmm_gui_cli.auth import ToolError, atomic_write
+from charmm_gui_cli.store import auth
+from charmm_gui_cli.store.auth import ToolError, atomic_write
 from charmm_gui_cli.cli import main
 
 
@@ -50,9 +50,9 @@ class SessionLoginTests(unittest.TestCase):
 
     def login(self, options=(), web_error=None):
         output, errors = io.StringIO(), io.StringIO()
-        with patch("charmm_gui_cli.api.Client.login", return_value=self.value) as api_login, \
-                patch("charmm_gui_cli.web.WebClient.login", return_value={"web_authenticated": True}, side_effect=web_error) as web_login, \
-                patch("charmm_gui_cli.cli.getpass", return_value=self.password), \
+        with patch("charmm_gui_cli.remote.api.Client.login", return_value=self.value) as api_login, \
+                patch("charmm_gui_cli.remote.web.WebClient.login", return_value={"web_authenticated": True}, side_effect=web_error) as web_login, \
+                patch("getpass.getpass", return_value=self.password), \
                 contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
             code = main(["login", "--email", self.email, *options])
         self.assertNotIn(self.password, output.getvalue() + errors.getvalue())
@@ -118,9 +118,9 @@ class SessionLoginTests(unittest.TestCase):
             work.mkdir()
             atomic_write(work / "session.token", fake_token(project))
             with chdir(work), \
-                    patch("charmm_gui_cli.full_build.initialize") as initialize, \
-                    patch("charmm_gui_cli.full_build.advance", return_value={"state": "preparation_running"}) as advance, \
-                    patch("charmm_gui_cli.web.WebClient") as web, contextlib.redirect_stdout(io.StringIO()):
+                    patch("charmm_gui_cli.pipeline.full_build.initialize") as initialize, \
+                    patch("charmm_gui_cli.pipeline.full_build.advance", return_value={"state": "preparation_running"}) as advance, \
+                    patch("charmm_gui_cli.remote.web.WebClient") as web, contextlib.redirect_stdout(io.StringIO()):
                 code = main(["--foreground", "build", "system.yaml", "--out", "run"])
             self.assertEqual(code, 0)
             initialize.assert_called_once()
@@ -134,9 +134,9 @@ class SessionLoginTests(unittest.TestCase):
         other_value = fake_token("explicit")
         atomic_write(custom_token, other_value)
         atomic_write(custom_cookie, '{"cookies": []}\n')
-        with patch("charmm_gui_cli.full_build.initialize"), \
-                patch("charmm_gui_cli.full_build.advance", return_value={"state": "preparation_running"}) as advance, \
-                patch("charmm_gui_cli.web.WebClient") as web, contextlib.redirect_stdout(io.StringIO()):
+        with patch("charmm_gui_cli.pipeline.full_build.initialize"), \
+                patch("charmm_gui_cli.pipeline.full_build.advance", return_value={"state": "preparation_running"}) as advance, \
+                patch("charmm_gui_cli.remote.web.WebClient") as web, contextlib.redirect_stdout(io.StringIO()):
             code = main(["--foreground", "--token-file", str(custom_token), "build", "system.yaml", "--out", str(self.root / "run"),
                          "--cookies", str(custom_cookie)])
         self.assertEqual(code, 0)
@@ -148,7 +148,7 @@ class SessionLoginTests(unittest.TestCase):
         project = self.root / "legacy-project"
         project.mkdir()
         atomic_write(project / "session.cookies.json", '{"cookies": []}\n')
-        with chdir(project), patch("charmm_gui_cli.full_build.initialize") as initialize, \
+        with chdir(project), patch("charmm_gui_cli.pipeline.full_build.initialize") as initialize, \
                 contextlib.redirect_stderr(io.StringIO()):
             code = main(["--foreground", "build", "system.yaml", "--out", "run"])
         self.assertEqual(code, 2)
