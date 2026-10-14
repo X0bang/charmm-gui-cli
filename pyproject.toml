@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "charmm-gui-cli"
-version = "0.7.3"
+version = "0.8.0"
 description = "Experimental, resumable CHARMM-GUI membrane-protein/ligand API client"
 readme = "README.md"
 license = "GPL-3.0-only"
