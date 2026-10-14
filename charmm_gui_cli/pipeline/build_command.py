@@ -227,12 +227,14 @@ def _execute(args, holder):
             from charmm_gui_cli.store.result_files import check_destination
             check_destination(directory)
     if dry_run:
-        prepared_manifest = (_task_store._read_json(directory / "full-run.json").get("inputs", {}).get("manifest", {})
-                             if (directory / "full-run.json").is_file() else {})
+        run_manifest = _task_store._read_json(directory / "full-run.json") if (directory / "full-run.json").is_file() else {}
+        prepared_manifest = run_manifest.get("inputs", {}).get("manifest", {})
+        from ..store.settings import parameter_summary
         from ..chem.protein_states import intent_for
         state_intent = intent_for(prepared_manifest)
         import shlex
         return {"directory": str(directory), "state": "inputs_ready", "server_submitted": False,
+                "parameter_summary": parameter_summary(run_manifest, directory),
                 "automatic_repairs": prepared_manifest.get("automatic_repairs", []),
                 "structure_inventory": prepared_manifest.get("input_normalization", {}).get("structure_inventory", {}),
                 "review_required": bool(state_intent) or prepared_manifest.get("ligand_selection", {}).get("conversion", {}).get("review_required", False),

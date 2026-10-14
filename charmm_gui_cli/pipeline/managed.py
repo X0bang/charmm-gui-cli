@@ -29,7 +29,9 @@ def inspect_run(target, *, remote_check=False, token_file=None):
     """Read local evidence and optionally make a read-only API status query."""
     directory = _task_store.resolve_run(target)
     manifest = _task_store._read_json(directory / "full-run.json")
+    from ..store.settings import parameter_summary
     result = {"directory": str(directory), "state": manifest.get("state", "unknown"),
+              "parameter_summary": parameter_summary(manifest, directory),
               **({"execution_state": manifest["execution_state"]} if "execution_state" in manifest else {}),
               **_task_store._job_metadata(directory), **_task_store._bilayer_summary(directory), **_final_summary(directory),
               **_task_store._recovery_summary(directory), "server_checked": False}

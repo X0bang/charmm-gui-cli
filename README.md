@@ -58,6 +58,8 @@ charmm-gui-cli build --complex complex.pdb \
 
 末端补丁支持按链设置，例如 `--n-terminal A=GLYP,B=NTER`，也可用 `PROA` 等 segment 名；YAML 使用 `preparation.terminals: {A: {n_terminal: GLYP}, B: {n_terminal: NTER}}`。未指定的链使用统一默认值。
 
+终端和报告分别展示请求设置与提交记录；例如 NTER 自动回退为 GLYP 时显示 `NTER → GLYP`。提交结果未知或只有历史记录时会明确标注，不把请求值当作已应用值。`inputs/system-config.json` 保留原始 requested/applied 字段，并新增按链整理的 `parameter_summary`。
+
 `check` 显示失败原因、自动修复和结构审阅项，`check --full` 显示完整证据；`--json`、`--lang`、`--foreground` 可放在子命令前后。新任务本地准备失败不会占住任务名，修正输入后可以重试。
 
 预检还会按模型、TER、链和 segment 列出组成，提示核酸、糖链及 LINK 连接，避免误把它们当作蛋白或普通可删除配体。输入已明确指定的残基状态会记录在准备证据中，不自动选择 pH 或改变原始坐标。构建时先核验官网源 PDB/PSF 中的相应原子类型、电荷和连接，再提交建膜；验收时再次核对最终组装。不能唯一对应服务器表单或无法验证状态时停止，保留证据，不降级成普通残基继续提交。

@@ -2,6 +2,12 @@
 
 常规使用只需 `login` 和 `build --protein ... --ligand ...`，见 [README](../README.md)。本页面向需要保留 YAML、官方 token 或已有 job ID 的用户。
 
+## 请求设置与提交记录
+
+建模参数可在终端、`jobs report NAME --format text`（或 `--format html --out report.html`）及根目录 `report.txt` 中查看。脂质比例显示各组分份额；末端设置按链展示请求值和记录值，自动调整显示为 `NTER → GLYP`。界面分别标注有回应的提交、结果未知、仅本地记录、仅调整记录和缺失/冲突记录；这些标签不触发重新提交。建膜参数来自保存的 API 请求计划，并核对源任务与建膜任务身份；坐标中的实际计数仍在报告的体系统计部分。
+
+机器接口保持原有 requested/applied 和原始表单字段不变。新增 `inputs/system-config.json.parameter_summary`（schema_version 1）使用 `requested`、`submission.preparation.chains`、`submission.membrane` 等稳定英文键和状态值，不随显示语言变化。历史子任务若只剩复制的末端值而没有可访问回执，会显示“记录的末端设置”，不会冒充已核验的服务器回应；这不改变其模型验收结论。
+
 ## PDBQT 化学定义与结合姿势
 
 可直接输入 [Meeko](https://meeko.readthedocs.io/en/develop/export_usage.html) 保留了 `REMARK SMILES`、`REMARK SMILES IDX` 和已有氢的 `REMARK H PARENT` 的配体 PDBQT：

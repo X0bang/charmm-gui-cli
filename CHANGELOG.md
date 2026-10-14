@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add locale-independent semantic parameter summaries alongside unchanged raw requested/applied JSON. Show per-chain requested/submitted terminal patches, Gly/Pro fallback changes, lipid fractions and API-recorded settings in terminal, text/HTML reports and deliveries.
+- Distinguish response records, uncertain submissions, copied historical values, adjustment-only and missing/conflicting records; reject foreign job IDs or plan/config disagreements as confirmed settings without changing submission/recovery behavior. Bound chain rendering while retaining complete machine-readable rows.
+
 - Restore ligand PDBQT using verified Meeko SMILES/index/H-parent metadata, user-supplied serial-mapped SMILES or a unique complete CONECT correspondence. Preserve every original coordinate atom, separate partial from formal charges and support explicit MODEL selection across CLI/YAML/batch/sweep without ranking poses or guessing bonds by distance.
 - Carry explicit mapped chemical/stereo declarations through 3D SDF staging and hydrogen addition; verify chiral/E/Z state, graph, charge, valence hydrogens and coordinate round-trips. Standard chemical installations include the tested Meeko 0.8/gemmi/scipy dependencies. No new provider submission or docking is implied by local conversion support.
 
