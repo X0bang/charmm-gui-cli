@@ -18,7 +18,8 @@ from charmm_gui_cli.remote.api import API_BASE, AuthError, Client, SubmissionUnk
 from charmm_gui_cli.pipeline.artifacts import inspect_archive
 from charmm_gui_cli.store.auth import ToolError, atomic_write, load_token, normalize_token, token_info
 from charmm_gui_cli.cli import main
-from charmm_gui_cli.pipeline.config import load_config, plan, payload_for, validate_config
+from charmm_gui_cli.pipeline.config import load_config, plan, payload_for
+from charmm_gui_cli.store.configuration import validate_config
 from charmm_gui_cli.pipeline import workflow
 from charmm_gui_cli.chem.structure import analyze_pdb
 

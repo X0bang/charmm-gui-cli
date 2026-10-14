@@ -44,8 +44,8 @@ class InputPolicyTests(unittest.TestCase):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.stack.enter_context(patch("requests.Session.request", side_effect=AssertionError("No live network")))
-        self.stack.enter_context(patch("charmm_gui_cli.store.managed._registry", return_value=self.root / "index.json"))
-        self.stack.enter_context(patch("charmm_gui_cli.store.managed._registries", return_value=(self.root / "index.json",)))
+        self.stack.enter_context(patch("charmm_gui_cli.store.tasks._registry", return_value=self.root / "index.json"))
+        self.stack.enter_context(patch("charmm_gui_cli.store.tasks._registries", return_value=(self.root / "index.json",)))
         self.stack.enter_context(patch("pathlib.Path.cwd", return_value=self.root))
         self.counter = 0
 

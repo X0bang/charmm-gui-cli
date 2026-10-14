@@ -1,12 +1,14 @@
 """Specific stale reasons and safe recovery from missing, not edited, models."""
 
+import charmm_gui_cli.store.tasks as _task_store
+
 from contextlib import redirect_stdout, redirect_stderr
 import io
 import json
 import unittest
 from unittest.mock import patch
 
-from charmm_gui_cli.store import managed, delivery
+from charmm_gui_cli.pipeline import managed, delivery
 from charmm_gui_cli.store.auth import atomic_json
 from charmm_gui_cli.cli import main
 from charmm_gui_cli.presentation.terminal_output import format_job_status
@@ -60,7 +62,7 @@ class ValidationDiagnosticTests(unittest.TestCase):
         self.assertEqual(self.issue()[0], {"key": "validation.file_missing", "params": {"path": str(self.root / "model")}})
 
     def test_config_and_lineage_changes_are_named_checks(self):
-        manifest = managed._read_json(self.run / "full-run.json")
+        manifest = _task_store._read_json(self.run / "full-run.json")
         manifest["config"]["membrane"]["margin_A"] = 30
         atomic_json(self.run / "full-run.json", manifest)
         self.assertEqual(self.issue()[0]["key"], "validation.config_changed")
@@ -93,7 +95,7 @@ class ValidationDiagnosticTests(unittest.TestCase):
         # Scientific routines are mocked because this archive is a tiny path/
         # provenance fixture, not a physical model. Extraction/provenance and
         # publication/backup checks remain real.
-        manifest = managed._read_json(self.run / "full-run.json")
+        manifest = _task_store._read_json(self.run / "full-run.json")
         manifest["config"]["membrane"] = {"upper": "POPC=1", "lower": "POPC=1"}
         manifest["config"]["ions"] = {"type": "KCl", "concentration_M": 0.15}
         atomic_json(self.run / "full-run.json", manifest)

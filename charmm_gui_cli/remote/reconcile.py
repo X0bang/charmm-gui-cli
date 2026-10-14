@@ -4,7 +4,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 import uuid
 
-from charmm_gui_cli.remote.api import job_id
+from charmm_gui_cli.store.identifiers import job_id
 from charmm_gui_cli.store.auth import ToolError, atomic_json, atomic_write
 from charmm_gui_cli.locales.i18n import t
 from charmm_gui_cli.presentation.progress import official_links

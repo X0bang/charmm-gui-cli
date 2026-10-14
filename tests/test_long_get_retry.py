@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 import requests
 
 from charmm_gui_cli.remote import http_retry
-from charmm_gui_cli.store import managed
+from charmm_gui_cli.pipeline import managed
 from charmm_gui_cli.store.auth import atomic_json
 from charmm_gui_cli.pipeline import build_command
 from charmm_gui_cli.presentation.terminal_output import format_job_status
@@ -149,7 +149,7 @@ class LongGetRetryTests(unittest.TestCase):
         output = io.StringIO()
         with patch("requests.Session", return_value=self.session), \
                 patch("charmm_gui_cli.pipeline.build_command.load_token", return_value=(token(), "fixture")), \
-                patch("charmm_gui_cli.store.managed._registry", return_value=root / "index"), \
+                patch("charmm_gui_cli.store.tasks._registry", return_value=root / "index"), \
                 patch("charmm_gui_cli.pipeline.full_build.advance", side_effect=advance), \
                 patch.dict("os.environ", {"CHARMM_GUI_GET_RETRY_SECONDS": "1200", "CHARMM_GUI_CLI_LANG": "en"}), \
                 redirect_stderr(output):

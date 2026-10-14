@@ -6,7 +6,8 @@ import re
 import yaml
 
 from charmm_gui_cli.store.auth import ToolError
-from charmm_gui_cli.pipeline.config import UniqueLoader, mapping, validate_config
+from charmm_gui_cli.pipeline.config import UniqueLoader
+from charmm_gui_cli.store.configuration import mapping, validate_config
 from charmm_gui_cli.chem.pdb_normalization import N_TERMINALS, C_TERMINALS
 
 

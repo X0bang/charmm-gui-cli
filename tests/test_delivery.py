@@ -1,3 +1,6 @@
+
+import charmm_gui_cli.store.result_files as _result_files
+import charmm_gui_cli.store.tasks as _task_store
 import contextlib
 import io
 import json
@@ -6,7 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from charmm_gui_cli.store import delivery, managed
+from charmm_gui_cli.pipeline import delivery, managed
 from charmm_gui_cli.store.auth import ToolError, atomic_json
 from charmm_gui_cli.cli import main
 from charmm_gui_cli.presentation.terminal_output import format_build
@@ -26,7 +29,7 @@ class DeliveryTests(unittest.TestCase):
         self.stack = contextlib.ExitStack()
         self.stack.enter_context(patch("pathlib.Path.home", return_value=self.home))
         self.stack.enter_context(patch("pathlib.Path.cwd", return_value=self.project))
-        fixture.manifest["delivery_context"] = delivery.creation_context()
+        fixture.manifest["delivery_context"] = _result_files.creation_context()
         fixture.save()
         managed._evidence(fixture.manifest, fixture.archive, False, "gmx", create_receipt=True)
         self.report = fixture.publish_report()
@@ -60,7 +63,7 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(Path(result["directory"]).parent, self.project)
 
     def test_old_run_defaults_to_current_directory(self):
-        manifest = managed._read_json(self.run / "full-run.json")
+        manifest = _task_store._read_json(self.run / "full-run.json")
         manifest.pop("delivery_context")
         atomic_json(self.run / "full-run.json", manifest)
         self.assertEqual(Path(delivery.export_run(self.run)["directory"]).parent, self.project)
@@ -79,12 +82,12 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(list(out.iterdir()), [out / "keep.txt"])
         self.assertEqual((out / "keep.txt").read_text(), "keep")
         with self.assertRaises(ToolError):
-            delivery.check_destination(self.run)
+            _result_files.check_destination(self.run)
 
     def test_foreign_marker_and_symlink_are_rejected(self):
         out = self.project / "crtw-bcar"
         out.mkdir()
-        atomic_json(out / delivery.MARKER, {"task_id": "another-task"})
+        atomic_json(out / _result_files.MARKER, {"task_id": "another-task"})
         with self.assertRaises(ToolError):
             delivery.export_run(self.run)
         link = self.root / "linked"
@@ -146,7 +149,7 @@ class DeliveryTests(unittest.TestCase):
         self.assertNotIn(str(self.project), text)
 
     def test_incomplete_stale_and_active_tasks_are_rejected(self):
-        with patch("charmm_gui_cli.store.background.metadata", return_value={"running": True}):
+        with patch("charmm_gui_cli.store.workers.metadata", return_value={"running": True}):
             with self.assertRaises(ToolError) as error:
                 delivery.export_run(self.run)
             self.assertEqual(error.exception.key, "background.running")
@@ -183,8 +186,8 @@ class DeliveryTests(unittest.TestCase):
     def test_partial_export_is_preserved_and_not_overwritten(self):
         out = self.project / "crtw-bcar"
         out.mkdir()
-        context = managed._read_json(self.run / "full-run.json")["delivery_context"]
-        atomic_json(out / delivery.MARKER, {"task_id": context["task_id"], "run_directory": str(self.run), "complete": False})
+        context = _task_store._read_json(self.run / "full-run.json")["delivery_context"]
+        atomic_json(out / _result_files.MARKER, {"task_id": context["task_id"], "run_directory": str(self.run), "complete": False})
         with self.assertRaises(ToolError) as error:
             delivery.export_run(self.run)
         self.assertEqual(error.exception.key, "delivery.partial")
@@ -231,4 +234,3 @@ class DeliveryTests(unittest.TestCase):
         config = json.loads((self.root / "legacy-export/inputs/system-config.json").read_text())
         self.assertIn("requested", config)
         self.assertIn("applied", config)
-

@@ -219,7 +219,7 @@ class SweepTests(unittest.TestCase):
         self.raw["inputs"] = {"protein": str(template / "inputs/protein.pdb"), "ligand": str(template / "inputs/ligand.sdf")}
         self.raw["axes"] = {"margin": [20, 25]}
         self.write()
-        with patch("charmm_gui_cli.store.managed._registry", return_value=self.root / "registry"), \
+        with patch("charmm_gui_cli.store.tasks._registry", return_value=self.root / "registry"), \
                 patch("charmm_gui_cli.pipeline.build_command.load_token", side_effect=AssertionError("No auth")), \
                 patch("requests.Session.request", side_effect=AssertionError("No network")):
             result = sweep.prepare(self.path, self.root / "scan")
@@ -238,7 +238,7 @@ class SweepTests(unittest.TestCase):
         self.raw["inputs"] = {"protein": str(template / "inputs/protein.pdb"), "ligand": str(template / "inputs/ligand.sdf"), "hydrogens": "preserve"}
         self.raw["axes"] = {"margin": [20, 25, 30]}
         self.write()
-        with patch("charmm_gui_cli.store.managed._registry", return_value=self.root / "registry"), \
+        with patch("charmm_gui_cli.store.tasks._registry", return_value=self.root / "registry"), \
                 patch("requests.Session.request", side_effect=AssertionError("No remote tasks")):
             result = sweep.prepare(self.path, self.root / "scan")
             batch_dir = Path(result["batch_directory"])

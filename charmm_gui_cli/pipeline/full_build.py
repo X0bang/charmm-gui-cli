@@ -7,10 +7,11 @@ import time
 import sys
 from urllib.parse import parse_qs, urlparse
 
-from charmm_gui_cli.remote.api import AuthError, SubmissionUnknown, job_id
+from charmm_gui_cli.remote.api import AuthError, SubmissionUnknown
+from charmm_gui_cli.store.identifiers import job_id
 from charmm_gui_cli.store.auth import ToolError, atomic_json, atomic_write
 from charmm_gui_cli.pipeline.build_config import api_config, load_build_config
-from charmm_gui_cli.pipeline.config import validate_config
+from charmm_gui_cli.store.configuration import validate_config
 from charmm_gui_cli.chem.inputs import prepare_inputs
 from charmm_gui_cli.remote.web import soup_for, assert_nonpolymer_parameterization, snapshot_error
 from charmm_gui_cli.locales.i18n import t
@@ -34,7 +35,7 @@ def initialize(config_path, directory, *, _reserved=False, _source_report=None):
         from ..store.local_build import local_initialization
         with local_initialization(directory):
             return initialize(config_path, directory, _reserved=True, _source_report=_source_report)
-    from charmm_gui_cli.store.delivery import creation_context
+    from charmm_gui_cli.store.result_files import creation_context
     manifest = {"schema_version": 2, "created_at": now(), "state": "preparing_inputs", "config": config,
                 "delivery_context": creation_context()}
     _save(directory, manifest)

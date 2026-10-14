@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Separate task records/process locks/owned files from managed build, worker, delivery and completed-preview orchestration. Preserve historical module entry points while enforcing no upper-layer imports from chemistry, HTTP and storage.
+- Extract strict run/configuration and archive-receipt primitives without bypassing legacy validation or creating receipts from read-only consumers; cover real inherited-lock offline workers through new and historical module paths.
 - Use canonical subpackage imports throughout implementation and regression mocks; centralize historical import targets without making internal code depend on them.
 - Move build/update libraries out of command adapters and isolate progress, summaries and reports in `presentation/`; keep original top-level module identities compatible.
 - Share task locking and strict YAML loading below orchestration; delivery no longer imports CLI report helpers. Add fresh-process alias blocking and package-boundary checks.

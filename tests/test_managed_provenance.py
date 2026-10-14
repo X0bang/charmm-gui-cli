@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from charmm_gui_cli.store import managed
+from charmm_gui_cli.pipeline import managed
 from charmm_gui_cli.store.auth import ToolError
 
 

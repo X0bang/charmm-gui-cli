@@ -104,7 +104,7 @@ class AuditV2Tests(unittest.TestCase):
                                       "ligand": str(template / "inputs/ligand.sdf")}
         self.fixture.raw["axes"] = {"margin": [20, 25]}
         self.fixture.write()
-        with patch("charmm_gui_cli.store.managed._registry", return_value=self.root / "registry"):
+        with patch("charmm_gui_cli.store.tasks._registry", return_value=self.root / "registry"):
             result = sweep.prepare(self.fixture.path, self.root / "scan")
         return result, Path(result["batch_directory"])
 

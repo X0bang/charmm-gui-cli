@@ -7,7 +7,7 @@ import contextlib
 
 from charmm_gui_cli.store.auth import ToolError
 from charmm_gui_cli.pipeline.build_config import load_build_config
-from charmm_gui_cli.store.managed import new_run_path, new_batch_path, validate_name
+from charmm_gui_cli.store.tasks import new_run_path, new_batch_path, validate_name
 from charmm_gui_cli.chem.preview import new_preview_path
 
 

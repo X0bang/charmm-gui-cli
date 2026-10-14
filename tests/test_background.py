@@ -11,7 +11,8 @@ import sys
 import contextlib
 
 from charmm_gui_cli.store.auth import ToolError
-from charmm_gui_cli.store.background import claim, metadata, watch, write_lock
+from charmm_gui_cli.store.workers import claim, metadata, write_lock
+from charmm_gui_cli.pipeline.background import watch
 from charmm_gui_cli.store.auth import atomic_json
 
 
@@ -28,36 +29,36 @@ class BackgroundTests(unittest.TestCase):
     def test_foreground_returns_final_exit_code(self):
         from charmm_gui_cli.cli import main
         with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "validation_failed"}, 2)), \
-                patch("charmm_gui_cli.store.background.launch") as launch, contextlib.redirect_stdout(io.StringIO()):
+                patch("charmm_gui_cli.pipeline.background.launch") as launch, contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(main(["--foreground", "build", "--protein", "p.pdb", "--ligand", "l.sdf"]), 2)
         launch.assert_not_called()
 
     def test_macos_notification_is_best_effort_and_reports_failure(self):
-        from charmm_gui_cli.store.background import worker
+        from charmm_gui_cli.pipeline.background import worker
         directory = Path(tempfile.mkdtemp()).resolve()
         atomic_json(directory / "worker-options.json", {"lang": "en"})
         fd = claim(directory)
         with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "validation_failed"}, 2)), \
-                patch("charmm_gui_cli.store.background.sys.platform", "darwin"), \
-                patch("charmm_gui_cli.store.background.subprocess.run") as run, contextlib.redirect_stdout(io.StringIO()):
+                patch("charmm_gui_cli.pipeline.background.sys.platform", "darwin"), \
+                patch("charmm_gui_cli.pipeline.background.subprocess.run") as run, contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(worker(directory, fd), 2)
         self.assertEqual(run.call_args.args[0][0], "osascript")
         self.assertIn("failed", run.call_args.args[0][-1])
         self.assertEqual(metadata(directory)["exit_code"], 2)
 
     def test_launch_detaches_after_local_checks_and_authentication(self):
-        from charmm_gui_cli.store.background import launch
+        from charmm_gui_cli.pipeline.background import launch
         directory = Path(tempfile.mkdtemp()).resolve()
         atomic_json(directory / "full-run.json", {"schema_version": 2, "state": "inputs_ready"})
         args = Namespace(command="build", token_file=None, cookies=None, post_timeout=900, lang="en")
         web = Mock()
         web.request.return_value.text = '<form name="pdb"></form>'
         with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"directory": str(directory), "state": "inputs_ready"}, 0)) as execute, \
-                patch("charmm_gui_cli.store.background.load_token", return_value=("TOKEN_SECRET", "mock")), \
+                patch("charmm_gui_cli.pipeline.background.load_token", return_value=("TOKEN_SECRET", "mock")), \
                 patch("charmm_gui_cli.remote.api.Client") as api, \
                 patch("charmm_gui_cli.remote.web.WebClient", return_value=web), \
-                patch("charmm_gui_cli.store.background.subprocess.Popen", return_value=Mock(pid=12345)) as popen, \
-                patch("charmm_gui_cli.store.background.sys.platform", "darwin"):
+                patch("charmm_gui_cli.pipeline.background.subprocess.Popen", return_value=Mock(pid=12345)) as popen, \
+                patch("charmm_gui_cli.pipeline.background.sys.platform", "darwin"):
             result, code = launch(args)
         self.assertEqual(code, 0)
         self.assertTrue(execute.call_args.args[0].dry_run)
@@ -70,20 +71,20 @@ class BackgroundTests(unittest.TestCase):
         self.assertEqual((directory / "worker-options.json").stat().st_mode & 0o777, 0o600)
 
     def test_expired_login_fails_before_worker_spawn(self):
-        from charmm_gui_cli.store.background import launch
+        from charmm_gui_cli.pipeline.background import launch
         directory = Path(tempfile.mkdtemp()).resolve()
         atomic_json(directory / "full-run.json", {"schema_version": 2, "state": "inputs_ready", "inputs": {"files": {}}})
         args = Namespace(command="build-resume", directory=directory, token_file=None, cookies=None, post_timeout=900)
-        with patch("charmm_gui_cli.store.background.load_token", side_effect=ToolError("expired", category="authentication")), \
-                patch("charmm_gui_cli.store.background.subprocess.Popen") as popen, self.assertRaises(ToolError):
+        with patch("charmm_gui_cli.pipeline.background.load_token", side_effect=ToolError("expired", category="authentication")), \
+                patch("charmm_gui_cli.pipeline.background.subprocess.Popen") as popen, self.assertRaises(ToolError):
             launch(args)
         popen.assert_not_called()
 
     def test_invalid_resume_runtime_fails_before_auth_or_spawn(self):
-        from charmm_gui_cli.store.background import launch
+        from charmm_gui_cli.pipeline.background import launch
         args = Namespace(command="build-resume", directory="unused", interval=1, max_wait=60, post_timeout=900)
-        with patch("charmm_gui_cli.store.background.load_token") as token, \
-                patch("charmm_gui_cli.store.background.subprocess.Popen") as popen, self.assertRaises(ToolError) as error:
+        with patch("charmm_gui_cli.pipeline.background.load_token") as token, \
+                patch("charmm_gui_cli.pipeline.background.subprocess.Popen") as popen, self.assertRaises(ToolError) as error:
             launch(args)
         self.assertEqual(error.exception.key, "background.runtime_invalid")
         token.assert_not_called()
@@ -113,8 +114,8 @@ class BackgroundTests(unittest.TestCase):
 
     def test_watch_interrupt_never_signals_worker(self):
         directory = Path(tempfile.mkdtemp()).resolve()
-        with patch("charmm_gui_cli.store.background.metadata", return_value={"running": True}), \
-                patch("charmm_gui_cli.store.background.time.sleep", side_effect=KeyboardInterrupt), \
+        with patch("charmm_gui_cli.store.workers.metadata", return_value={"running": True}), \
+                patch("charmm_gui_cli.pipeline.background.time.sleep", side_effect=KeyboardInterrupt), \
                 patch("os.kill") as kill, patch("sys.stderr", io.StringIO()):
             self.assertEqual(watch(directory), 130)
             kill.assert_not_called()

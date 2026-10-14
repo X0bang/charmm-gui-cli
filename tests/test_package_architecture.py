@@ -47,7 +47,10 @@ class PackageArchitectureTests(unittest.TestCase):
         for name in ("CHARMMGUI_TOKEN", "CHARMM_GUI_PASSWORD_COMMAND", "CHARMMGUI_COOKIE_FILE"):
             environment.pop(name, None)
         environment.update(XDG_CONFIG_HOME=str(self.root / "config"), XDG_DATA_HOME=str(self.root / "data"))
-        result = subprocess.run([sys.executable, "-c", textwrap.dedent(code)], cwd=ROOT,
+        isolated = ("import os\nfrom pathlib import Path\nfrom unittest.mock import patch\n"
+                    "with patch('pathlib.Path.home', return_value=Path(os.environ['XDG_CONFIG_HOME']).parent):\n"
+                    + textwrap.indent(textwrap.dedent(code), "    "))
+        result = subprocess.run([sys.executable, "-c", isolated], cwd=ROOT,
                                 env=environment, capture_output=True, text=True, timeout=45)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return result.stdout
@@ -96,6 +99,45 @@ class PackageArchitectureTests(unittest.TestCase):
                     with self.subTest(path=path.relative_to(ROOT), module=module):
                         self.assertFalse(module.startswith(("charmm_gui_cli.pipeline", "charmm_gui_cli.remote")))
 
+    def test_data_chemistry_and_http_modules_never_import_upper_layers(self):
+        for folder in ("store", "chem", "remote"):
+            for path in (PACKAGE / folder).glob("*.py"):
+                name = ".".join(path.relative_to(ROOT).with_suffix("").parts)
+                if name in MODULE_ALIASES:
+                    continue  # Explicit external compatibility, never used internally.
+                for module in imports(path):
+                    with self.subTest(path=path.relative_to(ROOT), module=module):
+                        self.assertFalse(module.startswith(("charmm_gui_cli.pipeline", "charmm_gui_cli.commands", "charmm_gui_cli.cli")))
+
+    def test_pure_storage_and_chemistry_work_when_upper_layers_are_unavailable(self):
+        self.child('''
+            import importlib, importlib.abc, json, pathlib, sys, tempfile
+            class NoUpperLayers(importlib.abc.MetaPathFinder):
+                def find_spec(self, fullname, path=None, target=None):
+                    if fullname.startswith(("charmm_gui_cli.pipeline", "charmm_gui_cli.commands", "charmm_gui_cli.cli")):
+                        raise AssertionError("Upward dependency: " + fullname)
+            sys.meta_path.insert(0, NoUpperLayers())
+            for name in ("store.tasks", "store.workers", "store.result_files", "store.run_manifest",
+                         "store.provenance", "store.configuration", "chem.inputs", "chem.precheck",
+                         "chem.pose_validation", "chem.preview", "remote.api", "remote.reconcile"):
+                importlib.import_module("charmm_gui_cli." + name)
+            from charmm_gui_cli.store.tasks import _new_json, _read_json, remember_run, resolve_run, list_records
+            from charmm_gui_cli.store.locking import run_lock
+            from charmm_gui_cli.store.workers import claim, metadata
+            import os
+            root=pathlib.Path(tempfile.mkdtemp(prefix="cgui-pure-store-"))
+            _new_json(root/"full-run.json", {"schema_version":2,"state":"inputs_ready"})
+            remember_run(root)
+            assert resolve_run(None)==root
+            assert len(list_records())==1
+            with run_lock(root):
+                assert _read_json(root/"full-run.json")["state"]=="inputs_ready"
+            fd=claim(root)
+            try: assert metadata(root)["running"]
+            finally: os.close(fd)
+            assert not metadata(root)["running"]
+        ''')
+
     def test_legacy_aliases_are_same_objects_in_a_fresh_process(self):
         output = self.child('''
             import importlib
@@ -130,7 +172,7 @@ class PackageArchitectureTests(unittest.TestCase):
                     for args in (["doctor"], ["jobs", "list"]):
                         stdout, stderr = io.StringIO(), io.StringIO()
                         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-                            result = main(["--lang", language, "--json", *args])
+                            result = main(["--lang", language, "--json", "--token-file", str(Path(os.environ["XDG_CONFIG_HOME"])/"missing.token"), *args])
                         assert result in (0, 2), stderr.getvalue()
                         assert isinstance(json.loads(stdout.getvalue()), dict), stdout.getvalue()
             assert not set(MODULE_ALIASES).intersection(sys.modules)

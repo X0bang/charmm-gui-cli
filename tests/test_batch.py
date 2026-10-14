@@ -36,7 +36,7 @@ class BatchTests(unittest.TestCase):
             atomic_json(args.out / "full-run.json", {"state": "inputs_ready"})
             return {"state": "inputs_ready"}, 0
         with patch("charmm_gui_cli.pipeline.build_command.execute", side_effect=execute), \
-                patch("charmm_gui_cli.store.managed.assign_name", create=True):
+                patch("charmm_gui_cli.store.tasks.assign_name", create=True):
             return batch.initialize(self.config, self.directory)
 
     def test_relative_paths_defaults_overrides_and_types(self):
@@ -97,7 +97,7 @@ class BatchTests(unittest.TestCase):
     def test_finished_jobs_release_slots(self):
         self.prepare()
         with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "validated"}, 0)) as execute, \
-                patch("charmm_gui_cli.store.managed._final_summary", return_value={"state": "validated"}):
+                patch("charmm_gui_cli.pipeline.managed._final_summary", return_value={"state": "validated"}):
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
             self.assertEqual(execute.call_count, 3)
             self.assertEqual(result["state"], "complete")
@@ -304,7 +304,7 @@ class BatchTests(unittest.TestCase):
         (self.root / "protein.pdb").write_text("ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C\nEND\n")
         (self.root / "ligand.sdf").write_text(_sdf([Atom(1, "C1", "C", (3., 2., 1.)),
                                                    Atom(2, "O1", "O", (4.3, 2., 1.))], {(0, 1): 1}, "LIG"))
-        with patch("charmm_gui_cli.store.managed._registry", return_value=self.root / "registry"), \
+        with patch("charmm_gui_cli.store.tasks._registry", return_value=self.root / "registry"), \
                 patch("charmm_gui_cli.pipeline.build_command.load_token", side_effect=AssertionError("No auth")), \
                 patch("requests.Session.request", side_effect=AssertionError("No network")):
             result = batch.initialize(self.config, self.directory)
@@ -325,7 +325,7 @@ class BatchTests(unittest.TestCase):
             files[name] = str(file)
         atomic_json(output / "full-run.json", {"schema_version": 2, "state": "inputs_ready", "inputs": {"files": files}})
         with patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "validated"}, 0)) as execute, \
-                patch("charmm_gui_cli.store.managed.assign_name") as assign:
+                patch("charmm_gui_cli.store.tasks.assign_name") as assign:
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
         self.assertEqual(execute.call_count, 3)
         self.assertTrue(all(call.args[0].command == "build-resume" for call in execute.call_args_list))
@@ -457,13 +457,13 @@ class BatchTests(unittest.TestCase):
         value["jobs"][0].update(state="validated", started=True)
         value["jobs"][1].update(state="validation_failed", started=True)
         atomic_json(path, value)
-        with patch("charmm_gui_cli.store.managed._final_summary", return_value={"validation_status": "stale_or_unreadable"}) as verify:
+        with patch("charmm_gui_cli.pipeline.managed._final_summary", return_value={"validation_status": "stale_or_unreadable"}) as verify:
             result = batch.status(self.directory)
         self.assertEqual(verify.call_count, 2)
         self.assertEqual(result["jobs"][0]["state"], "validation_stale")
         self.assertEqual(result["jobs"][1]["state"], "validation_stale")
         self.assertEqual(result["validated"], 0)
-        with patch("charmm_gui_cli.store.managed._final_summary", return_value={"validation_status": "stale_or_unreadable"}), \
+        with patch("charmm_gui_cli.pipeline.managed._final_summary", return_value={"validation_status": "stale_or_unreadable"}), \
                 patch("charmm_gui_cli.pipeline.build_command.execute", return_value=({"state": "validated"}, 0)) as execute:
             result, code = batch.advance(self.directory, wait=False, submit_interval=0)
         self.assertEqual(execute.call_count, 3)
@@ -475,7 +475,7 @@ class BatchTests(unittest.TestCase):
         value = json.loads(path.read_text())
         value["jobs"][0].update(state="validation_failed", started=True)
         atomic_json(path, value)
-        with patch("charmm_gui_cli.store.managed._final_summary", return_value={"state": "validation_failed"}):
+        with patch("charmm_gui_cli.pipeline.managed._final_summary", return_value={"state": "validation_failed"}):
             result = batch.status(self.directory)
         self.assertEqual(result["failed"], 1)
 

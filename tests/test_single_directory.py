@@ -1,5 +1,8 @@
 """Single-copy output and compatibility tests using tiny synthetic archives."""
 
+import charmm_gui_cli.store.result_files as _result_files
+import charmm_gui_cli.store.tasks as _task_store
+
 import contextlib
 import importlib
 import io
@@ -8,7 +11,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from charmm_gui_cli.store import managed, delivery
+from charmm_gui_cli.pipeline import managed, delivery
 from charmm_gui_cli.pipeline import workflow
 from charmm_gui_cli.store.auth import ToolError, atomic_json
 from charmm_gui_cli.cli import main
@@ -36,13 +39,13 @@ class SingleDirectoryTests(unittest.TestCase):
         fixture.save()
         self.stack = contextlib.ExitStack()
         self.addCleanup(self.stack.close)
-        self.stack.enter_context(patch("charmm_gui_cli.store.managed._registry", return_value=fixture.root / "index"))
+        self.stack.enter_context(patch("charmm_gui_cli.store.tasks._registry", return_value=fixture.root / "index"))
         managed._evidence(fixture.manifest, fixture.archive, False, "gmx", create_receipt=True)
         self.report = fixture.publish_report()
         self.model = self.root / "model"
         self.report["extracted_directory"] = str(self.model)
         atomic_json(self.run / "results/validation.json", self.report)
-        managed.assign_name(self.run, "receptor-a")
+        _task_store.assign_name(self.run, "receptor-a")
 
     def test_publish_does_not_copy_archive_or_model(self):
         inode = self.fixture.archive.stat().st_ino
@@ -64,8 +67,8 @@ class SingleDirectoryTests(unittest.TestCase):
 
     def test_named_and_explicit_root_resolve_to_same_state(self):
         with patch("pathlib.Path.cwd", return_value=self.fixture.root):
-            self.assertEqual(managed.resolve_run("receptor-a"), self.run)
-        self.assertEqual(managed.resolve_run(str(self.root)), self.run)
+            self.assertEqual(_task_store.resolve_run("receptor-a"), self.run)
+        self.assertEqual(_task_store.resolve_run(str(self.root)), self.run)
         self.assertEqual(managed.inspect_run("receptor-a")["passed"], True)
         self.assertEqual(full_archive_path(self.run), self.fixture.archive)
         self.assertEqual(inputs_path(self.run), self.root / "inputs")
@@ -137,7 +140,7 @@ class SingleDirectoryTests(unittest.TestCase):
         self.assertEqual(caught.exception.key, "delivery.unsafe")
 
     def test_new_layout_preview_reaches_renderer(self):
-        from charmm_gui_cli.chem.preview import preview_run
+        from charmm_gui_cli.pipeline.preview import preview_run
         with patch("charmm_gui_cli.chem.preview.render_model", return_value={"images": [], "model": "mock"}) as render:
             preview_run(self.run)
         self.assertEqual(render.call_args.args[0].resolve(),
@@ -154,7 +157,7 @@ class SingleDirectoryTests(unittest.TestCase):
         self.assertFalse(destination.exists())
         self.assertFalse(list(destination.parent.glob(".extract-*")))
         extract_for_validation(self.fixture.archive, destination)
-        delivery.verify_model(self.fixture.archive, destination)
+        _result_files.verify_model(self.fixture.archive, destination)
 
     def test_revalidation_reuses_model_instead_of_extracting_again(self):
         self.fixture.manifest["config"].update(

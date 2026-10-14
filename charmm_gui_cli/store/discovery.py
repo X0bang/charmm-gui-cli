@@ -1,5 +1,7 @@
 """Bounded read-only task discovery and explicit identity-checked relinking."""
 
+import charmm_gui_cli.store.tasks as _task_store
+
 import json
 import os
 from pathlib import Path
@@ -81,11 +83,10 @@ def locate(record):
             raise ToolError(key="jobs.identity_invalid", params={"path": str(task_root(directory))}, next_step="charmm-gui-cli jobs list")
         return directory
     if not record.get("task_id") and isinstance(record.get("name"), str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", record["name"]):
-        from . import managed
-        for registry in managed._registries():
+        for registry in _task_store._registries():
             name_record = registry / "names" / (record["name"] + ".json")
             if name_record.is_file():
-                registered = managed._read_json(name_record)
+                registered = _task_store._read_json(name_record)
                 if registered.get("directory") == record.get("directory"):
                     record = {**record, **registered}
                 break
@@ -93,23 +94,22 @@ def locate(record):
 
 
 def relink(name, target):
-    from . import managed
-    from .background import metadata
+    from charmm_gui_cli.store.workers import metadata
     from charmm_gui_cli.store.locking import run_lock
     if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", name):
         raise ToolError(key="input.task_name", next_step="charmm-gui-cli jobs relink -h")
-    records = [registry / "names" / (str(name) + ".json") for registry in managed._registries()]
+    records = [registry / "names" / (str(name) + ".json") for registry in _task_store._registries()]
     source = next((path for path in records if path.is_file()), None)
     if source is None:
         raise ToolError(key="jobs.unknown", params={"name": name}, next_step="charmm-gui-cli jobs list")
-    record = managed._read_json(source)
+    record = _task_store._read_json(source)
     target = Path(target).expanduser().resolve()
     directory = target / ".charmm-gui" if (target / ".charmm-gui/full-run.json").is_file() else target
-    names = managed._registry() / "names"
+    names = _task_store._registry() / "names"
     names.mkdir(mode=0o700, parents=True, exist_ok=True)
     with run_lock(names), run_lock(directory):
         source = next((path for path in records if path.is_file()), None)
-        record = managed._read_json(source)
+        record = _task_store._read_json(source)
         if metadata(directory)["running"]:
             raise ToolError(key="background.running", next_step="charmm-gui-cli jobs list")
         if not matches(record, directory):
@@ -122,7 +122,7 @@ def relink(name, target):
         if identifier:
             updated["task_id"] = identifier
         atomic_json(names / (str(name) + ".json"), updated)
-    managed.remember_run(directory)
+    _task_store.remember_run(directory)
     return {"name": name, "directory": str(task_root(directory)), "task_id": identifier,
             "state": "relinked", "next_step": "charmm-gui-cli jobs status " + shlex.quote(str(name))}
 
@@ -135,10 +135,9 @@ def source_directory(certificate):
         if expected is not None and task_id(directory) != expected:
             raise ToolError(key="jobs.identity_invalid", params={"path": str(task_root(directory))}, next_step="charmm-gui-cli jobs list")
         return directory.resolve()
-    from . import managed
-    for registry in managed._registries():
+    for registry in _task_store._registries():
         for path in sorted((registry / "names").glob("*.json")):
-            record = managed._read_json(path)
+            record = _task_store._read_json(path)
             if (expected is not None and record.get("task_id") == expected or expected is None and record.get("directory") == str(directory)):
                 return locate(record)
     if expected:

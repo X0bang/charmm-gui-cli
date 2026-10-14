@@ -140,9 +140,9 @@ class ReportingTests(unittest.TestCase):
     def test_cli_html_export_no_network_or_model_mutation(self):
         (self.root / "results").mkdir()
         (self.root / "results/validation.json").write_text(json.dumps(self.report))
-        with patch("charmm_gui_cli.store.managed.resolve_run", return_value=self.root), \
-                patch("charmm_gui_cli.store.managed.inspect_run", return_value=self.context), \
-                patch("charmm_gui_cli.store.managed._read_json", side_effect=[self.report, self.manifest]), \
+        with patch("charmm_gui_cli.store.tasks.resolve_run", return_value=self.root), \
+                patch("charmm_gui_cli.pipeline.managed.inspect_run", return_value=self.context), \
+                patch("charmm_gui_cli.store.tasks._read_json", side_effect=[self.report, self.manifest]), \
                 patch("requests.Session.request", side_effect=AssertionError("No network")), \
                 redirect_stdout(io.StringIO()):
             code = main(["jobs", "report", "model-a", "--format", "html", "--out", str(self.root / "report.html")])
@@ -150,5 +150,5 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("坐标预览", (self.root / "report.html").read_text())
 
     def test_cli_rejects_html_without_filename(self):
-        with patch("charmm_gui_cli.store.managed.resolve_run", side_effect=AssertionError("No inspection needed")):
+        with patch("charmm_gui_cli.store.tasks.resolve_run", side_effect=AssertionError("No inspection needed")):
             self.assertEqual(main(["jobs", "report", "model-a", "--format", "html"]), 2)

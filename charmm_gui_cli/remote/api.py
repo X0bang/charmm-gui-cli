@@ -21,6 +21,8 @@ ARCHIVE_PREPARING_MESSAGES = (
 )
 
 
+from charmm_gui_cli.store.identifiers import job_id
+
 class AuthError(ToolError):
     def __init__(self, message=None, **kwargs):
         kwargs.setdefault("category", "authentication")
@@ -35,10 +37,6 @@ class SubmissionUnknown(ToolError):
         super().__init__(message, **kwargs)
 
 
-def job_id(value):
-    if not isinstance(value, str) or not re.fullmatch(r"[0-9]{1,32}", value):
-        raise ToolError(key="api.invalid_jobid")
-    return value
 
 
 class Client:

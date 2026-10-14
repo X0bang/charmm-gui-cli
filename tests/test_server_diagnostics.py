@@ -1,5 +1,7 @@
 """Sanitized remote failures are useful, durable and never trigger a replay."""
 
+import charmm_gui_cli.store.tasks as _task_store
+
 from contextlib import redirect_stderr
 import io
 import json
@@ -12,7 +14,7 @@ import requests
 
 from charmm_gui_cli.remote.diagnostics import diagnostic
 from charmm_gui_cli.remote.api import Client, SubmissionUnknown
-from charmm_gui_cli.store import managed
+from charmm_gui_cli.pipeline import managed
 from charmm_gui_cli.store.auth import ToolError, atomic_json
 from charmm_gui_cli.presentation.terminal_output import format_job_status
 from charmm_gui_cli.cli import main
@@ -102,7 +104,7 @@ class DiagnosticTests(unittest.TestCase):
         atomic_json(run / "full-run.json", {"schema_version": 2, "state": "submission_unknown"})
         atomic_json(run / "job.json", {"name": "sample"})
         error = SubmissionUnknown("Uncertain response", cause_category="api_error", server_message="Unknown lipid POPX")
-        managed.record_recovery(run, error)
+        _task_store.record_recovery(run, error)
         value = managed.inspect_run(str(run))
         self.assertEqual(value["recovery"]["error"]["server_message"], "Unknown lipid POPX")
         self.assertNotIn(" NAME", value["recovery"]["error"]["next_step"])

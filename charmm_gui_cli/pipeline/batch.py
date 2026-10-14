@@ -1,5 +1,7 @@
 """Durable, bounded multi-build queue. Every job is prepared before networking."""
 
+import charmm_gui_cli.store.tasks as _task_store
+
 from argparse import Namespace
 from contextlib import contextmanager
 import csv
@@ -18,7 +20,8 @@ from datetime import datetime, timezone
 import yaml
 
 from charmm_gui_cli.store.auth import ToolError, atomic_json, atomic_write, recovery_guidance
-from charmm_gui_cli.pipeline.config import UniqueLoader, mapping, composition, number
+from charmm_gui_cli.pipeline.config import UniqueLoader
+from charmm_gui_cli.store.configuration import mapping, composition, number
 from charmm_gui_cli.store.locking import run_lock, now
 from charmm_gui_cli.chem.pdb_normalization import N_TERMINALS, C_TERMINALS
 from charmm_gui_cli.store.layout import inputs_path
@@ -50,7 +53,7 @@ def _named_job(directory, name):
             continue
         try:
             stored = json.loads(local.read_text())["name"]
-            from ..store.managed import validate_name
+            from charmm_gui_cli.store.tasks import validate_name
             return validate_name(stored)
         except (OSError, ValueError, KeyError, TypeError, ToolError):
             pass
@@ -129,7 +132,7 @@ def load_batch(path):
     if type(raw.get("version")) is not int or raw["version"] not in (1, 2):
         raise ToolError(key="batch.config_version", next_step="charmm-gui-cli batch -h")
     if "name" in raw:
-        from ..store.managed import validate_name
+        from charmm_gui_cli.store.tasks import validate_name
         validate_name(raw["name"])
     adapter = _v2_options if raw["version"] == 2 else lambda value, base: _options(mapping(value, FIELDS, "batch defaults"), base)
     defaults = adapter(raw.get("defaults", {}), path.parent)
@@ -256,7 +259,7 @@ def _prepare(directory, manifest, *, progress=None):
 
 def _prepare_entries(directory, manifest, *, progress=None):
     from charmm_gui_cli.pipeline import build_command
-    from charmm_gui_cli.store import managed
+    from charmm_gui_cli.pipeline import managed
     for job, specification in zip(manifest["jobs"], manifest["config"]["jobs"]):
         if job["state"] not in ("pending", "preparing_local"):
             continue
@@ -276,7 +279,7 @@ def _prepare_entries(directory, manifest, *, progress=None):
                                or Path(files[key]).resolve() != (inputs_path(output) / key).resolve()
                                or not Path(files[key]).is_file() for key in required)):
                     raise ValueError
-                managed.assign_name(output, _named_job(directory, job["name"]))
+                _task_store.assign_name(output, _named_job(directory, job["name"]))
                 job["state"] = "inputs_ready"
                 if manifest["config"].get("reuse_preparation"):
                     from charmm_gui_cli.pipeline.sweep import seal_preparation
@@ -299,7 +302,7 @@ def _prepare_entries(directory, manifest, *, progress=None):
                 if code:
                     raise ToolError("Local preparation did not succeed.")
                 # Prefix names with stable batch identity to avoid cross-batch collisions.
-                managed.assign_name(Path(job["directory"]), _named_job(directory, job["name"]))
+                _task_store.assign_name(Path(job["directory"]), _named_job(directory, job["name"]))
                 job["state"] = result["state"]
                 if manifest["config"].get("reuse_preparation"):
                     from charmm_gui_cli.pipeline.sweep import seal_preparation
@@ -328,7 +331,7 @@ def _local_wait(job, error, *, state="preparing_local"):
 def _register_children(directory, manifest):
     if manifest.get("register_tasks") is not False:
         return
-    from ..store.managed import assign_name
+    from charmm_gui_cli.store.tasks import assign_name
     for job in manifest["jobs"]:
         if job["state"] in ("local_failed", "pending", "preparing_local") or job.get("indexed") or time.time() < job.get("next_retry_unix", 0):
             continue
@@ -349,7 +352,7 @@ def _register_children(directory, manifest):
 
 
 def _local(job):
-    from charmm_gui_cli.store import managed
+    from charmm_gui_cli.pipeline import managed
     directory = Path(job["directory"])
     if job["state"] in ("preparing_local", "waiting_index") and job.get("error_category") == "lock_busy":
         return  # Local preparation/registration must finish before submission.

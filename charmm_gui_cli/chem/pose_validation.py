@@ -18,7 +18,7 @@ def derive_server_atom_mapping(system_dir, reference_pdb, expected, *, archive_p
     elements, so their matching unmodified source PSF supplies natural masses.
     The caller must additionally revalidate mapped final elements and bonds.
     """
-    from charmm_gui_cli.pipeline.workflow import verify_archive_provenance
+    from charmm_gui_cli.store.provenance import verify_archive_provenance
     if archive_path is None:
         raise ToolError("Automatic atom-name mapping requires a job-bound source archive.")
     archive_path = Path(archive_path).resolve()

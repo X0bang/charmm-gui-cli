@@ -1,5 +1,7 @@
 """sweep command handler."""
 
+import charmm_gui_cli.store.tasks as _task_store
+
 
 
 def execute(args):
@@ -7,11 +9,11 @@ def execute(args):
     from charmm_gui_cli.store.auth import atomic_write
     from pathlib import Path
     from charmm_gui_cli.pipeline import sweep, batch as batching
-    from charmm_gui_cli.store import managed
+    pass
     if args.command == "sweep":
         if args.name is not None:
-            managed.validate_name(args.name)
-        directory = args.out or managed.new_batch_path(args.name, kind="sweep", source=args.config)
+            _task_store.validate_name(args.name)
+        directory = args.out or _task_store.new_batch_path(args.name, kind="sweep", source=args.config)
     else:
         directory = args.directory
     from ..pipeline.batch_progress import BatchReporter

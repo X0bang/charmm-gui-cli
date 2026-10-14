@@ -11,9 +11,10 @@ from urllib.parse import parse_qs, urlparse
 import yaml
 
 from charmm_gui_cli.pipeline import batch
-from charmm_gui_cli.remote.api import job_id
+from charmm_gui_cli.store.identifiers import job_id
 from charmm_gui_cli.store.auth import ToolError, atomic_json
-from charmm_gui_cli.pipeline.config import UniqueLoader, mapping, payload_for
+from charmm_gui_cli.pipeline.config import UniqueLoader, payload_for
+from charmm_gui_cli.store.configuration import mapping
 from charmm_gui_cli.store.locking import run_lock, now
 from charmm_gui_cli.store.layout import inputs_path
 
@@ -225,7 +226,7 @@ def seal_preparation(directory):
             or manifest.get("state") != "inputs_ready"):
         raise ToolError("Cannot retroactively seal an uploaded/unknown preparation; start a new evidence-tracked source run.")
     seal = {"version": 1, "created_at": now(), "identity": identity, "fingerprint": batch._canonical(identity)}
-    from charmm_gui_cli.store.managed import _new_json
+    from charmm_gui_cli.store.tasks import _new_json
     _new_json(seal_path, seal)
     return seal
 

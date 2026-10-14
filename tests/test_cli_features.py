@@ -30,7 +30,7 @@ class CLIFeatureTests(unittest.TestCase):
         self.network = self.stack.enter_context(patch("requests.Session.request", side_effect=AssertionError("No network in CLI feature tests")))
         self.auth = self.stack.enter_context(patch("charmm_gui_cli.pipeline.build_command.load_token", side_effect=AssertionError("No authentication")))
         self.stack.enter_context(patch("charmm_gui_cli.store.auth.load_token", side_effect=AssertionError("No authentication")))
-        self.stack.enter_context(patch("charmm_gui_cli.store.managed._registry", return_value=self.root / "registry"))
+        self.stack.enter_context(patch("charmm_gui_cli.store.tasks._registry", return_value=self.root / "registry"))
         self.protein = self.root / "protein.pdb"
         self.protein_text = "".join(pdb_atom(i, name, "ALA", xyz, element) for i, name, xyz, element in (
             (1, "N", (-1.458, 0., 0.), "N"), (2, "CA", (0., 0., 0.), "C"),

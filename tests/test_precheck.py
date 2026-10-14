@@ -51,7 +51,7 @@ class PrecheckTests(unittest.TestCase):
         self.assertEqual(json.loads((self.out / "check.json").read_text()), report)
 
     def test_no_registration_or_login_calls(self):
-        with patch("charmm_gui_cli.store.managed.remember_run") as remember, \
+        with patch("charmm_gui_cli.store.tasks.remember_run") as remember, \
                 patch("charmm_gui_cli.store.auth.load_token") as credentials, \
                 patch("requests.sessions.Session.request") as network:
             self.assertTrue(self.check()["passed"])
