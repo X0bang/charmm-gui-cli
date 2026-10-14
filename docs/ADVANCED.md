@@ -77,9 +77,9 @@ input_options:
 
 单配体输入出现多份同名配体时，会列出前 10 个结合位点身份；TER 隔开的实例不会合并。组分配置若不能区分同一身份在多个 TER 块中的实例，也会拒绝，需另设唯一标识并保留编号对应。当前远端验收仍不支持同名多拷贝配体，需明确选择目标复合物，不能任取第一份。预检摘要显示每个已定义配体的形式电荷，并提示核对预期质子化状态；`add_missing` 保留已定义电荷，只按价态补氢，不选择 pH 或推断蛋白/整个体系的电荷。
 
-开发中的蛋白状态处理会记录输入已声明的状态，而不预测 pH：[官网 FAQ](https://www.charmm-gui.org/?doc=faq) 要求 Amber 的 HID/HIE/HIP 使用 CHARMM 的 HSD/HSE/HSP 名称。[蛋白拓扑](https://www.charmm-gui.org/?doc=open_toppar&filename=top_all36_prot.rtf) 中 ASPP、GLUP、LSN 是补丁，不是独立残基模板。因此 ASH/GLH/LYN 的上传基础残基写成 ASP/GLU/LYS，目标补丁另记在 `input_normalization.protein_state_intent`。原始文件和坐标不改；LYN 的显式氢若需要改名，会逐项记录，不静默增删氢。显式氢与声明状态冲突时拒绝。
+本地蛋白状态处理会记录输入已声明的状态，而不预测 pH：[官网 FAQ](https://www.charmm-gui.org/?doc=faq) 要求 Amber 的 HID/HIE/HIP 使用 CHARMM 的 HSD/HSE/HSP 名称。[蛋白拓扑](https://www.charmm-gui.org/?doc=open_toppar&filename=top_all36_prot.rtf) 中 ASPP、GLUP、LSN 是补丁，不是独立残基模板。因此 ASH/GLH/LYN 的上传基础残基写成 ASP/GLU/LYS，目标补丁另记在 `input_normalization.protein_state_intent`。原始文件和坐标不改；LYN 的显式氢若需要改名，会逐项记录，不静默增删氢。显式氢与声明状态冲突时拒绝。
 
-CYX 只在 SG–SG 距离 1.8–2.3 Å 且配对唯一时记录 DISU 候选；普通 CYS 不会仅因靠近就被改为二硫键。缺 SG、元素不符、多配对或与 SSBOND 冲突时拒绝。状态请求会参与前处理复用身份，避免将坐标相同的 ASP 与 ASH 混用。当前开发检查点尚未接通远端实际 PDB/PSF 的状态验证，因此 `check`/`--dry-run` 能记录请求，但 `build` 不提交这些新状态配方，也不把本地改名或归档存在视为状态已实现；已发布 0.8.2 的安装包未被替换。
+CYX 只在 SG–SG 距离 1.8–2.3 Å 且配对唯一时记录 DISU 候选；普通 CYS 不会仅因靠近就被改为二硫键。缺 SG、元素不符、多配对或与 SSBOND 冲突时拒绝。状态请求会参与前处理复用身份，避免将坐标相同的 ASP 与 ASH 混用。远端实际 PDB/PSF 的状态验证尚未接通，因此 `check`/`--dry-run` 能记录请求，但 `build` 不提交这些状态配方，也不把本地改名或归档存在视为状态已实现。此限制同样适用于输入已使用 HSD/HSE/HSP 等显式状态名称的情况。
 
 | 字段 | 如何设置 |
 | --- | --- |

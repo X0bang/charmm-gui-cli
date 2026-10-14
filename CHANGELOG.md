@@ -1,12 +1,18 @@
 # Changelog
 
-## Unreleased
+## 0.8.3
+
+### Improvements
 
 - Record explicit Amber/CHARMM residue-state intent separately from uploaded base residues: histidine names map to HSD/HSE/HSP; ASH/GLH/LYN retain ASPP/GLUP/LSN patch requests instead of using patch names as RESI templates. Preserve coordinates, document unambiguous LYN hydrogen renaming and identify only unique explicit-CYX disulfide candidates.
 - Include residue-state recipes in preparation identities and add literal-JSON/validated-control form adapters without executing website JavaScript. Remote submission/acceptance of these newly recorded state recipes remains temporarily gated until actual PDB/PSF verification is integrated; this development checkpoint is not complete remote state support.
 - Add read-only, model/TER/chain/segid-separated residue inventories to prechecks and prepared-input manifests. Bilingual summaries show bounded chain composition and COMPND declarations without identifying domains from names or deleting fusion/antibody chains.
 - Identify unsupported nucleic-acid residues explicitly, keep nucleic-acid/carbohydrate name hints out of peptide residue/gap counts and avoid suggesting peptide terminal patches for them. Show LINK endpoints and possible glycan annotations before removal advice across single/component input preparation.
 - Reject same-named ligand instances and ambiguous component selectors across TER boundaries instead of merging them; report bounded instance labels and explicit selection routes, retaining actual component-configuration arguments. Reinforce ligand formal-charge review without choosing a pH state or changing the defined chemistry.
+
+### Validation scope
+
+Local regressions cover chain inventories, linked-component diagnostics, explicit residue-state normalization, preserved input coordinates and originals, preparation identity separation, literal form adapters and refusal of unverified remote state application. Source and wheel packages are validated separately. These state records support local review and dry-runs only: remote modeling of inputs with an explicit state recipe is refused pending actual PDB/PSF verification. This release does not claim new live provider acceptance, automatic pH selection or completion of all audit remediation items.
 
 ## 0.8.2
 
