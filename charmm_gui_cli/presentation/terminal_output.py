@@ -54,12 +54,25 @@ def format_login(value, *, email=None):
 
 
 def _repair_lines(entries):
-    lines, alternates = [], []
+    lines, alternates, states = [], [], []
     for entry in entries:
         if entry["key"] == "input.altloc_selected":
             alternates.append(entry)
+        elif entry["key"] in ("state.mapped", "state.hydrogen_renamed", "state.disulfide_recorded"):
+            states.append(entry)
         else:
             lines.append("• " + t(entry["key"], **entry["params"]))
+    for key in ("state.mapped", "state.hydrogen_renamed", "state.disulfide_recorded"):
+        group = [entry for entry in states if entry["key"] == key]
+        if len(group) <= 5:
+            lines.extend("• " + t(entry["key"], **entry["params"]) for entry in group)
+        elif key == "state.mapped":
+            from collections import Counter
+            counts = Counter((entry["params"]["original"], entry["params"]["base"], entry["params"]["state"]) for entry in group)
+            choices = ", ".join(f"{source}→{base}/{target}={count}" for (source, base, target), count in sorted(counts.items()))
+            lines.append("• " + t("state.mapping_summary", count=len(group), choices=choices))
+        else:
+            lines.append("• " + t("state.hydrogen_summary" if key == "state.hydrogen_renamed" else "state.disulfide_summary", count=len(group)))
     if alternates:
         from collections import Counter
         counts = Counter(entry["params"]["altloc"] for entry in alternates)
@@ -111,6 +124,8 @@ def format_build(value, **context):
              t("output.state", state=label)]
     lines.extend(_repair_lines(value.get("automatic_repairs", [])))
     lines.extend(_chain_lines(value.get("structure_inventory", {})))
+    if value.get("protein_state_intent", {}).get("residues"):
+        lines.append(t("state.local_review", count=len(value["protein_state_intent"]["residues"])))
     for warning in value.get("chemistry_warnings", []):
         lines.append("• " + t(warning["key"], **warning["params"]))
     execution = value.get("execution_state")
@@ -183,6 +198,8 @@ def format_build(value, **context):
             action = "charmm-gui-cli login"
     elif error and error.get("retryable") is False:
         action = value.get("next_step") or recovery.get("next_step") or error.get("next_step") or "charmm-gui-cli jobs status " + str(name or "NAME")
+    if value.get("protein_state_intent") and value.get("next_step"):
+        action = value["next_step"]
     lines.append(t("cli.next", action=action))
     return "\n".join(lines)
 
@@ -211,6 +228,9 @@ def format_check(value, **context):
     lines.extend(_repair_lines(value.get("automatic_repairs", [])))
     for prediction in value.get("terminal_predictions", []):
         lines.append(t("check.terminal", chain=prediction["chain"], residue=prediction["first_resname"], patch=prediction["suggested_n_terminal"]))
+    states = value.get("input_normalization", {}).get("protein_state_intent", {}).get("residues", [])
+    if states:
+        lines.append(t("state.local_review", count=len(states)))
     if value.get("input_normalization", {}).get("hetatm_present") is False:
         lines.append(t("input.no_hetero"))
     for image in value.get("preview", {}).get("images", []):

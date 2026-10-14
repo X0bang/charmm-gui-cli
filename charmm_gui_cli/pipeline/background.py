@@ -46,6 +46,8 @@ def launch(args):
     fd = _worker_store.claim(directory)
     try:
         manifest = _task_store._read_json(directory / "full-run.json")
+        from .full_build import require_protein_state_support
+        require_protein_state_support(directory, manifest)
         local_archive = (full_archive_path(directory)).is_file()
         offline = local_archive and manifest.get("state") in ("ligands_present", "downloaded_unverified", "validation_failed", "validated", "complete", "completed")
         if not offline:

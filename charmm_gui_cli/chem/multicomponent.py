@@ -14,7 +14,7 @@ import re
 
 from charmm_gui_cli.store.auth import ToolError
 from charmm_gui_cli.chem.input_sources import _chemical_sdf_in_complex, _internal
-from charmm_gui_cli.chem.inputs import Ligand, _apply_hydrogen_policy, _conect, _pdb, _protein_pdb_lines, _sdf, _validate_ligand, _validate_protein, read_ligand
+from charmm_gui_cli.chem.inputs import Ligand, _apply_hydrogen_policy, _conect, _pdb, _protein_pdb_lines, _protein_metadata, _sdf, _validate_ligand, _validate_protein, read_ligand
 from .residues import SIDECHAINS, ALIASES, WATERS, validate_input_options
 from .input_safety import validate_cgenff, validate_contact, validate_ligand_name
 
@@ -281,7 +281,7 @@ def prepare_multicomponent(*, complex_pdb, components, out, water_policy, ion_po
         group.setdefault("representative_sdf", str(sdf_path))
         group.setdefault("files", {"sdf": str(sdf_path), **({"rtf": topology["rtf"]["path"], "prm": topology["prm"]["path"]} if topology else {})})
     protein_serials = {a.serial for a in protein}
-    metadata = [line for line in source.read_text().splitlines() if line.startswith("SSBOND")]
+    metadata = _protein_metadata(source, input_options=options, role=role)
     files["protein.pdb"] = "\n".join(metadata + _protein_pdb_lines(source, protein, input_options=options, role=role)) + "\n" + _conect({edge: order for edge, order in bonds.items() if set(edge) <= protein_serials}) + "END\n"
     report = {"schema_version": 1, "source": _evidence(source), "complex": str(destination / "complex.pdb"),
               "protein": str(destination / "protein.pdb"), "components": reports, "chemistry_groups": list(groups.values()),
@@ -447,7 +447,7 @@ def prepare_build_components(*, components_config, complex_pdb, out, hydrogens="
         return _prepare_build_components(components_config=components_config, complex_pdb=complex_pdb, out=out,
             hydrogens=hydrogens, allow_distant_pose=allow_distant_pose, input_options=input_options)
     except ToolError as exc:
-        if exc.key and exc.key.startswith("input."):
+        if exc.key and exc.key.startswith(("input.", "state.")):
             from .input_diagnostics import bind_input_error
             bind_input_error(exc, complex_pdb=complex_pdb, components=components_config, input_options=input_options)
         raise
@@ -537,7 +537,7 @@ def _prepare_build_components(*, components_config, complex_pdb, out, hydrogens=
         groups[component["resname"]].update({"chemical_signature": signature, "representative_sdf": component["sdf"]})
         groups[component["resname"]]["files"]["sdf"] = component["sdf"]
         file_text[component["id"] + ".json"] = json.dumps(component, indent=2) + "\n"
-    metadata = [line for line in source.read_text().splitlines() if line.startswith("SSBOND")]
+    metadata = _protein_metadata(source, input_options=validate_input_options(input_options), role="complex")
     file_text["protein.pdb"] = "\n".join(metadata + protein_lines) + "\n" + _conect({tuple(protein_map[i] for i in edge): order for edge, order in protein_bonds.items()}) + "END\n"
     file_text["complex.pdb"] = "\n".join(metadata + all_lines) + "\n" + _conect(mapped_bonds) + "END\n"
     manifest.update({"complex": str(destination / "complex.pdb"), "protein": str(destination / "protein.pdb"),

@@ -10,7 +10,7 @@ from pathlib import Path
 import re
 
 from charmm_gui_cli.store.auth import ToolError
-from charmm_gui_cli.chem.inputs import Ligand, _conect, _pdb, _protein_pdb_lines, _sdf, _validate_ligand, _validate_protein, read_ligand
+from charmm_gui_cli.chem.inputs import Ligand, _conect, _pdb, _protein_pdb_lines, _protein_metadata, _sdf, _validate_ligand, _validate_protein, read_ligand
 
 
 def _path(value, label):
@@ -150,7 +150,7 @@ def prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand_
                                 ligand_resname=ligand_resname, ligand_smiles=ligand_smiles,
                                 accept_conect_bond_orders=accept_conect_bond_orders, input_options=input_options)
     except ToolError as exc:
-        if exc.key and exc.key.startswith("input."):
+        if exc.key and exc.key.startswith(("input.", "state.")):
             from .input_diagnostics import bind_input_error
             bind_input_error(exc, protein=protein, ligand=ligand, complex_pdb=complex_pdb,
                              ligand_resname=ligand_resname, input_options=input_options)
@@ -220,7 +220,7 @@ def _prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand
             _check_protein(protein, protein_atoms, options)
             report["supplied_protein_checked_against_complex"] = True
         protein_ids = {a.serial for a in protein_atoms}
-        metadata = [line for line in complex_pdb.read_text().splitlines() if line.startswith("SSBOND")]
+        metadata = _protein_metadata(complex_pdb, input_options=options, role="complex")
         generated["protein.pdb"] = "\n".join(metadata + _protein_pdb_lines(complex_pdb, protein_atoms, input_options=options, role="complex")) + "\n" + _conect(
             {edge: order for edge, order in all_bonds.items() if set(edge) <= protein_ids}) + "END\n"
         resolved_protein = destination / "protein.pdb"
@@ -255,7 +255,7 @@ def _prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand
         _validate_protein(protein_atoms, protein=protein, ligand=ligand, ligand_resname=ligand_resname, input_options=options)
         validate_link_records(protein)
         if report["input_normalization"]["repairs"]:
-            metadata = [line for line in protein.read_text().splitlines() if line.startswith("SSBOND")]
+            metadata = _protein_metadata(protein, input_options=options)
             generated["protein.pdb"] = "\n".join(metadata + _protein_pdb_lines(protein, protein_atoms, input_options=options)) + "\n" + _conect(protein_bonds) + "END\n"
         resolved_protein, coordinate_source = destination / "protein.pdb" if "protein.pdb" in generated else protein, ligand
         if ligand.suffix.lower() in chemical_formats:

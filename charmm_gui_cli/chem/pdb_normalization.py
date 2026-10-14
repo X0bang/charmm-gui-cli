@@ -156,6 +156,11 @@ def normalize_lines(path, report=None, *, options=None, role="generic"):
     try:
         if policy is not None:
             lines = apply_policy(lines, policy, role, repairs)
+            if role in ("protein", "complex", "components"):
+                from .protein_states import normalize_states
+                lines, state_intent = normalize_states(lines, repairs)
+                if report is not None and state_intent["residues"]:
+                    report["protein_state_intent"] = state_intent
     finally:
         if report is not None:
             report.setdefault("repairs", []).extend(repairs)
@@ -183,6 +188,8 @@ def attach_source_normalization(prepared, source_report):
                          warnings=[entry["message"] for entry in entries])
     if source.get("structure_inventory"):
         normalization["structure_inventory"] = source["structure_inventory"]
+    if source.get("protein_state_intent"):
+        normalization["protein_state_intent"] = source["protein_state_intent"]
     manifest["automatic_repairs"] = entries
     manifest["source_inputs"] = source_report.get("source_inputs", {})
     manifest["source_evidence"] = source_report.get("source_evidence", {})

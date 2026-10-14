@@ -391,12 +391,14 @@ def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_res
             report["chemistry"] = [{**_chemistry(item["sdf"], item["resname"]), "component_id": item["id"]}
                                    for item in prepared["manifest"]["components"]]
         report["checks"][stage] = {"passed": True}
+        if report.get("input_normalization", {}).get("protein_state_intent", {}).get("residues"):
+            report["review_required"] = True
         if any(not item["rdkit_sanitized"] for item in report["chemistry"]):
             report["review_required"] = True
         report.update(passed=True, hydrogen_policy=hydrogens,
                       status="passed_with_review" if report["review_required"] else "passed")
     except (ToolError, OSError, UnicodeError) as exc:
-        if isinstance(exc, ToolError) and exc.key and exc.key.startswith("input."):
+        if isinstance(exc, ToolError) and exc.key and exc.key.startswith(("input.", "state.")):
             from .input_diagnostics import bind_input_error, retention_draft
             bind_input_error(exc, protein=protein, ligand=ligand, complex_pdb=complex_pdb,
                              ligand_resname=ligand_resname, components=components, input_options=report.get("input_options", {}))

@@ -39,6 +39,10 @@ class Ligand:
     provenance: dict = field(default_factory=dict)
 
 
+def _protein_metadata(path, *, input_options=None, role="protein"):
+    return [line for line in normalize_lines(path, options=input_options, role=role) if line.startswith("SSBOND")]
+
+
 def _protein_pdb_lines(path, atoms, serial_map=None, *, input_options=None, role="protein"):
     """Retain explicit polymer breaks while optionally renumbering atoms.
 
@@ -406,7 +410,7 @@ def split_complex(complex_pdb, output_dir, *, ligand_resname="LIG", ligand_chain
                    "stereochemistry": "No explicit stereochemical labels inferred; input coordinates preserved"})
     protein_ids = {a.serial for a in protein}
     protein_bonds = {edge: order for edge, order in bonds.items() if set(edge) <= protein_ids}
-    metadata = [line for line in Path(complex_pdb).read_text().splitlines() if line.startswith("SSBOND")]
+    metadata = _protein_metadata(complex_pdb)
     files = {"protein.pdb": "\n".join(metadata + _protein_pdb_lines(complex_pdb, protein)) + "\n" + _conect(protein_bonds) + "END\n",
              "ligand.sdf": sdf,
              "ligand.pdb": "\n".join(a.line for a in selected) + "\n" + _conect({edge: order for edge, order in bonds.items() if set(edge) <= ids}) + "END\n",
@@ -454,7 +458,7 @@ def prepare_inputs(protein_pdb, ligand_sdf, output_dir, *, ligand_resname="LIG",
                                ligand_chain=ligand_chain, ligand_resid=ligand_resid, allow_distant_pose=allow_distant_pose,
                                hydrogen_policy=hydrogen_policy, input_options=input_options)
     except ToolError as exc:
-        if exc.key and exc.key.startswith("input."):
+        if exc.key and exc.key.startswith(("input.", "state.")):
             from .input_diagnostics import bind_input_error
             bind_input_error(exc, protein=protein_pdb, ligand=ligand_sdf,
                              ligand_resname=ligand_resname, input_options=input_options)
@@ -503,7 +507,7 @@ def _prepare_inputs(protein_pdb, ligand_sdf, output_dir, *, ligand_resname="LIG"
     if distance > 6 and not allow_distant_pose:
         raise ToolError(key="input.distant_pose", next_step=t("input.distant_pose_next"))
     protein_map = {a.serial: i + 1 for i, a in enumerate(protein)}
-    metadata = [line for line in Path(protein_pdb).read_text().splitlines() if line.startswith("SSBOND")]
+    metadata = _protein_metadata(protein_pdb, input_options=options)
     protein_lines = metadata + _protein_pdb_lines(protein_pdb, protein, protein_map, input_options=options)
     ligand_lines, atom_map = [], []
     for i, atom in enumerate(ligand.atoms):
