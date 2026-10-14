@@ -12,6 +12,8 @@ import re
 import shutil
 import shlex
 import time
+from contextlib import nullcontext
+from datetime import datetime, timezone
 
 import yaml
 
@@ -24,7 +26,7 @@ from ..locales.i18n import t
 from ..chem.residues import INPUT_FIELDS as INPUT_SELECTION, validate_input_options
 
 
-FIELDS = ("protein", "ligand", "complex", "ligand_resname", "ligand_smiles",
+FIELDS = ("protein", "ligand", "complex", "ligand_resname", "ligand_smiles", "terminals", "allow_unknown_lipids",
           "accept_conect_bond_orders", "hydrogens", "upper", "lower", "salt",
           "salt_concentration", "margin", "water_padding", "orientation", "n_terminal", "c_terminal") + INPUT_SELECTION
 TERMINAL = {"validated", "validation_failed", "preparation_failed", "remote_error", "local_failed"}
@@ -42,7 +44,18 @@ def _canonical(value):
 
 
 def _named_job(directory, name):
-    return "batch-" + _hash(str(directory).encode())[:12] + "-" + name
+    paths = (directory / "jobs" / name / ".charmm-gui" / "job.json", directory / "jobs" / name / "job.json")
+    for local in paths:
+        if not local.is_file():
+            continue
+        try:
+            stored = json.loads(local.read_text())["name"]
+            from ..store.managed import validate_name
+            return validate_name(stored)
+        except (OSError, ValueError, KeyError, TypeError, ToolError):
+            pass
+    kind = "sweep" if (directory.parent / "sweep.json").is_file() else "batch"
+    return kind + "-" + _hash(str(directory).encode())[:12] + "-" + name
 
 
 def _options(raw, base):
@@ -52,9 +65,11 @@ def _options(raw, base):
     for key, value in result.items():
         if key in INPUT_SELECTION:
             continue
-        if key == "accept_conect_bond_orders":
+        if key == "terminals":
+            continue
+        if key in ("accept_conect_bond_orders", "allow_unknown_lipids"):
             if type(value) is not bool:
-                raise ToolError("accept_conect_bond_orders must be boolean.")
+                raise ToolError(key="batch.option_boolean", params={"option": key}, next_step="charmm-gui-cli batch -h")
         elif key in ("salt_concentration", "margin", "water_padding"):
             number(value, key, positive=key != "salt_concentration")
         elif not isinstance(value, str) or not value or any(c in value for c in "\n\r\x00"):
@@ -70,10 +85,35 @@ def _options(raw, base):
         if key in result and result[key] not in allowed:
             raise ToolError(f"Unsupported batch {key}.")
     from ..build_config import validate_preparation
-    validate_preparation({key: result[key] for key in ("n_terminal", "c_terminal") if key in result})
+    validate_preparation({key: result[key] for key in ("n_terminal", "c_terminal", "terminals") if key in result})
     if "ligand_resname" in result and not re.fullmatch(r"[A-Z][A-Z0-9]{0,2}", result["ligand_resname"]):
         raise ToolError("ligand_resname must be 1-3 uppercase letters/digits beginning with a letter.")
     return result
+
+
+def _v2_options(raw, base):
+    """Flatten only at the CLI adapter; YAML uses build's nested v2 sections."""
+    top = ("protein", "ligand", "complex", "ligand_resname", "ligand_smiles", "accept_conect_bond_orders",
+           "ligand_hydrogens", "preparation", "membrane", "ions", "input_options")
+    def checked(value, fields, section):
+        try:
+            return mapping(value, fields, section)
+        except ToolError:
+            raise ToolError(key="batch.option_fields", params={"section": section, "fields": ", ".join(fields)}, next_step="charmm-gui-cli batch -h") from None
+    raw = checked(raw, top, "v2")
+    result = {k: v for k, v in raw.items() if k in FIELDS}
+    if "ligand_hydrogens" in raw:
+        result["hydrogens"] = raw["ligand_hydrogens"]
+    for section, fields, aliases in (
+        ("preparation", ("orientation", "n_terminal", "c_terminal", "terminals"), {}),
+        ("membrane", ("upper", "lower", "margin_A", "water_padding_A", "allow_unknown_lipids"), {"margin_A": "margin", "water_padding_A": "water_padding"}),
+        ("ions", ("type", "concentration_M"), {"type": "salt", "concentration_M": "salt_concentration"}),
+        ("input_options", INPUT_SELECTION, {}),
+    ):
+        if section in raw:
+            selected = checked(raw[section], fields, section)
+            result.update({aliases.get(k, k): v for k, v in selected.items()})
+    return _options(result, base)
 
 
 def load_batch(path):
@@ -83,28 +123,39 @@ def load_batch(path):
         raw = yaml.load(data.decode("utf-8"), Loader=UniqueLoader)
     except (OSError, UnicodeError, yaml.YAMLError):
         raise ToolError("Cannot read valid batch YAML.") from None
-    mapping(raw, ("version", "defaults", "jobs", "reuse_preparation"), "batch")
+    mapping(raw, ("version", "defaults", "jobs", "reuse_preparation", "name"), "batch")
     if "reuse_preparation" in raw and type(raw["reuse_preparation"]) is not bool:
         raise ToolError("reuse_preparation must be boolean.")
-    if type(raw.get("version")) is not int or raw["version"] != 1:
-        raise ToolError("Batch YAML requires version: 1.")
-    defaults = _options(mapping(raw.get("defaults", {}), FIELDS, "batch defaults"), path.parent)
+    if type(raw.get("version")) is not int or raw["version"] not in (1, 2):
+        raise ToolError(key="batch.config_version", next_step="charmm-gui-cli batch -h")
+    if "name" in raw:
+        from ..store.managed import validate_name
+        validate_name(raw["name"])
+    adapter = _v2_options if raw["version"] == 2 else lambda value, base: _options(mapping(value, FIELDS, "batch defaults"), base)
+    defaults = adapter(raw.get("defaults", {}), path.parent)
     if not isinstance(raw.get("jobs"), list) or not raw["jobs"]:
         raise ToolError("Batch jobs must be a nonempty list.")
     jobs, names = [], set()
     for raw_job in raw["jobs"]:
-        mapping(raw_job, ("name",) + FIELDS, "batch job")
+        if not isinstance(raw_job, dict):
+            raise ToolError(key="batch.jobs_invalid", next_step="charmm-gui-cli batch -h")
         name = raw_job.get("name")
         if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", name):
             raise ToolError("Batch names must be 1-64 ASCII letters/digits, dots, underscores or hyphens, starting with a letter/digit.")
         if name in names:
             raise ToolError("Batch job names must be unique.")
         names.add(name)
-        options = {**DEFAULTS, **defaults, **_options({k: v for k, v in raw_job.items() if k != "name"}, path.parent)}
+        override = adapter({k: v for k, v in raw_job.items() if k != "name"}, path.parent)
+        base_defaults = {**DEFAULTS, "hydrogens": "preserve"} if raw["version"] == 2 else DEFAULTS
+        options = {**base_defaults, **defaults, **override}
+        if "terminals" in defaults and "terminals" in override:
+            options["terminals"] = {chain: {**defaults["terminals"].get(chain, {}), **override["terminals"].get(chain, {})}
+                                    for chain in defaults["terminals"].keys() | override["terminals"].keys()}
         if not options.get("complex") and not (options.get("protein") and options.get("ligand")):
             raise ToolError("Each batch job needs protein + ligand, or complex.")
         jobs.append({"name": name, "options": options})
-    return {"version": 1, "source": str(path), "source_sha256": _hash(data), "jobs": jobs,
+    return {"version": raw["version"], "source": str(path), "source_sha256": _hash(data), "jobs": jobs,
+            **({"name": raw["name"]} if "name" in raw else {}),
             **({"reuse_preparation": raw["reuse_preparation"]} if "reuse_preparation" in raw else {})}
 
 
@@ -116,6 +167,7 @@ def _arguments(directory, options=None, **kwargs):
         if fields[key] is not None:
             fields[key] = Path(fields[key])
     return Namespace(**fields, command="build" if options is not None else "build-resume",
+                     _progress_callback=kwargs.get("progress"),
                      config=None, out=directory, directory=directory, name=None, dry_run=options is not None,
                      wait=False, interval=kwargs.get("interval", 30), max_wait=kwargs.get("max_wait", 21600),
                      post_timeout=kwargs.get("post_timeout", 900),
@@ -130,6 +182,9 @@ def _save(directory, manifest):
     summary = _summary(directory, manifest)
     atomic_json(directory / "summary.json", summary)
     atomic_write(directory / "summary.csv", export_csv(summary))
+    from .batch_progress import current
+    if current() is not None:
+        current().update(summary)
 
 
 def _read(directory, verify=True):
@@ -143,6 +198,8 @@ def _read(directory, verify=True):
                 or not isinstance(manifest.get("jobs"), list) or not isinstance(manifest.get("state"), str)):
             raise ValueError
         number(manifest.get("last_start_unix"), "saved submission timestamp")
+        if "register_tasks" in manifest and type(manifest["register_tasks"]) is not bool:
+            raise ValueError
         if manifest["version"] != 1 or _canonical(config) != manifest["config_fingerprint"]:
             raise ValueError
         if verify and load_batch(config["source"]) != config:
@@ -156,6 +213,11 @@ def _read(directory, verify=True):
                     or type(job.get("started")) is not bool or not isinstance(job.get("directory"), str)
                     or any(key in job and not isinstance(job[key], str) for key in ("error", "error_category", "source_job_id", "build_job_id"))):
                 raise ValueError
+            if any(key in job and type(job[key]) is not bool for key in ("indexed", "preparation_reused")):
+                raise ValueError
+            if "error_detail" in job and (not isinstance(job["error_detail"], dict)
+                    or "message_params" in job["error_detail"] and not isinstance(job["error_detail"]["message_params"], dict)):
+                raise ValueError
             if "next_retry_unix" in job:
                 number(job["next_retry_unix"], "saved next retry timestamp")
             expected = directory / "jobs" / job["name"]
@@ -166,7 +228,7 @@ def _read(directory, verify=True):
     return manifest
 
 
-def initialize(config_path, directory):
+def initialize(config_path, directory, *, register=True, progress=None, name=None):
     """Prepare all entries locally; never authenticate or submit a remote job."""
     config = load_batch(config_path)
     directory = Path(directory).expanduser().resolve()
@@ -175,19 +237,29 @@ def initialize(config_path, directory):
     except FileExistsError:
         raise ToolError("Batch directory already exists; use batch-resume.") from None
     manifest = {"version": 1, "created_at": now(), "state": "preparing", "config": config,
+                "name": name or config.get("name", directory.name),
+                "register_tasks": register,
                 "config_fingerprint": _canonical(config), "last_start_unix": 0,
                 "jobs": [{"name": job["name"], "directory": str(directory / "jobs" / job["name"] / ".charmm-gui"),
                           "state": "pending", "started": False} for job in config["jobs"]]}
     with run_lock(directory):
         _save(directory, manifest)
-        _prepare(directory, manifest)
+        _prepare(directory, manifest, progress=progress)
     return _summary(directory, manifest)
 
 
-def _prepare(directory, manifest):
+def _prepare(directory, manifest, *, progress=None):
+    from ..store.indexing import local_plan
+    with nullcontext() if manifest.get("register_tasks", True) else local_plan():
+        _prepare_entries(directory, manifest, progress=progress)
+
+
+def _prepare_entries(directory, manifest, *, progress=None):
     from .. import build_command, managed
     for job, specification in zip(manifest["jobs"], manifest["config"]["jobs"]):
         if job["state"] not in ("pending", "preparing_local"):
+            continue
+        if time.time() < job.get("next_retry_unix", 0):
             continue
         output = Path(job["directory"])
         # A process may have stopped inside chemistry conversion. Never re-run
@@ -208,15 +280,21 @@ def _prepare(directory, manifest):
                 if manifest["config"].get("reuse_preparation"):
                     from ..sweep import seal_preparation
                     seal_preparation(output)
-            except (OSError, ValueError, KeyError, TypeError, AttributeError, ToolError):
-                job.update(state="local_failed", error="Local preparation was interrupted; retained partial files require inspection. No task was recreated.")
+            except (OSError, ValueError, KeyError, TypeError, AttributeError, ToolError) as error:
+                if getattr(error, "category", None) == "lock_busy":
+                    _local_wait(job, error)
+                else:
+                    job.update(state="local_failed", error="Local preparation was interrupted; retained partial files require inspection. No task was recreated.")
+            else:
+                for key in ("error", "error_detail", "error_category", "next_retry_unix"):
+                    job.pop(key, None)
             _save(directory, manifest)
             continue
         else:
             job["state"] = "preparing_local"
             _save(directory, manifest)
             try:
-                result, code = build_command.execute(_arguments(output, specification["options"]))
+                result, code = build_command.execute(_arguments(output, specification["options"], progress=progress.child(job) if progress else None))
                 if code:
                     raise ToolError("Local preparation did not succeed.")
                 # Prefix names with stable batch identity to avoid cross-batch collisions.
@@ -226,15 +304,54 @@ def _prepare(directory, manifest):
                     from ..sweep import seal_preparation
                     seal_preparation(output)
             except (ToolError, OSError) as error:
-                job.update(state="local_failed", error=str(error) if isinstance(error, ToolError) else "Local file operation failed.")
+                if getattr(error, "category", None) == "lock_busy":
+                    _local_wait(job, error)
+                else:
+                    job.update(state="local_failed", error=str(error) if isinstance(error, ToolError) else "Local file operation failed.",
+                               local_failure_phase="preparation")
+                    if isinstance(error, ToolError):
+                        job["error_detail"] = error.as_dict()
+                    if progress:
+                        progress.failure(job)
             _save(directory, manifest)
-    manifest["state"] = "ready"
+    if manifest["state"] != "running":
+        manifest["state"] = "ready"
     _save(directory, manifest)
+
+
+def _local_wait(job, error, *, state="preparing_local"):
+    job.update(state=state, error=str(error), error_category="lock_busy", error_detail=error.as_dict(),
+               next_retry_unix=time.time() + max(10, error.retry_after_seconds or 10))
+
+
+def _register_children(directory, manifest):
+    if manifest.get("register_tasks") is not False:
+        return
+    from ..store.managed import assign_name
+    for job in manifest["jobs"]:
+        if job["state"] in ("local_failed", "pending", "preparing_local") or job.get("indexed") or time.time() < job.get("next_retry_unix", 0):
+            continue
+        try:
+            assign_name(Path(job["directory"]), _named_job(directory, job["name"]))
+        except ToolError as error:
+            if error.category != "lock_busy":
+                raise
+            _local_wait(job, error, state="waiting_index")
+        else:
+            if job["state"] == "waiting_index":
+                job["state"] = "inputs_ready"
+            for key in ("error", "error_detail", "error_category", "next_retry_unix"):
+                job.pop(key, None)
+            job["indexed"] = True
+        _save(directory, manifest)
+    manifest["register_tasks"] = all(j.get("indexed") or j["state"] == "local_failed" for j in manifest["jobs"])
 
 
 def _local(job):
     from .. import managed
     directory = Path(job["directory"])
+    if job["state"] in ("preparing_local", "waiting_index") and job.get("error_category") == "lock_busy":
+        return  # Local preparation/registration must finish before submission.
     if job["state"] == "local_failed":
         # Recover only the historical lock-conflict failure, not arbitrary local
         # preparation failures or unknown submissions.
@@ -272,6 +389,7 @@ def _local(job):
             value = read_value(path)
             if path.name == "full-run.json":
                 reused_source = bool(value.get("reused_preparation"))
+                job["preparation_reused"] = reused_source
             # Final validation is accepted only after evidence is checked below.
             if job["state"] not in TERMINAL and isinstance(value.get("state"), str):
                 job["state"] = value["state"]
@@ -319,7 +437,7 @@ def _local(job):
 def _summary(directory, manifest):
     jobs = [{key: job[key] for key in ("name", "directory", "state", "error", "error_category", "cause_category", "next_retry_unix", "next_step",
                                       "source_job_id", "build_job_id", "remote", "gromacs_compiled", "compilation_status",
-                                      "gromacs_note", "review_required", "report", "archive", "validation") if key in job}
+                                      "gromacs_note", "review_required", "report", "archive", "validation", "error_detail", "local_failure_phase", "preparation_reused") if key in job}
             for job in manifest["jobs"]]
     counts = {}
     for job in jobs:
@@ -350,7 +468,17 @@ def _summary(directory, manifest):
         guidance = t("batch.next.interrupted", resume=resume)
     else:
         guidance = resume
+    try:
+        begin = datetime.fromisoformat(manifest["created_at"].replace("Z", "+00:00")).timestamp()
+        end = datetime.fromisoformat(manifest.get("finished_at", manifest.get("updated_at", "")).replace("Z", "+00:00")).timestamp() if state == "complete" else time.time()
+        elapsed_seconds = max(0, end - begin)
+    except (ValueError, KeyError, TypeError, AttributeError, OverflowError, OSError):
+        elapsed_seconds = 0
     return {"directory": str(directory), "state": state, "counts": counts, "jobs": jobs,
+            "name": manifest.get("name", manifest["config"].get("name", directory.name)), "elapsed_seconds": elapsed_seconds,
+            "completed": sum(counts.get(s, 0) for s in TERMINAL),
+            "active": sum(j.get("started", False) and j["state"] not in TERMINAL for j in manifest["jobs"]),
+            "preparation_reused": sum(j.get("preparation_reused", False) for j in manifest["jobs"]),
             "total": len(jobs), "failed": sum(counts.get(state, 0) for state in TERMINAL - {"validated"}),
             "validated": counts.get("validated", 0),
             "reports": {"json": str(directory / "summary.json"), "csv": str(directory / "summary.csv")},
@@ -361,6 +489,31 @@ def _auth_error(error):
     from ..api import AuthError
     return isinstance(error, AuthError) or getattr(error, "category", None) in ("authentication", "auth_required") or getattr(error, "cause_category", None) in ("authentication", "auth_required") or any(word in str(error).lower() for word in
         ("session expired", "session is missing", "no api token", "token file", "jwt", "authentication", "web-login"))
+
+
+def _retry_local(directory, manifest):
+    """Retry only pre-upload failures whose failed local attempt left no root.
+
+    Existing partial structures/foreign files are retained for manual review;
+    neither unknown submissions nor remote failures become fresh local plans.
+    """
+    from ..store.layout import task_root
+    from ..store.local_build import _remote_evidence
+    candidates = [j for j in manifest["jobs"] if j["state"] == "local_failed"]
+    for job in candidates:
+        root = task_root(Path(job["directory"]))
+        command = "charmm-gui-cli batch-status " + shlex.quote(str(directory))
+        if (job.get("started") or job.get("source_job_id") or job.get("build_job_id")
+                or job.get("error_category") == "submission_unknown" or _remote_evidence(Path(job["directory"]))):
+            raise ToolError(key="batch.retry_remote", params={"name": job["name"]}, next_step=command)
+        if root.exists() or root.is_symlink():
+            raise ToolError(key="batch.retry_partial", params={"name": job["name"], "path": str(root)}, next_step=command)
+    for job in candidates:
+        job.setdefault("local_attempts", []).append({"at": now(), "error": job.get("error"), "error_detail": job.get("error_detail")})
+        for key in ("error", "error_detail", "error_category", "cause_category", "next_step", "next_retry_unix", "local_failure_phase"):
+            job.pop(key, None)
+        job.update(state="pending", started=False)
+    _save(directory, manifest)
 
 
 @contextmanager
@@ -391,7 +544,8 @@ def _record_interruption(directory, manifest):
 
 
 def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=30, max_wait=21600,
-            token_file=None, cookies=None, grompp=False, no_grompp=False, gmx="gmx", no_preview=False, post_timeout=900):
+            token_file=None, cookies=None, grompp=False, no_grompp=False, gmx="gmx", no_preview=False, post_timeout=900,
+            progress=None, retry_failed_local=False):
     """Advance no-wait rounds; active covers preparation through final validation."""
     from .. import build_command
     if grompp and not shutil.which(gmx):
@@ -403,9 +557,11 @@ def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=
             raise ToolError(f"Invalid batch {label}.")
     directory = Path(directory).expanduser().resolve()
     deadline = time.monotonic() + max_wait
-    with run_lock(directory), _record_interruption(directory, manifest := _read(directory)):
-        if any(j["state"] in ("pending", "preparing_local") for j in manifest["jobs"]):
-            _prepare(directory, manifest)
+    from .batch_progress import observe
+    with observe(progress), run_lock(directory), _record_interruption(directory, manifest := _read(directory)):
+        if retry_failed_local:
+            _retry_local(directory, manifest)
+        completed_at = (manifest.get("finished_at") or manifest.get("updated_at")) if manifest["state"] == "complete" else None
         manifest["state"] = "running"
         while True:
             if time.monotonic() >= deadline:
@@ -413,8 +569,14 @@ def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=
                                      "archive_preparing" if any(j["state"] == "archive_preparing" for j in manifest["jobs"]) else "waiting")
                 _save(directory, manifest)
                 return _summary(directory, manifest), 2 if manifest["state"] in ("waiting_network", "archive_preparing") else 0
+            if any(j["state"] in ("pending", "preparing_local") for j in manifest["jobs"]):
+                _prepare(directory, manifest, progress=progress)
+            _register_children(directory, manifest)
             for job in manifest["jobs"]:
                 _local(job)
+            if any(j["state"] not in TERMINAL for j in manifest["jobs"]):
+                completed_at = None
+                manifest.pop("finished_at", None)
             if manifest["config"].get("reuse_preparation"):
                 from ..sweep import bind_ready_sources
                 bind_ready_sources(directory, manifest)
@@ -426,6 +588,8 @@ def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=
             network_waiting = False
             for job in manifest["jobs"]:
                 if job["state"] in TERMINAL:
+                    continue
+                if job["state"] in ("preparing_local", "waiting_index"):
                     continue
                 if job.get("reuse_waiting"):
                     continue
@@ -447,7 +611,8 @@ def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=
                 _save(directory, manifest)
                 try:
                     result, code = build_command.execute(_arguments(Path(job["directory"]), interval=interval,
-                        max_wait=max_wait, token_file=token_file, cookies=cookies, grompp=grompp, no_grompp=no_grompp, gmx=gmx, no_preview=no_preview, post_timeout=post_timeout))
+                        max_wait=max_wait, token_file=token_file, cookies=cookies, grompp=grompp, no_grompp=no_grompp, gmx=gmx, no_preview=no_preview, post_timeout=post_timeout,
+                        progress=progress.child(job) if progress else None))
                     job.update({k: result[k] for k in ("state", "source_job_id", "build_job_id", "gromacs_compiled",
                                                        "gromacs_note", "report", "archive", "validation") if k in result})
                     if isinstance(result.get("validation"), dict):
@@ -455,6 +620,7 @@ def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=
                     if "gromacs_compiled" in result:
                         job["compilation_status"] = "passed" if result["gromacs_compiled"] else "not_run" if result.get("gromacs_note") else "failed"
                     job.pop("error", None)
+                    job.pop("error_detail", None)
                     job.pop("error_category", None)
                     job.pop("cause_category", None)
                     job.pop("next_retry_unix", None)
@@ -472,7 +638,11 @@ def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=
                     _local(job)
                     job["error"] = str(error) if isinstance(error, ToolError) else "Local file operation failed."
                     job["error_category"] = getattr(error, "category", "local_io")
-                    job["next_step"] = getattr(error, "next_step", None) or "检查此任务已保存的状态；不要删除提交意图或重复创建任务。"
+                    job["next_step"] = getattr(error, "next_step", None) or "charmm-gui-cli jobs status " + shlex.quote(_named_job(directory, job["name"]))
+                    if isinstance(error, ToolError):
+                        job["error_detail"] = error.as_dict()
+                    if progress:
+                        progress.failure(job)
                     if getattr(error, "cause_category", None):
                         job["cause_category"] = error.cause_category
                     else:
@@ -502,6 +672,7 @@ def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=
                     break
             if all(j["state"] in TERMINAL for j in manifest["jobs"]):
                 manifest["state"] = "complete"
+                manifest["finished_at"] = completed_at or now()
             elif any(j["state"] == "blocked" for j in manifest["jobs"]):
                 manifest["state"] = "paused_inspection"
             elif network_waiting and (not wait or time.monotonic() >= deadline):

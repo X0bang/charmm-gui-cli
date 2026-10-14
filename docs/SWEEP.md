@@ -43,6 +43,8 @@ charmm-gui-cli sweep-status runs/scan-a
 
 扫描目录保留 `sweep.json`、`expanded-batch.json` 和 `batch/`。默认先完成全部本地预检；同一前处理身份只选一个尚未失败的源任务，其他项等待其完成前处理，再绑定源 ID。限制覆盖整个远端生命周期，绑定共享源 ID 本身不代表该子体系已提交。已开始上传或已经有提交 intent 的子项永不重新绑定。
 
+`--name salt-series` 可在当前目录创建命名扫描目录；`--out DIR` 可覆盖路径。未命名时目录前缀为 `sweep-<配置名>-`，不是 `batch-`。CLI dry-run 只保存本地计划，不登记全局任务列表，实际 resume 时才登记。TTY 的 sweep/status 输出为双语摘要，`--json` 和管道保留机器输出。修正未提交、未留有部分目录的本地输入失败后，可显式使用 `sweep-resume DIR --retry-failed-local`；远端或未知提交不在此重试范围。
+
 清单或保存的展开结果变更后拒绝原地恢复。恢复不覆盖、删除或重建已有任务，失败和中断记录保留。服务端任务失效/权限拒绝时不自动退回重新上传，避免隐式创建额外任务。
 
 ## 复用的证据门槛

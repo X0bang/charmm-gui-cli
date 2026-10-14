@@ -50,6 +50,8 @@ charmm-gui-cli build --complex complex.pdb \
 
 自动完成输入准备、上传、参数化、建膜、下载和验证；登录会话及中间文件由程序管理。
 
+批量清单支持与 build 一致的 v2 分节参数，旧 v1 保持兼容；`batch --name series-a`、`sweep --name scan-a` 为容器命名。CLI dry-run 不登记全局任务列表，实际 resume 时才登记。TTY 的 batch/sweep/status/preview 显示摘要；管道和 `--json` 保持机器输出。修正未提交的本地输入失败后，可用 `batch-resume DIR --retry-failed-local`；已有部分目录或提交证据时不重建。详见 [批量流程](docs/BATCH.md)。
+
 配体支持 SDF V2000，以及可无损保留化学图和明确立体定义的 V3000/mol2（规范化为 V2000，记录坐标表示舍入）。多记录文件须显式选择，例如 `--ligand-pose 2`；编号从 1 开始，不按对接分数自动选择。YAML 写作 `input_options: {ligand_pose: 2}`。mol2 部分电荷不等于形式电荷，预检会提示审阅；PDBQT 暂不能直接输入。原始文件不改写，选择、转换、原子名对应和哈希写入输入证据。
 
 脂质比例可写为 `--upper POPC:POPE=7:3`。名称先通过本地常用脂质目录检查；目录不含所有官网脂质，特殊名称核对后可使用 `--allow-unknown-lipids`（YAML：`membrane.allow_unknown_lipids: true`）。常用名称参考[官网脂质库](https://www.charmm-gui.org/?doc=archive&lib=lipid)，不代表每个 API 模块都支持全部名称。

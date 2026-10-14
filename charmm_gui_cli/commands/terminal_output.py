@@ -292,6 +292,47 @@ def format_doctor(value, **context):
     return "\n".join(lines)
 
 
+def format_batch(value, **context):
+    from ..pipeline.progress import describe_progress
+    from ..i18n import MESSAGES
+    queue = value.get("batch", value)
+    def label(state):
+        key = "batch.state." + state
+        return t(key) if key in MESSAGES else t("stage." + state) if "stage." + state in MESSAGES else describe_progress({"state": state}, localized=True)["label"]
+    directory = value.get("sweep_directory", value.get("directory", queue.get("directory")))
+    name = Path(directory).name if "sweep_directory" in value or "batch" in value else queue.get("name", Path(directory).name)
+    lines = [t("batch.header", name=_text(name)),
+             t("output.state", state=label(queue["state"])),
+             t("batch.progress", completed=queue.get("completed", 0), total=queue["total"], active=queue.get("active", 0), failed=queue["failed"]),
+             t("progress.elapsed", elapsed=_elapsed(queue.get("elapsed_seconds", 0))),
+             t("batch.path", path=_path(directory))]
+    if queue.get("preparation_reused"):
+        lines.append(t("batch.reused", count=queue["preparation_reused"]))
+    for row in queue["jobs"]:
+        valid = lambda value: value if isinstance(value, str) and re.fullmatch(r"[0-9]{1,32}", value) else "—"
+        lines.append(t("batch.row", name=_text(row["name"]), state=label(row["state"]),
+                       source=valid(row.get("source_job_id")), build=valid(row.get("build_job_id"))))
+        if row.get("error"):
+            error = row.get("error_detail") or {"message": row["error"]}
+            lines.append("  " + _error_text(error))
+    reports = queue.get("reports", {})
+    if reports.get("json") and reports.get("csv"):
+        lines.append(t("batch.reports", json=_path(reports["json"]), csv=_path(reports["csv"])))
+    if context.get("dry_run"):
+        lines.append(t("batch.dry_run"))
+    lines.append(t("cli.next", action=queue["next_step"]))
+    return "\n".join(lines)
+
+
+def format_preview(value, **context):
+    lines = [t("preview.header", path=_path(value["model"]))]
+    for item in value.get("images", []):
+        lines.append(t("preview.image", view=_text(item["view"]), path=_path(item["file"])))
+    return "\n".join(lines)
+
+
 FORMATTERS = {"doctor": format_doctor, "logout": format_logout, "update": format_update, "login": format_login, "build": format_build, "build-resume": format_build,
               "status": format_build, "jobs.status": format_job_status, "jobs.resume": format_build,
               "check": format_check, "jobs.list": format_jobs, "jobs.relink": format_relink}
+FORMATTERS.update({name: format_batch for name in ("batch", "batch-status", "batch-resume", "sweep", "sweep-status", "sweep-resume")})
+FORMATTERS["preview"] = format_preview

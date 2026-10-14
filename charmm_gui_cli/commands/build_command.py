@@ -39,7 +39,7 @@ def execute(args):
     execution_code = 2
     try:
         result, execution_code = _execute(args, holder)
-        if sys.stderr is not original_stderr:
+        if sys.stderr is not original_stderr and (not getattr(args, "_progress_callback", None) or result.get("state") in ("validated", "validation_failed")):
             from ..terminal_output import format_build
             sys.stderr.log.write(format_build(result) + "\n")
         return result, execution_code
@@ -105,7 +105,7 @@ def _execute(args, holder):
     from ..full_build import initialize, advance
     from ..web import WebClient
 
-    reporter = ProgressReporter()
+    reporter = getattr(args, "_progress_callback", None) or ProgressReporter()
     args._reporter = reporter
     dry_run = getattr(args, "dry_run", False)
     timeout = getattr(args, "post_timeout", 900)
@@ -195,6 +195,8 @@ def _execute(args, holder):
                 preparation={"orientation": default(args.orientation, "ppm"),
                              "n_terminal": default(args.n_terminal, "NTER"), "c_terminal": default(args.c_terminal, "CTER")},
                 hydrogens=default(args.hydrogens, "add_missing"))
+            if getattr(args, "terminals", None) is not None:
+                common["preparation"]["terminals"] = args.terminals
             if components:
                 directory = managed.create_component_build(components_config=components, complex_pdb=args.complex_pdb, **common)
             else:
@@ -238,8 +240,9 @@ def _execute(args, holder):
         write_lock(args._run_lock_fd, {"pid": os.getpid(), "started_at": now()})
         from ..run_logging import LogStream
         sys.stderr = LogStream(sys.stderr, log_path(directory))
-    print(f"[charmm-gui-cli] run={directory}", file=sys.stderr, flush=True)
-    if (directory / "full-run.json").is_file():
+    if not getattr(args, "_progress_callback", None):
+        print(f"[charmm-gui-cli] run={directory}", file=sys.stderr, flush=True)
+    if (directory / "full-run.json").is_file() and not getattr(args, "_progress_callback", None):
         saved = managed._read_json(directory / "full-run.json")
         reporter.close()
         reporter = ProgressReporter(source_job_id=saved.get("source_job_id"), build_job_id=saved.get("build_job_id"))

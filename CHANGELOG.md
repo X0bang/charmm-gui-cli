@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Compatibility changes
+
+- New unnamed batch/sweep containers are created in the invocation directory with type/config-derived names; `--name` selects a named container and `--out` remains authoritative. Existing batch directories retain their paths.
+- CLI batch/sweep dry-runs retain local plans without writing global names/history/latest-run; children are registered only when explicitly advanced. The library's default initialization remains backward compatible.
+
+### Improvements
+
+- Accept build-style nested version-2 batch options, merge section/chain overrides and retain version-1 manifests and configuration fingerprints.
+- Add explicit pre-upload local-failure retries with preserved attempt diagnostics; reject unknown/remote submissions and existing partial/foreign directories.
+- Share one stable batch timeline across child polling rounds, deduplicate stage/link records, retain plain queue/child logs, show aggregate counts and preserve completed elapsed time.
+- Defer local preparation/naming/registration lock contention and adopt complete prepared inputs when the lock is released, without submitting an incomplete child.
+- Add bilingual TTY summaries for batch/sweep/status/preview while retaining pipe/forced-JSON output and concrete interruption resume commands.
+
 ## 0.8.0
 
 ### Compatibility changes

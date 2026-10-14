@@ -13,19 +13,39 @@ def execute(args):
         if args.csv:
             atomic_write(args.csv, batching.export_csv(report))
             report["csv"] = str(args.csv.resolve())
-        emit(report)
+        emit(report, command=args.command)
         return 0
     if args.command == "batch":
-        directory = args.out or managed.new_batch_path()
-        report = batching.initialize(args.config, directory)
-        if args.dry_run:
-            emit(report)
-            return 2 if report.get("failed", 0) else 0
+        name = args.name or batching.load_batch(args.config).get("name")
+        if name is not None:
+            managed.validate_name(name)
+        directory = args.out or managed.new_batch_path(name, source=args.config)
     else:
         directory = args.directory
-    report, code = batching.advance(directory, max_active=args.max_active,
-        submit_interval=args.submit_interval, wait=args.wait, interval=args.interval,
-        max_wait=args.max_wait, token_file=args.token_file, cookies=args.cookies,
-        grompp=args.grompp, no_grompp=args.no_grompp, gmx=args.gmx, no_preview=args.no_preview, post_timeout=args.post_timeout)
-    emit(report)
-    return code
+    from ..pipeline.batch_progress import BatchReporter
+    reporter = BatchReporter(directory)
+    try:
+        if args.command == "batch":
+            report = batching.initialize(args.config, directory, register=False, progress=reporter, name=args.name)
+            reporter.update(report)
+            if args.dry_run:
+                reporter.close()
+                emit(report, command=args.command, dry_run=True)
+                return 2 if report.get("failed", 0) else 0
+        else:
+            reporter.update(batching.status(directory))
+        report, code = batching.advance(directory, max_active=args.max_active,
+            submit_interval=args.submit_interval, wait=args.wait, interval=args.interval,
+            max_wait=args.max_wait, token_file=args.token_file, cookies=args.cookies,
+            grompp=args.grompp, no_grompp=args.no_grompp, gmx=args.gmx, no_preview=args.no_preview, post_timeout=args.post_timeout,
+            progress=reporter, retry_failed_local=getattr(args, "retry_failed_local", False))
+        reporter.close()
+        emit(report, command=args.command)
+        return code
+    except KeyboardInterrupt:
+        import shlex
+        from ..locales.i18n import t
+        reporter._line(t("batch.interrupted", resume="charmm-gui-cli batch-resume " + shlex.quote(str(directory))))
+        return 130
+    finally:
+        reporter.close()

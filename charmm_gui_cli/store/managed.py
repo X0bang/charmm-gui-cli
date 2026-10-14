@@ -87,6 +87,22 @@ def assign_name(directory, name):
     manifest = _read_json(directory / "full-run.json")
     if manifest.get("schema_version") != 2:
         raise ToolError("Only initialized full builds can be named.")
+    from .indexing import writes_allowed
+    if not writes_allowed():
+        # A dry-run may retain a local identity for later launch, but must not
+        # mutate global names/history/latest-run or even create the index.
+        with run_lock(directory):
+            existing = directory / "job.json"
+            if existing.exists():
+                record = _read_json(existing)
+                if record.get("name") != name:
+                    raise ToolError("This job already has a different name; existing names are retained.")
+                return record
+            from .discovery import task_id
+            record = {"name": name, "directory": str(directory), "task_id": task_id(directory) or uuid.uuid4().hex,
+                      "created_at": datetime.now(timezone.utc).isoformat()}
+            _new_json(existing, record)
+            return record
     names = _registry() / "names"
     names.mkdir(mode=0o700, parents=True, exist_ok=True)
     with run_lock(names), run_lock(directory):
@@ -275,11 +291,12 @@ def new_run_path(name=None):
     raise ToolError("Could not allocate a new managed run path.")
 
 
-def new_batch_path():
-    parent = Path.cwd() / "charmm-gui-runs"
-    parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+def new_batch_path(name=None, *, kind="batch", source=None):
+    if name:
+        return (Path.cwd() / validate_name(name)).resolve()
+    label = re.sub(r"[^A-Za-z0-9_.-]", "-", Path(source).stem if source else kind).strip(".-")[:40] or kind
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return (parent / f"batch-{stamp}-{uuid.uuid4().hex[:12]}").resolve()
+    return (Path.cwd() / f"{kind}-{label}-{stamp}-{uuid.uuid4().hex[:6]}").resolve()
 
 
 def remember_run(directory):
@@ -294,6 +311,9 @@ def remember_run(directory):
     identifier = task_id(directory)
     if identifier:
         record["task_id"] = identifier
+    from .indexing import writes_allowed
+    if not writes_allowed():
+        return record
     registry = _registry()
     _new_json(registry / "run-history" / f"{uuid.uuid4().hex}.json", record)
     atomic_json(registry / "latest-run.json", record)

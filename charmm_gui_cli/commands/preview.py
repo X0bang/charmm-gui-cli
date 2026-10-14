@@ -19,5 +19,5 @@ def execute(args):
         from ..managed import resolve_run
         report = preview_run(resolve_run(args.target), out=args.out, width=args.width,
                              views=args.view or ("side", "top", "ligand"))
-    emit(report)
+    emit(report, command="preview")
     return 0
