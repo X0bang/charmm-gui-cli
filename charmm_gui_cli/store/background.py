@@ -176,7 +176,11 @@ def watch(directory, *, interval=1):
                 return state.get("exit_code", 0)
             if sys.stdout.isatty():
                 elapsed = state["elapsed_seconds"]
-                print(terminal_frame(phase, job, elapsed, counter), end="", flush=True)
+                from .transfer_state import saved_transfer
+                from ..locales.transfers import transfer_text
+                transfer = saved_transfer(directory)
+                label = phase + " | " + transfer_text(transfer) if transfer else phase
+                print(terminal_frame(label, job, elapsed, counter), end="", flush=True)
                 counter += 1
             time.sleep(interval)
     except KeyboardInterrupt:

@@ -9,7 +9,7 @@ import requests
 
 from ..auth import ToolError, normalize_token, token_info, recovery_guidance
 from ..i18n import t
-from ..archive_transport import normalize_download
+from .archive_transport import normalize_download, staging_directory
 from ..http_retry import request as request_with_retry, retry_delay, transient_exception, RETRY_STATUSES
 from .diagnostics import diagnostic, secret_values
 
@@ -202,13 +202,20 @@ class Client:
         if destination.exists():
             raise ToolError(key="api.destination_exists")
         response = self._request("GET", "/download", params={"jobid": job_id(jobid)}, stream=True)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        fd, name = tempfile.mkstemp(prefix=".download-", dir=destination.parent)
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            fd, name = tempfile.mkstemp(prefix=".download-", dir=staging_directory(destination))
+        except BaseException:
+            response.close()
+            raise
         temporary = Path(name)
         try:
+            from .transfers import ByteProgress
             with os.fdopen(fd, "wb") as handle:
+                progress = ByteProgress(response)
                 for chunk in response.iter_content(1024 * 1024):
                     handle.write(chunk)
+                    progress.add(len(chunk))
                 handle.flush()
                 os.fsync(handle.fileno())
             # The live endpoint may start archive compression on the first
@@ -218,8 +225,10 @@ class Client:
                 if temporary.read_bytes() in tuple(message + suffix for message in ARCHIVE_PREPARING_MESSAGES
                                                     for suffix in (b"", b"\n", b"\r\n")):
                     raise ToolError("官网正在压缩此任务的归档，尚未提供可下载的模型文件；原始响应已保留。", key="api.archive_preparing",
-                                    category="archive_preparing", retryable=True, retry_after_seconds=120)
+                                    category="archive_preparing", retryable=True,
+                                    retry_after_seconds=max(20, retry_delay(response.headers.get("Retry-After"), 0)))
             normalize_download(temporary, destination)
+            progress.emit(complete=True)
         except requests.RequestException as exc:
             raise ToolError(key="api.download_interrupted",
                             category="transient_network" if transient_exception(exc) else "transport_error",

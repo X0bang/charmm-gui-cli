@@ -108,7 +108,8 @@ class JobsTests(unittest.TestCase):
         self.assertEqual(result["remote_status"], "archive_preparing")
         self.assertFalse(result["archive_available"])
         self.assertNotIn("passed", result)
-        self.assertIn("120", result["next_step"])
+        self.assertIn("example", result["next_step"])
+        self.assertNotIn("NAME", result["next_step"])
         self.assertIn("GET", result["next_step"])
         self.assertEqual((self.directory / "bilayer/run.json").read_bytes(), before)
 

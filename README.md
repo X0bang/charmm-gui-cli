@@ -82,6 +82,8 @@ charmm-gui-cli jobs relink receptor-a /new/path/receptor-a
 
 网页建模 POST 默认读取超时 900 秒，等待期间每 30 秒记录心跳；可用 `--post-timeout 1800` 调整。GET 单次超时不变，建模期间短暂断网会退避重试，默认最长 20 分钟；`jobs status` 可查看网络等待。可用 `CHARMM_GUI_GET_RETRY_SECONDS=600` 调为 10 分钟（范围 0–1800，0 使用短重试）。独立查询仍使用短重试，结果不明的 POST 不自动重发。
 
+官网压缩归档时先以 20–30 秒间隔查询，再逐步退避，遵守更长的服务器等待时间。终端和 `jobs watch` 显示下载字节进度；失败响应留在 `.charmm-gui/downloads/`，不会散落在任务根目录。转换提速仍处于[等价性验证](docs/CONVERSION.md)阶段，常规建模未关闭官网转换。
+
 ```bash
 charmm-gui-cli jobs reconcile receptor-a  # 仅 GET 核对提交结果
 # 仅在人工确认官网未接收提交后使用：

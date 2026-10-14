@@ -248,6 +248,10 @@ def format_job_status(value, **context):
     background = value.get("background", {})
     result += "\n" + t("jobs.running" if background.get("running") else "jobs.stopped")
     result += " | " + t("progress.elapsed", elapsed=_elapsed(background.get('elapsed_seconds', 0)))
+    if value.get("download_progress"):
+        from ..locales.transfers import transfer_text
+        if (transfer := transfer_text(value["download_progress"])):
+            result += "\n" + transfer
     if value.get("network_wait", {}).get("active"):
         wait = value["network_wait"]
         result += "\n" + t("network.waiting", attempt=wait.get("retry_attempt", "—"),

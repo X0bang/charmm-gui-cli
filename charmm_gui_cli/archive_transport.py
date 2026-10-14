@@ -1,4 +1,4 @@
-"""Compatibility import; implementation lives in pipeline.archive_transport."""
+"""Compatibility import; implementation lives in remote.archive_transport."""
 import sys
-from .pipeline import archive_transport as _implementation
+from .remote import archive_transport as _implementation
 sys.modules[__name__] = _implementation

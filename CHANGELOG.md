@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.1
 
 ### Compatibility changes
 
@@ -9,11 +9,18 @@
 
 ### Improvements
 
+- Poll on-demand archive compression initially every 20–30 seconds, back off to 120 seconds and honor longer server Retry-After/durable retry times without replaying POSTs.
+- Show bounded byte/total progress in foreground, batch queues, jobs watch/status; unknown or content-encoded totals are not guessed. Keep modern-task response/normalization staging private and clear active viewer state on interruptions.
+- Document measured local conversion counterexamples and scientific gates without enabling unverified engine-selection parameters or changing the default official conversion route.
 - Accept build-style nested version-2 batch options, merge section/chain overrides and retain version-1 manifests and configuration fingerprints.
 - Add explicit pre-upload local-failure retries with preserved attempt diagnostics; reject unknown/remote submissions and existing partial/foreign directories.
 - Share one stable batch timeline across child polling rounds, deduplicate stage/link records, retain plain queue/child logs, show aggregate counts and preserve completed elapsed time.
 - Defer local preparation/naming/registration lock contention and adopt complete prepared inputs when the lock is released, without submitting an incomplete child.
 - Add bilingual TTY summaries for batch/sweep/status/preview while retaining pipe/forced-JSON output and concrete interruption resume commands.
+
+### Validation scope
+
+Local regressions cover nested batch configuration, dry-run index isolation, explicit local retries, lock contention, durable GET-only archive scheduling, streamed byte progress and private download staging. Offline conversion research does not enable local force-field conversion in the modeling workflow. No new live provider submission or macOS end-to-end modeling acceptance is claimed by these tests.
 
 ## 0.8.0
 

@@ -4,6 +4,10 @@ import os
 
 
 MESSAGES = {
+    "download.bytes": {"zh": "已接收 {received} / {total}", "en": "Received {received} / {total}"},
+    "download.bytes_unknown": {"zh": "已接收 {received}（总量未知）", "en": "Received {received} (total unknown)"},
+    "download.retry_invalid": {"zh": "归档轮询次数记录无效，请检查已保存任务状态。", "en": "Invalid saved archive polling count; inspect the recorded task state."},
+    "download.staging_unsafe": {"zh": "下载内部目录包含符号链接，拒绝把响应或临时归档写到其他位置。", "en": "Download staging contains a symlink; response/archive staging cannot be redirected elsewhere."},
     "batch.config_version": {"zh": "批量配置需要 version: 1（旧扁平格式）或 version: 2（与 build 一致的分节格式）。", "en": "Batch YAML requires version: 1 (legacy flat options) or version: 2 (build-style nested sections)."},
     "batch.jobs_invalid": {"zh": "jobs 必须包含带 name 的任务映射，不能是单个字符串。", "en": "Each jobs entry must be a mapping with a name, not a string."},
     "batch.option_boolean": {"zh": "批量参数 {option} 必须为 true 或 false。", "en": "Batch option {option} must be true or false."},
@@ -370,7 +374,7 @@ MESSAGES = {
     "recovery.authentication": {"zh": "运行 charmm-gui-cli login 更新登录，然后恢复原任务；已存在的远端任务不会重新提交。", "en": "Run charmm-gui-cli login to refresh authentication, then resume the original run; existing remote jobs will not be resubmitted."},
     "recovery.access_denied": {"zh": "HTTP 403 不一定是登录过期；确认当前账户拥有该任务，必要时用 charmm-gui-cli login 登录正确账户，再恢复原任务。", "en": "HTTP 403 does not necessarily mean the session expired. Confirm the current account owns the job; if needed, use charmm-gui-cli login with the correct account, then resume the original run."},
     "recovery.transport_error": {"zh": "检查网络、代理及 TLS 证书配置；不要关闭证书验证。此错误不自动循环重试。", "en": "Check connectivity, proxy and TLS certificate settings; do not disable certificate verification. This error is not retried automatically in a loop."},
-    "recovery.archive_preparing": {"zh": "远端构建完成但官网归档仍在压缩；等待至少 120 秒或记录的重试时间，再 jobs resume NAME / build-resume 原任务目录。仅重试原任务的下载 GET，不创建新任务；尚未完成本地验收。", "en": "The remote build is complete but the website is still compressing its archive. Wait at least 120 seconds or until the recorded retry time, then use jobs resume NAME / build-resume with the original run directory. Only the original download GET is retried; no new job is created. Local validation is not complete."},
+    "recovery.archive_preparing": {"zh": "官网归档仍在压缩；等待记录的重试时间后，运行 jobs resume NAME / build-resume 原任务目录继续下载 GET。", "en": "The website is still compressing the archive. Wait until the recorded retry time, then use jobs resume NAME / build-resume with the original run directory to continue its download GET."},
     "recovery.transient": {"zh": "只读 GET 的有限重试已结束；等待网络或服务器恢复，并遵守 Retry-After 等待时间。", "en": "Bounded retries for read-only GET requests have ended. Wait for connectivity or the server to recover and respect Retry-After."},
     "recovery.interrupted": {"zh": "本地已中断，已有任务和提交记录保留；使用 jobs resume NAME 或 build-resume 原任务目录。若提示 submission_unknown，先核对/attach，不能重发 POST。", "en": "Local execution was interrupted; existing jobs and submission records are retained. Use jobs resume NAME or build-resume with the original run directory. If submission_unknown is reported, inspect/attach first; do not replay the POST."},
     "recovery.wait_timeout": {"zh": "本地等待时间已到，远端任务可能仍在运行；稍后使用 jobs resume NAME 或 build-resume 原任务目录继续，不要重新 build。", "en": "Local waiting timed out; the remote job may still be running. Later use jobs resume NAME or build-resume with the original run directory; do not build again."},

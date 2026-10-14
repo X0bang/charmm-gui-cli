@@ -255,11 +255,17 @@ def inspect_run(target, *, remote_check=False, token_file=None):
             result["next_step"] = recovery_guidance("archive_preparing")
     elif remote_check:
         result["remote_check_note"] = "No bilayer job exists yet; preparation state is recorded locally."
+    if isinstance(result.get("next_step"), str):
+        result["next_step"] = re.sub(r"\bNAME\b", lambda _: shlex.quote(result.get("name") or str(task_root(directory))), result["next_step"])
     from ..progress import result_presentation
     result["presentation"] = result_presentation(result)
     result["official_links"] = result["presentation"]["official_links"]
     from ..background import metadata
     result["background"] = metadata(directory)
+    if result["background"].get("running"):
+        from .transfer_state import saved_transfer
+        if (transfer := saved_transfer(directory)):
+            result["download_progress"] = transfer
     wait = directory / "network-wait.json"
     if wait.is_file() and result["background"].get("running"):
         saved = _read_json(wait)

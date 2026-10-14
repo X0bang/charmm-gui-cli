@@ -51,6 +51,7 @@ class BatchReporter:
         self.stream = sys.stderr if stream is None else stream
         self.started = time.monotonic()
         self.phases, self.ids, self.links, self.errors = {}, {}, set(), {}
+        self.transfers = {}
         self.summary, self.last_summary, self.last_record = None, None, self.started
         self.stop = threading.Event()
         self.thread = None
@@ -85,11 +86,16 @@ class BatchReporter:
 
     def event(self, row, event):
         name = row["name"]
+        from ..locales.transfers import transfer_text
+        if event.get("state") != "downloading" or event.get("transfer_complete"):
+            self.transfers.pop(name, None)
+        elif transfer_text(event):
+            self.transfers[name] = transfer_text(event)
         ids = self.ids.setdefault(name, {})
         detail = describe_progress(event, **ids)
         ids.update(source_job_id=detail["source_job_id"], build_job_id=detail["build_job_id"])
         phase = (event.get("state"), detail.get("internal_stage"), detail.get("last_output_file"), *ids.values())
-        if phase != self.phases.get(name):
+        if phase != self.phases.get(name) or event.get("transfer_complete"):
             self.phases[name] = phase
             self._line(t("batch.child_progress", name=name, stage=format_progress(event, **ids),
                          elapsed=elapsed(time.monotonic() - self.started)), row)
@@ -99,6 +105,7 @@ class BatchReporter:
                 self._line(t("batch.child_link", name=name, url=url), row)
 
     def failure(self, row):
+        self.transfers.pop(row["name"], None)
         error = row.get("error_detail", {})
         message = ToolError(row.get("error", ""), key=error.get("message_key"), params=error.get("message_params"),
                             server_message=error.get("server_message"), details=error.get("details")).localized()
@@ -109,8 +116,13 @@ class BatchReporter:
 
     def _label(self):
         value = self.summary or {}
-        return t("batch.progress", completed=value.get("completed", 0), total=value.get("total", 0),
-                 active=value.get("active", 0), failed=value.get("failed", 0))
+        label = t("batch.progress", completed=value.get("completed", 0), total=value.get("total", 0),
+                  active=value.get("active", 0), failed=value.get("failed", 0))
+        transfers = self.transfers.copy()
+        if transfers:
+            name, progress = next(iter(transfers.items()))
+            label += " | " + name + ": " + progress
+        return label
 
     def update(self, value):
         if self.summary is None:
