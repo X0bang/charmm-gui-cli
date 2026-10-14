@@ -102,6 +102,20 @@ def form_data(form):
     return pairs
 
 
+def merged_form_data(form, overrides=None, uploads=()):
+    """Record exactly the repeated scalar pairs sent by requests."""
+    overrides = overrides or {}
+    if not isinstance(overrides, dict):
+        raise ToolError(key="web.overrides_invalid", next_step="charmm-gui-cli web-step -h")
+    pairs = [(key, value) for key, value in form_data(form) if key not in overrides and key not in uploads]
+    for key, value in overrides.items():
+        values = value if isinstance(value, (list, tuple)) else [value]
+        if not isinstance(key, str) or any(isinstance(item, (dict, list, tuple)) for item in values):
+            raise ToolError(key="web.overrides_invalid", next_step="charmm-gui-cli web-step -h")
+        pairs.extend((key, item) for item in values)
+    return pairs
+
+
 def describe_page(html):
     soup = soup_for(html)
     forms = []
@@ -362,8 +376,7 @@ class WebClient:
         form = forms[0]
         target = modeling_target(form.get("action"))
         overrides, uploads = overrides or {}, uploads or {}
-        pairs = [(key, value) for key, value in form_data(form) if key not in overrides and key not in uploads]
-        pairs.extend(overrides.items())
+        pairs = merged_form_data(form, overrides, uploads)
         for path in uploads.values():
             if not Path(path).is_file():
                 raise ToolError("A requested upload file does not exist.")

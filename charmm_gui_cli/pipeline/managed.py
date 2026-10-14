@@ -317,7 +317,14 @@ def _archive_binding(manifest, archive, *, create_receipt=False):
 
 def _evidence(manifest, archive, grompp, gmx, *, create_receipt=False):
     binding = _archive_binding(manifest, archive, create_receipt=create_receipt)
+    from ..chem.protein_states import intent_for, validate_intent
+    state_intent = validate_intent(intent_for(manifest["inputs"].get("manifest", {})))
+    if state_intent and not isinstance(manifest.get("protein_state_mapping"), dict):
+        from ..chem.protein_state_proof import failure
+        raise failure()
     return {"tool_version": __version__, "archive_sha256": binding["archive_provenance"]["archive_sha256"],
+            **({"protein_state_revision": 1, "protein_state_request_sha256": _canonical_hash({"intent": state_intent,
+                "mapping": manifest.get("protein_state_mapping")})} if state_intent else {}),
             **({"component_validation_revision": 2} if manifest.get("config", {}).get("components_mode") else {}),
             "job_binding": binding,
             "inputs_sha256": {name: _digest(path) for name, path in sorted(manifest["inputs"]["files"].items())},
@@ -341,6 +348,8 @@ def _cache_reusable(report, evidence):
             or report.get("fingerprint") != _canonical_hash(report["evidence"])
             or report.get("fingerprint") != _canonical_hash(evidence)
             or report.get("validation_complete") is not True):
+        return False
+    if evidence.get("protein_state_revision") and report.get("protein_state_validation", {}).get("passed") is not True:
         return False
     if evidence["grompp"]:
         if not evidence["gmx_identity"]["available"]:
@@ -371,8 +380,6 @@ def _final_summary(directory):
         stored = report["evidence"]
         if not archive.is_file():
             raise FileNotFoundError(2, "Missing archive", str(archive))
-        from ..chem.protein_states import require_remote_state_verification
-        require_remote_state_verification(manifest.get("inputs", {}).get("manifest", {}))
         checked = archive
         evidence = _evidence(manifest, archive, stored["grompp"], stored["gmx"])
         # Reading a historical result preserves its validation version. A fresh
@@ -387,6 +394,7 @@ def _final_summary(directory):
                     "acceptance_status": report.get("acceptance_validation", {}).get("status"),
                     "gromacs_compiled": report.get("checks", {}).get("grompp", {}).get("passed") is True,
                     "compilation_status": ("passed" if _grompp_artifacts(report) else "failed") if stored["grompp"] else "not_run",
+                    **({"protein_state_validation": report["protein_state_validation"]} if "protein_state_validation" in report else {}),
                     "archive": str(archive), "report_file": str(path)}
         if report.get("fingerprint") != _canonical_hash(stored) or report.get("validation_complete") is not True:
             issues.append({"key": "validation.record_changed", "params": {"path": str(path)}})
@@ -451,18 +459,12 @@ def finalize_managed_build(directory, *, grompp=False, gmx="gmx"):
         state = manifest.get("state", "unknown")
         if state in ("remote_error", "preparation_failed", "submission_unknown"):
             raise ToolError(f"Build state is {state}; final validation cannot replace recovery of this failure.")
-        from ..chem.protein_states import require_remote_state_verification
-        import shlex
-        require_remote_state_verification(manifest.get("inputs", {}).get("manifest", {}),
-            next_command="charmm-gui-cli jobs status " + shlex.quote(str(task_root(directory))))
         if not archive.is_file() or state not in ("ligands_present", "downloaded_unverified", "validation_failed", "complete", "completed", "validated"):
             return {"status": "pending", "passed": None, "directory": str(directory), "build_state": state}
         try:
             inputs, config = manifest["inputs"]["files"], manifest["config"]
             input_manifest = Path(inputs["input-manifest.json"])
             reference = Path(inputs["complex.pdb"])
-            require_remote_state_verification(_task_store._read_json(input_manifest),
-                next_command="charmm-gui-cli jobs status " + shlex.quote(str(task_root(directory))))
             evidence = _evidence(manifest, archive, grompp, gmx, create_receipt=True)
         except (KeyError, TypeError, OSError):
             raise ToolError("Completed build is missing readable input files/configuration required for final validation.") from None
@@ -487,13 +489,20 @@ def finalize_managed_build(directory, *, grompp=False, gmx="gmx"):
             extracted = model
         else:
             extracted = extract_for_validation(archive, model)
+        from ..chem.protein_state_proof import verify_archive_states
+        states = verify_archive_states(extracted, _task_store._read_json(input_manifest), reference=reference,
+                                       mapping=manifest.get("protein_state_mapping"))
         if config.get("components_mode"):
             report, pose, acceptance = _component_final_report(extracted, input_manifest, reference,
                                                                grompp=grompp, gmx=gmx, work=work, membrane=config["membrane"], archive_path=archive)
         else:
-            report = validate_system(extracted, input_manifest, run_grompp=grompp, gmx=gmx, output_parent=work)
+            report = validate_system(extracted, input_manifest, run_grompp=grompp, gmx=gmx, output_parent=work,
+                **({"protein_state_mapping": manifest.get("protein_state_mapping"), "protein_state_reference": reference}
+                   if states["required"] else {}))
             pose = validate_bound_pose(extracted, input_manifest, reference)
             acceptance = assess_acceptance(extracted, membrane=config["membrane"], ligand_resname=config.get("ligand_resname", "LIG"))
+        if states["required"]:
+            report["protein_state_validation"] = states
         compiled = report.get("checks", {}).get("grompp", {})
         if "log" in compiled and "output_dir" in compiled:
             paths = {"log": Path(compiled["log"]), "tpr": Path(compiled["output_dir"]) / "system.tpr"}

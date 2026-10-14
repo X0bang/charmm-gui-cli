@@ -39,6 +39,11 @@ def state_fields(snapshot, reference_pdb, intent):
     if len(forms) != 1 or not isinstance(chains, dict):
         raise snapshot_error(snapshot, "state.form_missing")
     form = forms[0]
+    if len({node.get("value") for node in form.find_all("input", {"name": "jobid"})}) != 1:
+        raise snapshot_error(snapshot, "state.form_missing")
+    patch_table = catalogue.get("prot") if isinstance(catalogue, dict) else None
+    def available_patches(resname):
+        return patch_table.get(resname, []) if isinstance(patch_table, dict) else []
     atoms, _ = _pdb(reference_pdb)
     def locate(entry, expected):
         selected = [atom for atom in atoms if atom.line.startswith("ATOM  ")
@@ -55,7 +60,10 @@ def state_fields(snapshot, reference_pdb, intent):
             raise snapshot_error(snapshot, "state.form_missing")
         chain = candidates[0]
         observed = chains[chain][rid]
-        if observed not in ({"HIS", "HSD", "HSE", "HSP"} if expected in {"HSD", "HSE", "HSP"} else {expected}):
+        allowed = {"HIS", "HSD", "HSE", "HSP"} if expected in {"HSD", "HSE", "HSP"} else {expected}
+        if expected == "CYM":
+            allowed.add("CYS")
+        if not isinstance(observed, str) or observed not in allowed:
             raise snapshot_error(snapshot, "state.form_missing")
         return {"segment": chain, "resid": rid, "resname": observed}
     def controls(names):
@@ -71,7 +79,7 @@ def state_fields(snapshot, reference_pdb, intent):
                    "server": server, "state": entry["state"], "method": entry["method"]}
         receipt["residues"].append(request)
         if entry["method"] == "patch" or entry["method"] == "residue" and server["resname"] != entry["state"]:
-            supported = catalogue.get("prot", {}).get(server["resname"], []) if isinstance(catalogue, dict) else []
+            supported = available_patches(server["resname"])
             if not isinstance(supported, list) or entry["state"] not in supported:
                 raise snapshot_error(snapshot, "state.form_missing")
             protonation.append((server["segment"], server["resname"], server["resid"], entry["state"]))
@@ -105,13 +113,43 @@ def state_fields(snapshot, reference_pdb, intent):
         values = [[value for key, value in defaults if key == name] for name in names]
         if not values[0] or len({len(value) for value in values}) != 1 or any(not value for group in values for value in group):
             raise snapshot_error(snapshot, "state.form_defaults")
-        old_rows = set(zip(*values))
-        if any(name in fields for name in names) and not old_rows <= set(zip(*(fields[name] for name in names))):
-            raise snapshot_error(snapshot, "state.form_defaults")
+        old_rows = list(dict.fromkeys(zip(*values)))
+        new_rows = list(zip(*(fields[name] for name in names))) if all(name in fields for name in names) else []
+        merged = list(old_rows)
         if prefix == "protonation":
             expected = {(entry["server"]["segment"], entry["server"]["resid"]): entry["state"] for entry in receipt["residues"]}
-            if any((chain, rid) in expected and expected[chain, rid] != patch for chain, _, rid, patch in old_rows):
-                raise snapshot_error(snapshot, "state.form_defaults")
+            observed = {}
+            for chain, residue, rid, patch in [*old_rows, *new_rows]:
+                patches = available_patches(residue)
+                address = (chain, rid)
+                if (not isinstance(chains.get(chain), dict) or chains[chain].get(rid) != residue
+                        or not isinstance(patches, list) or patch not in patches
+                        or address in expected and expected[address] != patch
+                        or address in observed and observed[address] != patch):
+                    raise snapshot_error(snapshot, "state.form_defaults")
+                observed[address] = patch
+        else:
+            partners = {}
+            expected = {(entry["server"]["segment"], entry["server"]["resid"]): entry["state"] for entry in receipt["residues"]}
+            for chain1, rid1, chain2, rid2 in [*old_rows, *new_rows]:
+                left, right = (chain1, rid1), (chain2, rid2)
+                if left == right:
+                    raise snapshot_error(snapshot, "state.form_defaults")
+                for address, partner in ((left, right), (right, left)):
+                    chain, rid = address
+                    if (not isinstance(chains.get(chain), dict) or chains[chain].get(rid) not in ("CYS", "CYX")
+                            or address in expected and expected[address] != "DISU"
+                            or address in partners and partners[address] != partner):
+                        raise snapshot_error(snapshot, "state.form_defaults")
+                    partners[address] = partner
+        for row in new_rows:
+            reverse = (row[2], row[3], row[0], row[1]) if prefix == "ssbonds" else None
+            if row not in merged and reverse not in merged:
+                merged.append(row)
+        controls([switch, *names])
+        fields[switch] = "1"
+        for index, name in enumerate(names):
+            fields[name] = [row[index] for row in merged]
     # A missing literal catalogue/chain correspondence is never inferred from
     # residue order or suffix alone. Protein atoms remain tied to exact IDs.
     return fields, receipt

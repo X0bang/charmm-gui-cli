@@ -79,7 +79,11 @@ input_options:
 
 本地蛋白状态处理会记录输入已声明的状态，而不预测 pH：[官网 FAQ](https://www.charmm-gui.org/?doc=faq) 要求 Amber 的 HID/HIE/HIP 使用 CHARMM 的 HSD/HSE/HSP 名称。[蛋白拓扑](https://www.charmm-gui.org/?doc=open_toppar&filename=top_all36_prot.rtf) 中 ASPP、GLUP、LSN 是补丁，不是独立残基模板。因此 ASH/GLH/LYN 的上传基础残基写成 ASP/GLU/LYS，目标补丁另记在 `input_normalization.protein_state_intent`。原始文件和坐标不改；LYN 的显式氢若需要改名，会逐项记录，不静默增删氢。显式氢与声明状态冲突时拒绝。
 
-CYX 只在 SG–SG 距离 1.8–2.3 Å 且配对唯一时记录 DISU 候选；普通 CYS 不会仅因靠近就被改为二硫键。缺 SG、元素不符、多配对或与 SSBOND 冲突时拒绝。状态请求会参与前处理复用身份，避免将坐标相同的 ASP 与 ASH 混用。远端实际 PDB/PSF 的状态验证尚未接通，因此 `check`/`--dry-run` 能记录请求，但 `build` 不提交这些状态配方，也不把本地改名或归档存在视为状态已实现。此限制同样适用于输入已使用 HSD/HSE/HSP 等显式状态名称的情况。
+CYX 只在 SG–SG 距离 1.8–2.3 Å 且配对唯一时记录 DISU 候选；普通 CYS 不会仅因靠近就被改为二硫键。缺 SG、元素不符、多配对或与 SSBOND 冲突时拒绝。状态请求会参与前处理复用身份，避免将坐标相同的 ASP 与 ASH 混用。
+
+构建从已保存的 PDB Reader 表单及字面量 JSON 目录核对链、残基编号和可用补丁，不执行网页 JavaScript，不猜测重编号关系。已勾选且可验证的默认质子化/二硫键行会保留；冲突或动态默认值无法确定时拒绝。实际提交的重复字段逐项记录在 intent 中。HSD/HSE/HSP、ASPP、GLUP、LSN、CYM 及显式 DISU 均须通过相应状态的实际原子类型、电荷、氢连接检查；只看残基名或总电荷不够，末端补丁可能改变残基总电荷。
+
+在提交建膜前，仅用 GET 获取同一个源任务的 `step1_pdbreader.pdb/.psf` 并核验，将输入封印、页面、POST 回执和实际文件哈希绑定到 `.charmm-gui/preparation/protein-state-proof.json`。GET 中断可继续，已完成的 POST 不重发；缺少封印的历史上传不能事后补证。下载后还须检查归档中的源结构和 `step5_assembly.pdb/.psf`。前处理复用必须包含证据；子任务完成验收后保留自己的状态验证，不依赖源任务一直挂载。公开 0.8.3 仍仅支持本地状态记录；上述远端路径属于后续开发，已覆盖本地/模拟 HTTP 回归，新官网任务的实测验收尚待完成。
 
 | 字段 | 如何设置 |
 | --- | --- |

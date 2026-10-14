@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Submit explicit protein-state and disulfide requests through validated, literal-catalogue PDB Reader controls, preserving established nonconflicting default rows and recording the exact repeated form pairs sent.
+- Verify actual same-job source PDB/PSF atom identities, CHARMM36 state-distinguishing types/charges, proton attachment and explicit disulfide bonds before membrane submission. Bind proof receipts to sealed inputs, saved POST evidence and source reuse; interrupted proof GETs resume without repeating POSTs.
+- Require the requested states in both PDB Reader and final-assembly archive files before accepting a model; retain verification across task moves and completed-source-independent child validation. Show verified state counts in summaries and reports. New live provider acceptance remains to be measured separately from local and mocked-transport regressions.
+
 ## 0.8.3
 
 ### Improvements

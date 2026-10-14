@@ -237,7 +237,7 @@ def seal_preparation(directory):
 
 
 def _check_intent(directory, source_name, destination_name, overrides, upload_fields=()):
-    from charmm_gui_cli.remote.web import soup_for, form_data, modeling_target
+    from charmm_gui_cli.remote.web import soup_for, merged_form_data, modeling_target
     source = _file(directory, "preparation/" + source_name)
     target = _file(directory, "preparation/" + destination_name)
     intent_path = _file(directory, str(target.with_suffix(".intent.json")))
@@ -245,8 +245,7 @@ def _check_intent(directory, source_name, destination_name, overrides, upload_fi
     forms = [form for form in soup_for(source.read_text()).find_all("form") if form.select_one('input[name="jobid"]')]
     if len(forms) != 1:
         raise ToolError("Preparation form evidence is ambiguous.")
-    expected = [[key, value] for key, value in form_data(forms[0]) if key not in overrides and key not in upload_fields]
-    expected.extend([key, value] for key, value in overrides.items())
+    expected = [list(pair) for pair in merged_form_data(forms[0], overrides, upload_fields)]
     if (intent.get("state") != "response_received" or intent.get("target") != modeling_target(forms[0].get("action"))
             or intent.get("fields") != expected or intent.get("upload_fields") != list(upload_fields)):
         raise ToolError("Unknown/changed preparation POST settings; refusing source reuse.")
@@ -259,10 +258,6 @@ def certify_source(directory):
     from charmm_gui_cli.remote.web_state import parse_page_state
     directory = Path(directory).expanduser().resolve()
     manifest = _json(directory / "full-run.json")
-    from ..chem.protein_states import require_remote_state_verification
-    import shlex
-    require_remote_state_verification(manifest.get("inputs", {}).get("manifest", {}),
-        next_command="charmm-gui-cli jobs status " + shlex.quote(str(directory)))
     if manifest.get("reused_preparation"):
         raise ToolError("Use the original preparation source, not a chain of reused sources.")
     identity = preparation_identity(directory, manifest)
@@ -296,8 +291,19 @@ def certify_source(directory):
     selected = _file(directory, "preparation/selection.html")
     evidence = [ready, upload, web_run, directory / "preparation-seal.json"]
     evidence.extend(_check_intent(directory, "upload-response.html", "selection.html", _chains(upload)))
+    from ..chem.protein_states import intent_for
+    plan = intent_for(manifest["inputs"].get("manifest", {}))
     evidence.extend(_check_intent(directory, "selection.html", "parameterization.html",
-                                  _preparation_fields(selected, manifest["config"]), (f"sdf_cgenff[{identity['settings']['ligand_resname']}]",)))
+        _preparation_fields(selected, manifest["config"], adjustments=list(manifest.get("terminal_adjustments", [])),
+                            state_intent=plan, reference_pdb=manifest["inputs"]["files"]["complex.pdb"]),
+        (f"sdf_cgenff[{identity['settings']['ligand_resname']}]",)))
+    if plan:
+        from .protein_states import check_prepared, RECEIPT
+        proof = check_prepared(directory, manifest)
+        if manifest.get("protein_state_mapping") != proof["mapping"] or manifest.get("protein_state_proof_fingerprint") != proof["fingerprint"]:
+            from ..chem.protein_state_proof import failure
+            raise failure()
+        evidence.extend([directory / RECEIPT, *(directory / name for name in proof["evidence_sha256"])])
     certificate = {"version": 1, "source_directory": str(directory), "source_job_id": identifier,
                    "identity": identity, "evidence_sha256": {str(path.relative_to(directory)): _digest(path) for path in evidence}}
     if portable(root_for(directory / "full-run.json")):
@@ -340,6 +346,9 @@ def bind_source(directory, source_directory):
             manifest["applied_terminals"] = dict(source_manifest["applied_terminals"])
         if isinstance(source_manifest.get("terminal_adjustments"), list):
             manifest["terminal_adjustments"] = list(source_manifest["terminal_adjustments"])
+        for key in ("protein_state_mapping", "protein_state_proof_fingerprint"):
+            if key in source_manifest:
+                manifest[key] = source_manifest[key]
         atomic_json(directory / "full-run.json", manifest)
         return record
 

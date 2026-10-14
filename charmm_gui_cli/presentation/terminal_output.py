@@ -124,7 +124,11 @@ def format_build(value, **context):
              t("output.state", state=label)]
     lines.extend(_repair_lines(value.get("automatic_repairs", [])))
     lines.extend(_chain_lines(value.get("structure_inventory", {})))
-    if value.get("protein_state_intent", {}).get("residues"):
+    validation = value.get("validation")
+    state_proof = value.get("protein_state_validation") or (validation.get("protein_state_validation", {}) if isinstance(validation, dict) else {})
+    if state_proof.get("passed") and state_proof.get("assembly", {}).get("passed"):
+        lines.append(t("state.verified", count=len(state_proof["assembly"].get("residues", []))))
+    elif value.get("protein_state_intent", {}).get("residues"):
         lines.append(t("state.local_review", count=len(value["protein_state_intent"]["residues"])))
     for warning in value.get("chemistry_warnings", []):
         lines.append("• " + t(warning["key"], **warning["params"]))

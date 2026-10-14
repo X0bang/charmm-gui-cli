@@ -239,7 +239,7 @@ def _execute(args, holder):
                 **({"protein_state_intent": state_intent} if state_intent else {}),
                 "chemistry_warnings": prepared_manifest.get("ligand", {}).get("chemistry_warnings", []),
                 **({"name": args.name} if getattr(args, "name", None) else {}),
-                "next_step": (t("state.pipeline_next", command="charmm-gui-cli jobs status " + shlex.quote(str(task_root(directory))))
+                "next_step": ("charmm-gui-cli build-resume " + shlex.quote(str(task_root(directory)))
                               if state_intent else "charmm-gui-cli login; charmm-gui-cli build-resume")}, 0
     if directory.is_dir() and not getattr(args, "_worker", False):
         from charmm_gui_cli.store.workers import claim, write_lock
