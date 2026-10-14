@@ -374,9 +374,11 @@ def main(argv=None):
         if getattr(exc, "next_step", None):
             print(t("cli.next", action=exc.next_step), file=sys.stderr)
         return 2
-    except OSError:
-        print(t("cli.error", message=t("cli.filesystem")), file=sys.stderr)
-        print(t("cli.next", action="charmm-gui-cli -h"), file=sys.stderr)
+    except OSError as error:
+        from charmm_gui_cli.store.diagnostics import filesystem_error
+        diagnostic = filesystem_error(error)
+        print(t("cli.error", message=diagnostic.localized()), file=sys.stderr)
+        print(t("cli.next", action=diagnostic.next_step), file=sys.stderr)
         return 2
     except EOFError:
         if args.command in ("login", "web-login"):

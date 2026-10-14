@@ -11,17 +11,30 @@ from charmm_gui_cli.store.identifiers import job_id
 from charmm_gui_cli.store.auth import ToolError
 from charmm_gui_cli.chem.structure import analyze_pdb
 from ..chem.lipids import KNOWN_LIPIDS
-from ..store.configuration import UniqueLoader, unique_mapping
+from ..store.configuration import UniqueLoader, unique_mapping, bind_config_error
 
 
 from charmm_gui_cli.store.configuration import mapping, number, composition, validate_config
 
 def load_config(path):
-    path = Path(path)
+    try:
+        return _load_config(path)
+    except ToolError as error:
+        bind_config_error(error, path, command="plan")
+        raise
+
+
+def _load_config(path):
+    path = Path(path).expanduser()
     try:
         value = yaml.load(path.read_text(encoding="utf-8"), Loader=UniqueLoader)
-    except yaml.YAMLError:
-        raise ToolError("Invalid YAML configuration.") from None
+    except yaml.YAMLError as error:
+        mark = getattr(error, "problem_mark", None)
+        raise ToolError("Invalid YAML configuration.", key="config.yaml", params={
+            "path": str(path), "line": mark.line + 1 if mark else 1,
+            "column": mark.column + 1 if mark else 1}) from None
+    except UnicodeError:
+        raise ToolError("Invalid YAML configuration.", key="config.encoding", params={"path": str(path)}) from None
     config = validate_config(value)
     if config["input_pdb"]:
         config["input_pdb"] = str((path.parent / config["input_pdb"]).resolve())

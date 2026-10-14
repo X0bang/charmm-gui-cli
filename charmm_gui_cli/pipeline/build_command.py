@@ -9,6 +9,8 @@ import shutil
 import sys
 import math
 import os
+import shlex
+import re
 import time
 
 from charmm_gui_cli.remote.api import Client
@@ -34,6 +36,28 @@ def failed_checks(report):
     return failed
 
 
+def _bind_direct_config_error(error, args):
+    if (error.category != "operation_error" or not error.key
+            or not error.key.startswith(("config.", "terminal.", "build.input_options_"))
+            or getattr(args, "command", None) != "build" or getattr(args, "config", None)):
+        return
+    from charmm_gui_cli.chem.input_diagnostics import check_command
+    from charmm_gui_cli.chem.residues import options_from_args
+    resname = args.ligand_resname
+    if not isinstance(resname, str) or not re.fullmatch(r"[A-Z][A-Z0-9]{0,2}", resname):
+        resname = "LIG"
+    command = shlex.split(check_command(protein=args.protein, ligand=args.ligand, complex_pdb=args.complex_pdb,
+        ligand_resname=resname, components=args.components,
+        input_options=options_from_args(args), ligand_smiles=args.ligand_smiles))
+    command[1] = "build"
+    if args.accept_conect_bond_orders:
+        command.append("--accept-conect-bond-orders")
+    command.append("--dry-run")
+    # Do not reflect invalid option values or silently call the defaults the
+    # user's requested settings. This is an explicitly labelled local baseline.
+    error.next_step = t("config.cli_recheck", command=shlex.join(command))
+
+
 def execute(args):
     from charmm_gui_cli.pipeline import managed
     holder = []
@@ -46,6 +70,7 @@ def execute(args):
             sys.stderr.log.write(format_build(result) + "\n")
         return result, execution_code
     except ToolError as exc:
+        _bind_direct_config_error(exc, args)
         if holder and (holder[0] / "full-run.json").is_file():
             exc.for_task(_task_store._job_metadata(holder[0]).get("name") or str(task_root(holder[0])))
         if sys.stderr is not original_stderr:
@@ -78,10 +103,18 @@ def execute(args):
             except (ToolError, OSError):
                 pass
         raise
-    except OSError:
+    except OSError as error:
+        from charmm_gui_cli.store.diagnostics import filesystem_error
+        diagnostic = filesystem_error(error)
+        if sys.stderr is not original_stderr:
+            try:
+                sys.stderr.log.write(t("cli.error", message=diagnostic.localized()) + "\n")
+                sys.stderr.log.write(t("cli.next", action=diagnostic.next_step) + "\n")
+            except OSError:
+                pass  # A full/read-only log must not mask the original failure.
         if holder and (holder[0] / "full-run.json").is_file():
             try:
-                _task_store.record_recovery(holder[0], ToolError(key="cli.filesystem", category="filesystem_error"))
+                _task_store.record_recovery(holder[0], diagnostic)
             except (ToolError, OSError):
                 pass
         raise
@@ -131,12 +164,14 @@ def _execute(args, holder):
                         "orientation", "n_terminal", "c_terminal", "allow_unknown_lipids")
         if args.config and (components or any(getattr(args, key, None) is not None for key in source_fields + model_fields)
                             or args.accept_conect_bond_orders):
-            raise ToolError("Choose either a YAML configuration or direct structure/model options, not both. See build -h.")
+            raise ToolError(key="config.mixed_sources", next_step=t("config.choose_yaml", command=shlex.join(["charmm-gui-cli", "build", str(args.config), "--dry-run"])))
         if components and (not args.complex_pdb or any(getattr(args, key) is not None for key in
                            ("protein", "ligand", "ligand_resname", "ligand_smiles")) or args.accept_conect_bond_orders):
             raise ToolError("--components requires --complex and cannot be mixed with --protein, --ligand, --ligand-resname, --ligand-smiles or --accept-conect-bond-orders.")
         if not args.config and not (args.complex_pdb or (args.protein and args.ligand)):
-            raise ToolError("Provide --protein protein.pdb --ligand bound.sdf, or --complex complex.pdb. See charmm-gui-cli build -h.")
+            from charmm_gui_cli.chem.input_diagnostics import check_command
+            raise ToolError(key="input.build_sources", next_step=t("input.supply_sources", command=check_command(
+                protein=args.protein or "protein.pdb", ligand=args.ligand or "bound-ligand.sdf")))
 
     directory = None
     if args.command == "build-resume":
@@ -232,7 +267,6 @@ def _execute(args, holder):
         from ..store.settings import parameter_summary
         from ..chem.protein_states import intent_for
         state_intent = intent_for(prepared_manifest)
-        import shlex
         return {"directory": str(directory), "state": "inputs_ready", "server_submitted": False,
                 "parameter_summary": parameter_summary(run_manifest, directory),
                 "automatic_repairs": prepared_manifest.get("automatic_repairs", []),

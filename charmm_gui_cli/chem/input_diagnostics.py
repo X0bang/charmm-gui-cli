@@ -36,6 +36,8 @@ def check_command(*, protein=None, ligand=None, complex_pdb=None, ligand_resname
 
 
 def bind_input_error(error, *, protein=None, ligand=None, complex_pdb=None, ligand_resname="LIG", components=None, input_options=None, ligand_smiles=None):
+    if error.key in ("input.source_file", "input.path_type", "input.sources_missing", "input.build_sources", "input.sources_occupied", "input.check_occupied"):
+        return error
     if error.key and error.key.startswith('input.pdbqt_'):
         return
     options = dict(input_options) if isinstance(input_options, dict) else {}

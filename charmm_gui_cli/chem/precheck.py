@@ -21,10 +21,14 @@ from ..locales.i18n import t
 
 def _file_evidence(value):
     if not isinstance(value, (str, Path)):
-        raise ToolError("Input paths must be filenames.")
-    path = Path(value).expanduser().resolve()
-    if not path.is_file():
-        raise ToolError("An input file does not exist or is not a regular file.")
+        raise ToolError(key="input.path_type", next_step=t("input.path_next"))
+    from .input_sources import _path
+    try:
+        path = _path(value, "Input")
+    except ToolError as error:
+        # Retain the established machine-readable message while adding context.
+        raise ToolError("An input file does not exist or is not a regular file.", key=error.key,
+                        params=error.params, next_step=error.next_step) from None
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
@@ -286,7 +290,10 @@ def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_res
     try:
         directory.mkdir(parents=True, mode=0o700, exist_ok=False)
     except FileExistsError:
-        raise ToolError("Precheck out must be a new directory; existing outputs are never overwritten.") from None
+        import shlex
+        raise ToolError("Precheck out must be a new directory; existing outputs are never overwritten.",
+                        key="input.check_occupied", params={"path": str(directory)},
+                        next_step=t("input.output_next", command=shlex.join(["ls", "-ld", str(directory)]))) from None
     report = {"schema_version": 1, "passed": False, "status": "checking", "directory": str(directory),
               "check_file": str(directory / "check.json"), "review_required": False, "input_evidence": {},
               "checks": {}, "prepared_complex": None, "component_resnames": [], "chemistry": [],
@@ -421,6 +428,10 @@ def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_res
         error = exc.as_dict() if isinstance(exc, ToolError) else {
             "category": "local_io", "message": "Cannot read or prepare local input files; retained outputs can be inspected.",
             "retryable": False, "next_step": "Check local paths, permissions and text encoding; use a new output directory."}
+        if isinstance(exc, OSError):
+            from ..store.diagnostics import filesystem_error
+            diagnostic = filesystem_error(exc)
+            error.update(message_key=diagnostic.key, message_params=diagnostic.params, next_step=diagnostic.next_step)
         report.update(status="failed", error={"stage": stage, **error})
         report["checks"][stage] = {"passed": False, "error": error}
     with (directory / "check.json").open("x", encoding="utf-8") as handle:

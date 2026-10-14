@@ -5,21 +5,27 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import tempfile
 import uuid
 from .auth import ToolError, atomic_json, default_token_path
 from .paths import read_value, encode
 from .layout import task_root
 from .locking import run_lock
+from ..locales.i18n import t
 
 
 def _read_json(path):
     try:
         value = read_value(path)
     except (OSError, ValueError):
-        raise ToolError(f"Cannot read local run metadata: {Path(path).name}.") from None
+        raise ToolError(f"Cannot read local run metadata: {Path(path).name}.", key="jobs.metadata",
+                        params={"path": str(Path(path).absolute())},
+                        next_step=t("jobs.metadata_next", command=shlex.join(["ls", "-ld", str(Path(path).absolute().parent)]))) from None
     if not isinstance(value, dict):
-        raise ToolError("Local run metadata must contain a JSON object.")
+        raise ToolError("Local run metadata must contain a JSON object.", key="jobs.metadata_type",
+                        params={"path": str(Path(path).absolute())},
+                        next_step=t("jobs.metadata_next", command=shlex.join(["ls", "-ld", str(Path(path).absolute().parent)])))
     return value
 
 
@@ -306,5 +312,5 @@ def list_records():
 def latest_directory():
     records = list_records()
     if not records:
-        raise ToolError("No readable recent build is recorded. Start a build or supply its run directory.")
+        raise ToolError(key="jobs.no_recent", next_step="charmm-gui-cli jobs list")
     return Path(records[0]["directory"])

@@ -2,12 +2,13 @@
 
 from pathlib import Path
 import re
+import shlex
 
 import yaml
 
 from charmm_gui_cli.store.auth import ToolError
 from charmm_gui_cli.pipeline.config import UniqueLoader
-from charmm_gui_cli.store.configuration import mapping, validate_config
+from charmm_gui_cli.store.configuration import mapping, validate_config, bind_config_error
 from charmm_gui_cli.chem.pdb_normalization import N_TERMINALS, C_TERMINALS
 
 
@@ -23,8 +24,11 @@ def validate_preparation(raw):
         if isinstance(value, str) and "=" in value:
             for item in value.split(","):
                 pair = item.split("=")
-                if len(pair) != 2 or not re.fullmatch(r"[A-Za-z0-9_]{1,4}", pair[0]) or pair[1] not in choices:
+                if len(pair) != 2 or not re.fullmatch(r"[A-Za-z0-9_]{1,4}", pair[0]):
                     raise ToolError(key="terminal.mapping_invalid", next_step="charmm-gui-cli build -h")
+                if pair[1] not in choices:
+                    raise ToolError(key="terminal.patch_invalid", params={"end": "N" if end == "n_terminal" else "C",
+                                    "choices": ", ".join(choices)}, next_step="charmm-gui-cli build -h")
                 previous = chains.setdefault(pair[0], {})
                 if not isinstance(previous, dict) or end in previous:
                     raise ToolError(key="terminal.mapping_invalid", next_step="charmm-gui-cli build -h")
@@ -35,10 +39,13 @@ def validate_preparation(raw):
                             "choices": ", ".join(choices)}, next_step="charmm-gui-cli build -h")
     for chain, patches in chains.items():
         if (not isinstance(chain, str) or not re.fullmatch(r"[A-Za-z0-9_]{1,4}", chain)
-                or not isinstance(patches, dict) or not patches or set(patches) - {"n_terminal", "c_terminal"}
-                or any(not isinstance(value, str) or value not in (N_TERMINALS if key == "n_terminal" else C_TERMINALS)
-                       for key, value in patches.items())):
+                or not isinstance(patches, dict) or not patches or set(patches) - {"n_terminal", "c_terminal"}):
             raise ToolError(key="terminal.mapping_invalid", next_step="charmm-gui-cli build -h")
+        for end, value in patches.items():
+            choices = N_TERMINALS if end == "n_terminal" else C_TERMINALS
+            if not isinstance(value, str) or value not in choices:
+                raise ToolError(key="terminal.patch_invalid", params={"end": "N" if end == "n_terminal" else "C",
+                                "choices": ", ".join(choices)}, next_step="charmm-gui-cli build -h")
     if chains:
         result["terminals"] = chains
     return result
@@ -77,25 +84,38 @@ def validate_terminal_residues(preparation, predictions):
 
 
 def load_build_config(path):
+    try:
+        return _load_build_config(path)
+    except ToolError as error:
+        bind_config_error(error, path)
+        raise
+
+
+def _load_build_config(path):
     path = Path(path).expanduser()
     context = {"path": str(path), "cwd": str(Path.cwd())}
     try:
         from ..store.paths import decode
         raw = decode(path, yaml.load(path.read_text(encoding="utf-8"), Loader=UniqueLoader))
-    except (yaml.YAMLError, UnicodeError):
-        raise ToolError("Invalid build YAML.") from None
+    except yaml.YAMLError as error:
+        mark = getattr(error, "problem_mark", None)
+        raise ToolError("Invalid build YAML.", key="config.yaml", params={
+            "path": str(path), "line": mark.line + 1 if mark else 1,
+            "column": mark.column + 1 if mark else 1}) from None
+    except UnicodeError:
+        raise ToolError("Invalid build YAML.", key="config.encoding", params={"path": str(path)}) from None
     except FileNotFoundError:
         raise ToolError(key="config.missing", params=context, next_step="curl -fL https://raw.githubusercontent.com/X0bang/charmm-gui-cli/main/examples/default-build.yaml -o default-build.yaml") from None
     except PermissionError:
-        raise ToolError(key="config.permission", params=context, next_step="charmm-gui-cli build -h") from None
+        raise ToolError(key="config.permission", params=context, next_step=shlex.join(["ls", "-ld", str(path.absolute()), str(path.absolute().parent)])) from None
     except IsADirectoryError:
-        raise ToolError(key="config.directory", params=context, next_step="charmm-gui-cli build -h") from None
+        raise ToolError(key="config.directory", params=context, next_step=shlex.join(["ls", "-l", str(path.absolute())])) from None
     except OSError:
-        raise ToolError(key="config.unreadable", params=context, next_step="charmm-gui-cli build -h") from None
+        raise ToolError(key="config.unreadable", params=context, next_step=shlex.join(["ls", "-ld", str(path.absolute())])) from None
     raw = mapping(raw, ["version", "protein", "ligand", "ligand_resname", "ligand_hydrogens", "ligand_smiles",
                         "preparation", "membrane", "ions", "input_options"], "build configuration")
     if type(raw.get("version")) is not int or raw["version"] != 2:
-        raise ToolError("Input-oriented build configuration must use version: 2.")
+        raise ToolError(key="config.version_two")
     result = dict(raw)
     if 'ligand_smiles' in raw and (not isinstance(raw['ligand_smiles'], str) or not raw['ligand_smiles'].strip()):
         raise ToolError(key='input.pdbqt_definition', next_step='charmm-gui-cli build -h')
@@ -105,19 +125,20 @@ def load_build_config(path):
     for key in ("protein", "ligand"):
         value = raw.get(key)
         if not isinstance(value, str) or not value:
-            raise ToolError(f"{key} must specify an input file.")
+            raise ToolError(key="config.source_required", params={"name": key})
         result[key] = str((path.parent / value).resolve())
         if not Path(result[key]).is_file():
-            raise ToolError(f"The configured {key} file does not exist.")
+            raise ToolError(f"The configured {key} file does not exist.", key="config.source_missing",
+                            params={"name": key, "path": result[key]})
     if 'ligand_smiles' in result and Path(result['ligand']).suffix.lower() != '.pdbqt':
         raise ToolError(key='input.ligand_competing_definition', next_step='charmm-gui-cli build -h')
     result["ligand_resname"] = raw.get("ligand_resname", "LIG")
     if (not isinstance(result["ligand_resname"], str)
             or not re.fullmatch(r"[A-Z][A-Z0-9]{0,2}", result["ligand_resname"])):
-        raise ToolError("ligand_resname must be 1-3 uppercase letters/digits beginning with a letter, e.g. LIG.")
+        raise ToolError(key="config.ligand_resname")
     result["ligand_hydrogens"] = raw.get("ligand_hydrogens", "preserve")
     if not isinstance(result["ligand_hydrogens"], str) or result["ligand_hydrogens"] not in ("preserve", "add_missing"):
-        raise ToolError("ligand_hydrogens must be preserve or add_missing.")
+        raise ToolError(key="config.ligand_hydrogens")
     result["preparation"] = validate_preparation(raw.get("preparation", {}))
     # Reuse the tested membrane/ion validators without treating a dummy job as
     # evidence of remote preparation. A real ID is supplied only after step 3.

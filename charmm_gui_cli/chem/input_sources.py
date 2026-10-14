@@ -8,17 +8,23 @@ from dataclasses import replace
 import json
 from pathlib import Path
 import re
+import shlex
 
 from charmm_gui_cli.store.auth import ToolError
+from charmm_gui_cli.locales.i18n import t
 from charmm_gui_cli.chem.inputs import Ligand, _conect, _pdb, _protein_pdb_lines, _protein_metadata, _sdf, _validate_ligand, _validate_protein, read_ligand
 
 
 def _path(value, label):
     if value is None:
         return None
-    path = Path(value).resolve()
+    if not isinstance(value, (str, Path)):
+        raise ToolError(key="input.path_type", next_step=t("input.path_next"))
+    path = Path(value).expanduser().resolve()
     if not path.is_file():
-        raise ToolError(f"{label} file does not exist: {path}.")
+        raise ToolError(f"{label} file does not exist: {path}.", key="input.source_file",
+                        params={"path": str(path), "cwd": str(Path.cwd())},
+                        next_step=t("input.file_next", command=shlex.join(["ls", "-ld", str(path.parent)])))
     return path
 
 
@@ -172,7 +178,9 @@ def _prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand
     options = validate_input_options(input_options)
     validate_ligand_name(ligand_resname)
     if destination.exists():
-        raise ToolError("prepare_sources out must be a new directory; existing outputs are never overwritten.")
+        raise ToolError("prepare_sources out must be a new directory; existing outputs are never overwritten.",
+                        key="input.sources_occupied", params={"path": str(destination)},
+                        next_step=t("input.output_next", command=shlex.join(["ls", "-ld", str(destination)])))
     protein, ligand, complex_pdb = (_path(value, label) for value, label in
                                    ((protein, "Protein"), (ligand, "Ligand"), (complex_pdb, "Complex")))
     if ligand_smiles is not None and (not isinstance(ligand_smiles, str) or not ligand_smiles.strip()):
@@ -180,7 +188,9 @@ def _prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand
     if not re.fullmatch(r"[A-Za-z][A-Za-z0-9]{0,2}", ligand_resname):
         raise ToolError("ligand_resname must be a 1-3 character PDB residue name beginning with a letter.")
     if not complex_pdb and (not protein or not ligand):
-        raise ToolError("Provide protein plus bound ligand PDB/SDF, or one bound complex PDB.")
+        from .input_diagnostics import check_command
+        raise ToolError(key="input.sources_missing", next_step=t("input.supply_sources", command=check_command(
+            protein=protein or "protein.pdb", ligand=ligand or "bound-ligand.sdf")))
     chemical_formats = (".sdf", ".mol", ".mol2", ".pdbqt")
     if "ligand_pose" in options and (ligand is None or ligand.suffix.lower() not in chemical_formats):
         raise ToolError(key="input.ligand_pose_format", next_step="charmm-gui-cli check --help")

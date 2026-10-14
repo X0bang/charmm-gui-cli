@@ -45,7 +45,8 @@ class BuildCommandTests(unittest.TestCase):
         code, _, errors = self.call(["build"])
         self.assertEqual(code, 2)
         self.assertIn("--protein", errors)
-        self.assertIn("build -h", errors)
+        self.assertIn("charmm-gui-cli check --protein", errors)
+        self.assertIn("--ligand", errors)
         self.token.assert_not_called()
 
     def test_dry_run_does_not_login_or_submit_and_propagates_model_options(self):
@@ -137,13 +138,13 @@ class BuildCommandTests(unittest.TestCase):
             with self.subTest(arguments=arguments):
                 code, result, error = self.call(["build", *arguments, "--dry-run"])
                 self.assertEqual(code, 2)
-                self.assertTrue("components" in error or "not both" in error)
+                self.assertTrue("components" in error or "not both" in error or "不能混用" in error)
         self.token.assert_not_called()
 
     def test_yaml_and_direct_flags_are_not_silently_mixed(self):
         code, _, error = self.call(["build", "system.yaml", "--salt", "NaCl"])
         self.assertEqual(code, 2)
-        self.assertIn("not both", error)
+        self.assertTrue("not both" in error or "不能混用" in error)
         self.token.assert_not_called()
 
     def test_resume_without_path_uses_latest(self):

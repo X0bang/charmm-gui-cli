@@ -4,9 +4,11 @@ from contextlib import contextmanager
 from pathlib import Path
 import json
 import shutil
+import shlex
 
 from charmm_gui_cli.store.auth import ToolError
 from .layout import modern, task_root
+from ..locales.i18n import t
 
 
 def _remote_evidence(directory):
@@ -38,7 +40,15 @@ def local_initialization(directory):
     directory = Path(directory).resolve()
     root = task_root(directory)
     if directory.exists() or (modern(directory) and root.exists()):
-        raise ToolError(key="build.directory_exists", next_step="charmm-gui-cli jobs list")
+        try:
+            path = directory / "full-run.json"
+            managed = not path.is_symlink() and json.loads(path.read_text()).get("schema_version") == 2
+        except (OSError, ValueError, AttributeError):
+            managed = False
+        if managed:
+            raise ToolError(key="build.directory_exists", next_step=shlex.join(["charmm-gui-cli", "jobs", "status", str(root)]))
+        raise ToolError(key="build.path_occupied", params={"path": str(root)},
+                        next_step=t("build.path_occupied_next", command=shlex.join(["ls", "-ld", str(root)])))
     owned = root if modern(directory) else directory
     owned.mkdir(mode=0o700, parents=True, exist_ok=False)
     identity = owned.stat().st_ino

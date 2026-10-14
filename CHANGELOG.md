@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Localize shared YAML/schema/numeric/lipid checks, missing input routes and task metadata diagnostics while retaining legacy machine-readable messages and recovery categories. Show parser line/column locations without configuration values; bind configuration errors to actual files and local recheck commands.
+- Report filesystem targets and permission/read-only/space causes without exception bodies, including saved local check/build failures. Distinguish foreign occupied paths from resumable tasks, preserve existing outputs and report C-terminal patch choices without suggesting N-terminal values.
+- Add public-command privacy/actionability regressions and refresh the canonical-path localization backlog; remaining chemistry, batch/sweep and detailed validation messages are not yet fully migrated.
+
 ## 0.8.4
 
 ### Improvements
