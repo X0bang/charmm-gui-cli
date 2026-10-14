@@ -371,6 +371,8 @@ def _final_summary(directory):
         stored = report["evidence"]
         if not archive.is_file():
             raise FileNotFoundError(2, "Missing archive", str(archive))
+        from ..chem.protein_states import require_remote_state_verification
+        require_remote_state_verification(manifest.get("inputs", {}).get("manifest", {}))
         checked = archive
         evidence = _evidence(manifest, archive, stored["grompp"], stored["gmx"])
         # Reading a historical result preserves its validation version. A fresh
@@ -449,12 +451,18 @@ def finalize_managed_build(directory, *, grompp=False, gmx="gmx"):
         state = manifest.get("state", "unknown")
         if state in ("remote_error", "preparation_failed", "submission_unknown"):
             raise ToolError(f"Build state is {state}; final validation cannot replace recovery of this failure.")
+        from ..chem.protein_states import require_remote_state_verification
+        import shlex
+        require_remote_state_verification(manifest.get("inputs", {}).get("manifest", {}),
+            next_command="charmm-gui-cli jobs status " + shlex.quote(str(task_root(directory))))
         if not archive.is_file() or state not in ("ligands_present", "downloaded_unverified", "validation_failed", "complete", "completed", "validated"):
             return {"status": "pending", "passed": None, "directory": str(directory), "build_state": state}
         try:
             inputs, config = manifest["inputs"]["files"], manifest["config"]
             input_manifest = Path(inputs["input-manifest.json"])
             reference = Path(inputs["complex.pdb"])
+            require_remote_state_verification(_task_store._read_json(input_manifest),
+                next_command="charmm-gui-cli jobs status " + shlex.quote(str(task_root(directory))))
             evidence = _evidence(manifest, archive, grompp, gmx, create_receipt=True)
         except (KeyError, TypeError, OSError):
             raise ToolError("Completed build is missing readable input files/configuration required for final validation.") from None

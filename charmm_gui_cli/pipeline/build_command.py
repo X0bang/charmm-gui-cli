@@ -229,12 +229,18 @@ def _execute(args, holder):
     if dry_run:
         prepared_manifest = (_task_store._read_json(directory / "full-run.json").get("inputs", {}).get("manifest", {})
                              if (directory / "full-run.json").is_file() else {})
+        from ..chem.protein_states import intent_for
+        state_intent = intent_for(prepared_manifest)
+        import shlex
         return {"directory": str(directory), "state": "inputs_ready", "server_submitted": False,
                 "automatic_repairs": prepared_manifest.get("automatic_repairs", []),
-                "review_required": prepared_manifest.get("ligand_selection", {}).get("conversion", {}).get("review_required", False),
+                "structure_inventory": prepared_manifest.get("input_normalization", {}).get("structure_inventory", {}),
+                "review_required": bool(state_intent) or prepared_manifest.get("ligand_selection", {}).get("conversion", {}).get("review_required", False),
+                **({"protein_state_intent": state_intent} if state_intent else {}),
                 "chemistry_warnings": prepared_manifest.get("ligand", {}).get("chemistry_warnings", []),
                 **({"name": args.name} if getattr(args, "name", None) else {}),
-                "next_step": "charmm-gui-cli login; charmm-gui-cli build-resume"}, 0
+                "next_step": (t("state.pipeline_next", command="charmm-gui-cli jobs status " + shlex.quote(str(task_root(directory))))
+                              if state_intent else "charmm-gui-cli login; charmm-gui-cli build-resume")}, 0
     if directory.is_dir() and not getattr(args, "_worker", False):
         from charmm_gui_cli.store.workers import claim, write_lock
         from charmm_gui_cli.store.locking import now

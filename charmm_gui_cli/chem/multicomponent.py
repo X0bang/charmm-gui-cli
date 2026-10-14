@@ -14,7 +14,7 @@ import re
 
 from charmm_gui_cli.store.auth import ToolError
 from charmm_gui_cli.chem.input_sources import _chemical_sdf_in_complex, _internal
-from charmm_gui_cli.chem.inputs import Ligand, _apply_hydrogen_policy, _conect, _pdb, _protein_pdb_lines, _sdf, _validate_ligand, _validate_protein, read_ligand
+from charmm_gui_cli.chem.inputs import Ligand, _apply_hydrogen_policy, _conect, _pdb, _protein_pdb_lines, _protein_metadata, _sdf, _validate_ligand, _validate_protein, read_ligand
 from .residues import SIDECHAINS, ALIASES, WATERS, validate_input_options
 from .input_safety import validate_cgenff, validate_contact, validate_ligand_name
 
@@ -152,9 +152,17 @@ def prepare_multicomponent(*, complex_pdb, components, out, water_policy, ion_po
     role = "components" if water_policy == "retain" or input_options is None else "complex"
     normalization = {}
     atoms, bonds = _pdb(source, report=normalization, input_options=options, role=role)
+    from .input_safety import validate_link_records
+    validate_link_records(source)
     residues = {}
     for atom in atoms:
         residues.setdefault(_identity(atom), []).append(atom)
+    for key, residue in residues.items():
+        blocks = {atom.polymer_block for atom in residue}
+        if len(blocks) > 1:
+            raise ToolError(key="input.component_ter_ambiguous", params={"residue": " ".join(
+                (key[0], key[1] or key[4] or "-", str(key[2]) + key[3])), "count": len(blocks)},
+                next_step="charmm-gui-cli check --help")
     selected, ownership = {}, {}
     for index, spec in enumerate(components, 1):
         key = _select(spec, residues)
@@ -198,8 +206,6 @@ def prepare_multicomponent(*, complex_pdb, components, out, water_policy, ion_po
             raise ToolError("CONECT crosses components/protein/solvent: covalent attachments or metal coordination require a specialized workflow.")
     # LINK records can encode bonds absent from CONECT, including coordination.
     for line in source.read_text().splitlines():
-        if line.startswith("LINK  "):
-            raise ToolError("PDB LINK records require explicit specialized linkage/coordination handling; they cannot be ignored in a noncovalent workflow.")
         if line.startswith("SSBOND"):
             try:
                 linked = [(line[11:14].strip(), line[15:16].strip(), int(line[17:21]), line[21:22].strip()),
@@ -275,7 +281,7 @@ def prepare_multicomponent(*, complex_pdb, components, out, water_policy, ion_po
         group.setdefault("representative_sdf", str(sdf_path))
         group.setdefault("files", {"sdf": str(sdf_path), **({"rtf": topology["rtf"]["path"], "prm": topology["prm"]["path"]} if topology else {})})
     protein_serials = {a.serial for a in protein}
-    metadata = [line for line in source.read_text().splitlines() if line.startswith("SSBOND")]
+    metadata = _protein_metadata(source, input_options=options, role=role)
     files["protein.pdb"] = "\n".join(metadata + _protein_pdb_lines(source, protein, input_options=options, role=role)) + "\n" + _conect({edge: order for edge, order in bonds.items() if set(edge) <= protein_serials}) + "END\n"
     report = {"schema_version": 1, "source": _evidence(source), "complex": str(destination / "complex.pdb"),
               "protein": str(destination / "protein.pdb"), "components": reports, "chemistry_groups": list(groups.values()),
@@ -436,6 +442,18 @@ def load_components_config(path):
 
 
 def prepare_build_components(*, components_config, complex_pdb, out, hydrogens="add_missing", allow_distant_pose=False, input_options=None):
+    """Prepare components with concrete input-error recovery arguments."""
+    try:
+        return _prepare_build_components(components_config=components_config, complex_pdb=complex_pdb, out=out,
+            hydrogens=hydrogens, allow_distant_pose=allow_distant_pose, input_options=input_options)
+    except ToolError as exc:
+        if exc.key and exc.key.startswith(("input.", "state.")):
+            from .input_diagnostics import bind_input_error
+            bind_input_error(exc, complex_pdb=complex_pdb, components=components_config, input_options=input_options)
+        raise
+
+
+def _prepare_build_components(*, components_config, complex_pdb, out, hydrogens="add_missing", allow_distant_pose=False, input_options=None):
     """Prepare the complete upload without losing any declared component.
 
     Returns the same ``files``/``manifest`` envelope as ``prepare_inputs``.
@@ -519,7 +537,7 @@ def prepare_build_components(*, components_config, complex_pdb, out, hydrogens="
         groups[component["resname"]].update({"chemical_signature": signature, "representative_sdf": component["sdf"]})
         groups[component["resname"]]["files"]["sdf"] = component["sdf"]
         file_text[component["id"] + ".json"] = json.dumps(component, indent=2) + "\n"
-    metadata = [line for line in source.read_text().splitlines() if line.startswith("SSBOND")]
+    metadata = _protein_metadata(source, input_options=validate_input_options(input_options), role="complex")
     file_text["protein.pdb"] = "\n".join(metadata + protein_lines) + "\n" + _conect({tuple(protein_map[i] for i in edge): order for edge, order in protein_bonds.items()}) + "END\n"
     file_text["complex.pdb"] = "\n".join(metadata + all_lines) + "\n" + _conect(mapped_bonds) + "END\n"
     manifest.update({"complex": str(destination / "complex.pdb"), "protein": str(destination / "protein.pdb"),

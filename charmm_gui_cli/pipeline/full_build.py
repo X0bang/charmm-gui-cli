@@ -194,6 +194,31 @@ def _preparation_fields(snapshot, config, groups=None, adjustments=None):
     return overrides
 
 
+def require_protein_state_support(directory, manifest):
+    """Shared foreground/worker gate; preserve uncertain-POST priority."""
+    from ..chem.protein_states import intent_for, require_remote_state_verification
+    import shlex
+    directory = Path(directory)
+    if intent_for(manifest.get("inputs", {}).get("manifest", {})):
+        preparation = directory / "preparation"
+        unknown = (manifest.get("state") == "submission_unknown" or
+                   preparation.exists() and not (preparation / "upload-response.html").is_file() or
+                   any((preparation / (step + ".intent.json")).exists() and not (preparation / (step + ".html")).is_file()
+                       for step in ("selection", "parameterization")))
+        bilayer = directory / "bilayer/run.json"
+        if bilayer.is_file():
+            try:
+                saved = read_value(bilayer)
+                if not isinstance(saved, dict) or saved.get("state") in ("submission_unknown", "submitting"):
+                    unknown = True
+            except (OSError, ValueError):
+                unknown = True
+        if unknown:
+            raise SubmissionUnknown("A previous modeling POST has an unresolved submission intent; inspect/recover it before continuing. No repeated POST was sent.")
+    require_remote_state_verification(manifest.get("inputs", {}).get("manifest", {}),
+        next_command="charmm-gui-cli jobs status " + shlex.quote(str(task_root(directory))))
+
+
 def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, progress=None):
     """Advance a saved build without repeating any recorded submission."""
     if interval < 10 or max_wait <= 0:
@@ -206,6 +231,7 @@ def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, pro
             # snapshots are irrelevant. Ambiguous API jobs are also handed to
             # resume, which refuses to submit another job.
             return _resume_bilayer(directory, manifest, api, build_directory, wait, interval, max_wait, progress)
+        require_protein_state_support(directory, manifest)
         if "reused_preparation" in manifest:
             from charmm_gui_cli.pipeline.sweep import reuse_api_config
             prepared_config = reuse_api_config(directory, manifest)

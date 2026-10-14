@@ -23,6 +23,8 @@ def precheck_summary(report):
     for key in ("automatic_repairs", "terminal_predictions", "input_normalization"):
         if key in report:
             result[key] = report[key]
+    if "structure_inventory" in inventory:
+        result["structure_inventory"] = inventory["structure_inventory"]
     if "spatial_review" in report:
         result["spatial_review"] = report["spatial_review"].get("summary", {})
     result["next_step"] = report.get("error", {}).get("next_step") or t("check.next_passed" if report.get("passed") else "check.next_failed")

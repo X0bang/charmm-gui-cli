@@ -202,8 +202,13 @@ def preparation_identity(directory, manifest=None):
         raise ToolError("Missing/unknown preparation identity; reuse requires fully prepared local inputs and explicit settings.") from None
     chemical_graph = {"atoms": [{"name": atom.name, "element": atom.element, "charge": atom.charge} for atom in ligand.atoms],
                       "bonds": [[a, b, order] for (a, b), order in sorted(ligand.bonds.items())]}
-    return {"version": 1, "settings": settings, "input_sha256": {name: _digest(path) for name, path in files.items()},
-            "ligand_chemistry_sha256": batch._canonical(chemical_graph)}
+    identity = {"version": 1, "settings": settings, "input_sha256": {name: _digest(path) for name, path in files.items()},
+                "ligand_chemistry_sha256": batch._canonical(chemical_graph)}
+    from ..chem.protein_states import intent_for, validate_intent
+    state_intent = validate_intent(intent_for(manifest.get("inputs", {}).get("manifest", {})))
+    if state_intent:
+        identity["protein_state_intent_sha256"] = batch._canonical(state_intent)
+    return identity
 
 
 def seal_preparation(directory):
@@ -254,6 +259,10 @@ def certify_source(directory):
     from charmm_gui_cli.remote.web_state import parse_page_state
     directory = Path(directory).expanduser().resolve()
     manifest = _json(directory / "full-run.json")
+    from ..chem.protein_states import require_remote_state_verification
+    import shlex
+    require_remote_state_verification(manifest.get("inputs", {}).get("manifest", {}),
+        next_command="charmm-gui-cli jobs status " + shlex.quote(str(directory)))
     if manifest.get("reused_preparation"):
         raise ToolError("Use the original preparation source, not a chain of reused sources.")
     identity = preparation_identity(directory, manifest)
