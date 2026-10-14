@@ -138,6 +138,19 @@ class LigandFormatTests(unittest.TestCase):
         self.assertTrue(all(int(line[39:42].strip() or "0") == 0 for line in lines[4:4 + len(parsed.atoms)]))
         self.assertTrue(all(int(line[9:12].strip() or "0") == 0 for line in lines[4 + len(parsed.atoms):4 + len(parsed.atoms) + len(parsed.bonds)]))
 
+    def test_depicted_double_bond_stereo_survives_conversion_and_hydrogen_addition(self):
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+        for smiles in ("F/C=C/Cl", "F/C=C\\Cl"):
+            for v3000 in (False, True):
+                molecule = Chem.MolFromSmiles(smiles)
+                AllChem.Compute2DCoords(molecule)
+                self.ligand.write_text(Chem.MolToMolBlock(molecule, forceV3000=v3000) + "$$$$\n")
+                ligand = read_ligand(self.ligand)
+                for source in (ligand, _apply_hydrogen_policy(ligand, "add_missing")):
+                    roundtrip = Chem.MolFromMolBlock(source.sdf, removeHs=False)
+                    self.assertEqual(Chem.MolToSmiles(Chem.RemoveHs(roundtrip)), Chem.MolToSmiles(molecule))
+
     def test_mol2_cli_shows_charge_review_and_keeps_partial_charges_distinct(self):
         self.fixture.ligand = self.root / "bound.mol2"
         self.fixture.ligand.write_text(MOL2)

@@ -14,7 +14,7 @@
 
 - Add explicit 1-based ligand record selection for multi-record SDF/mol2 with bounded name/score diagnostics; propagate the choice through check, direct/YAML builds, batches and sweeps without automatically selecting the best score.
 - Normalize supported V3000/mol2 ligands with chemical-graph/stereo round-trip checks, original source hashes, atom-name mappings and coordinate-roundoff evidence. Keep mol2 partial charges distinct from formal charges and require review; reject unsupported chemical semantics instead of dropping them.
-- Preserve declared chirality while adding hydrogens; copying old wedge/parity codes onto changed atom neighborhoods could previously invert or lose stereochemistry. PDBQT remains unsupported with actionable input guidance.
+- Preserve declared chirality and depicted 2D double-bond E/Z definitions during conversion and hydrogen addition; copying old wedge/parity codes onto changed atom neighborhoods could previously invert or lose stereochemistry. PDBQT remains unsupported with actionable input guidance.
 
 - Add explicit `login --remember` with allowlisted OS credential backends, a bounded memory-only `CHARMM_GUI_PASSWORD_COMMAND`, local `logout`, JWT lifetime diagnostics and startup expiry warnings.
 - Renew API and website sessions together under shared file locks, retain pair receipts and the original credential backend, roll back failed publication, and defer repeated failed renewal. Never replay modeling POSTs; GET-only reconcile does not log in automatically.

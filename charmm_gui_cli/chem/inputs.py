@@ -300,10 +300,12 @@ def _apply_hydrogen_policy(ligand, policy):
         if int(line[9:12].strip() or "0"):
             keep_bonds.add(i)
             keep_atoms.add(int(line[:3]) - 1)
-    from .ligand_formats import _clear_inferred_stereo
+    from .ligand_formats import _clear_inferred_stereo, _depicted_double_bonds
+    keep_bonds.update(_depicted_double_bonds(mol))
     _clear_inferred_stereo(mol, keep_atoms, keep_bonds)
     Chem.AssignStereochemistry(mol, cleanIt=False, force=True)
     declared_cip = {i: mol.GetAtomWithIdx(i).GetProp("_CIPCode") for i in keep_atoms if mol.GetAtomWithIdx(i).HasProp("_CIPCode")}
+    declared_bonds = {i: mol.GetBondWithIdx(i).GetStereo() for i in keep_bonds}
     before = [tuple(mol.GetConformer().GetAtomPosition(i)) for i in range(mol.GetNumAtoms())]
     hydrogenated = Chem.AddHs(mol, addCoords=True)
     for i, xyz in enumerate(before):
@@ -323,7 +325,8 @@ def _apply_hydrogen_policy(ligand, policy):
     # than copying wedge/parity codes onto a differently ordered neighborhood.
     checked = Chem.MolFromMolBlock("\n".join(block), removeHs=False)
     if checked is None or any(not checked.GetAtomWithIdx(i).HasProp("_CIPCode") or
-                              checked.GetAtomWithIdx(i).GetProp("_CIPCode") != code for i, code in declared_cip.items()):
+                              checked.GetAtomWithIdx(i).GetProp("_CIPCode") != code for i, code in declared_cip.items()) or \
+            any(checked.GetBondWithIdx(i).GetStereo() != stereo for i, stereo in declared_bonds.items()):
         raise ToolError(key="input.hydrogen_stereo", next_step="charmm-gui-cli check --hydrogens preserve -h")
     sdf = "\n".join(block) + "\n>  <PDB_ATOM_NAMES>\n" + " ".join(names) + "\n\n$$$$\n"
     atoms = []

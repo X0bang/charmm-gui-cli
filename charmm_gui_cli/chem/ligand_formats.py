@@ -104,6 +104,20 @@ def _signature(mol):
             "bonds": [(*sorted((b.GetBeginAtomIdx(), b.GetEndAtomIdx())), str(b.GetBondType()), str(b.GetStereo())) for b in mol.GetBonds()]}
 
 
+def _depicted_double_bonds(mol):
+    """2D molfile geometry encodes E/Z even when the double bond has no CFG.
+
+    Do not infer new declarations from a 3D docking conformation.
+    """
+    from rdkit import Chem
+    if mol.GetConformer().Is3D():
+        return set()
+    Chem.SetBondStereoFromDirections(mol)
+    Chem.AssignStereochemistry(mol, cleanIt=True, force=True)
+    return {b.GetIdx() for b in mol.GetBonds()
+            if b.GetBondType() == Chem.BondType.DOUBLE and b.GetStereo() != Chem.BondStereo.STEREONONE}
+
+
 def normalize(block, *, mol2=False):
     Chem, rdBase = _rdkit()
     try:
@@ -127,7 +141,6 @@ def normalize(block, *, mol2=False):
                 if bond.HasProp("_MolFileBondCfg") and bond.GetIntProp("_MolFileBondCfg"):
                     keep_bonds.add(bond.GetIdx())
                     keep_atoms.add(bond.GetBeginAtomIdx())
-        _clear_inferred_stereo(molecule, keep_atoms, keep_bonds)
         if mol2:
             # Mol2 readers disable implicit Hs. Represent ordinary valence Hs
             # exactly as in a supplied SDF; never treat partial charges as pH.
@@ -138,6 +151,9 @@ def normalize(block, *, mol2=False):
             raise ValueError
         with rdBase.BlockLogs():
             Chem.SanitizeMol(molecule)
+        if not mol2:
+            keep_bonds.update(_depicted_double_bonds(molecule))
+        _clear_inferred_stereo(molecule, keep_atoms, keep_bonds)
         if any(a.GetNumRadicalElectrons() for a in molecule.GetAtoms()):
             raise _error("ligand_semantics")
         counts, names = Counter(), []
