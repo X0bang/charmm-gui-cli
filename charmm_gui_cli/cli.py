@@ -112,6 +112,13 @@ def parser():
     jobs = commands.add_parser("jobs", help=t('help.text.24'))
     job_commands = jobs.add_subparsers(dest="jobs_command")
     job_commands.add_parser("list", help=t('help.text.25'))
+    job_forget = job_commands.add_parser("forget", help=t("cleanup.forget_help"))
+    job_forget.add_argument("target", help=t('help.text.27'))
+    confirmation = job_forget.add_mutually_exclusive_group()
+    confirmation.add_argument("--yes", action="store_true", help=t("cleanup.yes_help"))
+    confirmation.add_argument("--dry-run", action="store_true", help=t("cleanup.dry_run_help"))
+    job_remember = job_commands.add_parser("remember", help=t("cleanup.remember_help"))
+    job_remember.add_argument("path", type=Path, help=t("help.relink_path"))
     job_relink = job_commands.add_parser("relink", help=t("help.relink"))
     job_relink.add_argument("target", help=t("help.relink_name"))
     job_relink.add_argument("path", type=Path, help=t("help.relink_path"))
@@ -341,5 +348,9 @@ def main(argv=None):
         return 130
     except KeyboardInterrupt:
         from charmm_gui_cli.store.auth import recovery_guidance
+        if args.command == 'jobs' and getattr(args, 'jobs_command', None) == 'forget':
+            import shlex
+            print(t('cleanup.interrupted', command=shlex.join(['charmm-gui-cli','jobs','forget',args.target,'--dry-run'])), file=sys.stderr)
+            return 130
         print(t("update.interrupted") if args.command == "update" else t("cli.interrupted") + recovery_guidance("interrupted"), file=sys.stderr)
         return 130

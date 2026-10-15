@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add explicit local jobs forget plans and --yes index archival without deleting task data or touching remote jobs. Retain hashed index backups for identity-checked jobs relink restoration; refuse active or uncertain submissions and coordinate concurrent index writers.
 - Place automatic single-directory task PNG previews under visible previews/ and reference the verified model in place instead of copying another large PDB. Preserve old task/cache and explicit standalone-copy behavior; reports still verify archive, coordinate and image hashes.
 - Distinguish remote pending queue states from unprepared batch/sweep rows. Submitted children retain their active slot and existing inputs; matching durable job records recover the specific historical staging misclassification without retrying uploads or uncertain POSTs.
 - Publish the detached worker PID under an inherited startup gate before returning, preventing launcher/worker PID mismatches and late parent writes over fast-worker completion records. Preserve inherited locks and historical worker entry points.

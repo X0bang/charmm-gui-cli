@@ -99,17 +99,22 @@ def relink(name, target):
     if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", name):
         raise ToolError(key="input.task_name", next_step="charmm-gui-cli jobs relink -h")
     records = [registry / "names" / (str(name) + ".json") for registry in _task_store._registries()]
-    source = next((path for path in records if path.is_file()), None)
-    if source is None:
-        raise ToolError(key="jobs.unknown", params={"name": name}, next_step="charmm-gui-cli jobs list")
-    record = _task_store._read_json(source)
     target = Path(target).expanduser().resolve()
     directory = target / ".charmm-gui" if (target / ".charmm-gui/full-run.json").is_file() else target
+    def registration():
+        source = next((path for path in records if path.is_file()), None)
+        if source is not None:
+            return _task_store._read_json(source)
+        from .lifecycle import forgotten_binding
+        record = forgotten_binding(name, directory)
+        if record is None:
+            raise ToolError(key="jobs.unknown", params={"name": name}, next_step="charmm-gui-cli jobs list")
+        return record
+    registration()
     names = _task_store._registry() / "names"
     names.mkdir(mode=0o700, parents=True, exist_ok=True)
     with run_lock(names), run_lock(directory):
-        source = next((path for path in records if path.is_file()), None)
-        record = _task_store._read_json(source)
+        record = registration()
         if metadata(directory)["running"]:
             raise ToolError(key="background.running", next_step="charmm-gui-cli jobs list")
         if not matches(record, directory):
@@ -122,7 +127,7 @@ def relink(name, target):
         if identifier:
             updated["task_id"] = identifier
         atomic_json(names / (str(name) + ".json"), updated)
-    _task_store.remember_run(directory)
+        _task_store._publish_run(_task_store._registry(), _task_store._run_record(directory))
     return {"name": name, "directory": str(task_root(directory)), "task_id": identifier,
             "state": "relinked", "next_step": "charmm-gui-cli jobs status " + shlex.quote(str(name))}
 

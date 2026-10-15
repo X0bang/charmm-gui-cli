@@ -7,6 +7,8 @@ def execute(args):
         'list': 'jobs_list',
         'export': 'jobs_export',
         'relink': 'jobs_relink',
+        'forget': 'jobs_forget',
+        'remember': 'jobs_remember',
         'watch': 'jobs_watch',
         'reconcile': 'jobs_reconcile',
         'status': 'jobs_status',

@@ -1,5 +1,21 @@
 # 命名任务与恢复
 
+## 归档不需要的本地索引
+
+```bash
+charmm-gui-cli jobs forget receptor-a             # 只显示计划，不写文件
+charmm-gui-cli jobs forget receptor-a --yes       # 确认后归档索引
+charmm-gui-cli jobs relink receptor-a /path/to/receptor-a  # 恢复注册
+```
+
+`forget` 只将同一任务的名称、历史和最新记录移到各索引目录的 `forgotten/<操作编号>/`，保存原始字节、校验值和操作记录；不删除任务目录、模型、输入、日志、提交意图、会话或官网任务。它不会释放模型占用的磁盘空间。默认或 `--dry-run` 都只读，`--yes` 才执行。运行中的进程、未结束的建膜任务、结果不明或不可读取的提交意图会阻止操作。
+
+`jobs relink` 可从未变动的索引备份中核对原任务身份并恢复名称注册，也支持任务整体移动后的新路径；同名已被另一个任务占用、备份被修改或任务身份不符时不会覆盖。原始任务仍可通过明确路径查看报告。保留的索引备份不是结构副本，不包含会话文件。
+
+旧的无名称任务可用 `jobs forget /path/to/task --yes` 归档索引，再用 `jobs remember /path/to/task` 重新收录；`remember` 仅恢复本地索引，不调用建模流程。对有名称的任务，它按同样的备份/身份规则恢复注册，不绕过名称冲突。
+
+## 建模与恢复命令
+
 ```bash
 charmm-gui-cli build --name receptor-a --protein protein.pdb --ligand bound.sdf
 charmm-gui-cli jobs

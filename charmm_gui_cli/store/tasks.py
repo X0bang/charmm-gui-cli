@@ -119,7 +119,7 @@ def assign_name(directory, name):
         destination = names / (name + ".json")
         if not destination.exists():
             _new_json(destination, record)
-    remember_run(directory)
+        _publish_run(_registry(), _run_record(directory))
     return record
 
 
@@ -236,8 +236,8 @@ def new_batch_path(name=None, *, kind="batch", source=None):
     return (Path.cwd() / f"{kind}-{label}-{stamp}-{uuid.uuid4().hex[:6]}").resolve()
 
 
-def remember_run(directory):
-    """Remember a successfully initialized run, without copying credentials."""
+def _run_record(directory):
+    """Snapshot index-only fields from an initialized run."""
     directory = Path(directory).expanduser().resolve()
     manifest = _read_json(directory / "full-run.json")
     if manifest.get("schema_version") != 2:
@@ -248,12 +248,30 @@ def remember_run(directory):
     identifier = task_id(directory)
     if identifier:
         record["task_id"] = identifier
+    return record
+
+
+def _publish_run(registry, record):
+    """Publish history/latest while the caller owns this registry's names lock."""
+    from charmm_gui_cli.store.indexing import writes_allowed
+    if not writes_allowed():
+        return record
+    _new_json(registry / "run-history" / f"{uuid.uuid4().hex}.json", record)
+    atomic_json(registry / "latest-run.json", record)
+    return record
+
+
+def remember_run(directory):
+    """Remember a successfully initialized run, without copying credentials."""
+    record = _run_record(directory)
     from charmm_gui_cli.store.indexing import writes_allowed
     if not writes_allowed():
         return record
     registry = _registry()
-    _new_json(registry / "run-history" / f"{uuid.uuid4().hex}.json", record)
-    atomic_json(registry / "latest-run.json", record)
+    names = registry / "names"
+    names.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with run_lock(names):
+        _publish_run(registry, record)
     return record
 
 
