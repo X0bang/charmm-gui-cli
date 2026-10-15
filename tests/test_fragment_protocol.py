@@ -604,6 +604,16 @@ class FragmentProtocolTests(unittest.TestCase):
         for manifest in ({'inputs': None}, {'inputs': {'manifest': None}}, {'inputs': {'manifest': {'input_normalization': []}}}):
             self.refused(lambda: fragments.record_for(manifest), key='fragment.evidence_changed')
 
+    def test_standard_pdb_ile_names_survive_actual_request_source_and_final_proof(self):
+        self.prepare(first='ILE')
+        self.stage()
+        receipt = self.finish_proof()
+        result = fragments.verify_archive(self.directory, self.manifest, self.archive())
+        for checks in (receipt['checks'], result['checks']['source'], result['checks']['assembly']):
+            self.assertEqual(sum(row['from'] == 'CD1' for row in checks['retained_atom_name_changes']), 2)
+        self.assertTrue(result['server_origin_verified'])
+        self.assertFalse(result['scientific_correctness_verified'])
+
     def test_messages_are_bilingual_and_do_not_include_remote_bodies(self):
         for language in ('zh', 'en'):
             set_language(language)

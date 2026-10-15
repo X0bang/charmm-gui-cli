@@ -112,6 +112,39 @@ def _retained_links(source, plan, original, addresses, state_intent):
     return links
 
 
+def _ile_terminal_carbon(entry, target, templates, coordinates, neighbors, addresses):
+    """One explicit PDB -> CHARMM alias, not distance-based name guessing.
+
+    Standard PDB ILE CD1 is CHARMM36 ILE CD. Its same-source RTF must define
+    the carbon-methyl branch through CG1, and actual types, charges, native
+    masses, elements and complete neighborhoods must agree for both carbons.
+    A source CD collision or another residue/branch is not this naming change.
+    """
+    if (entry['resname'] != 'ILE' or entry['name'] != 'CD1' or entry['element'] != 'C'
+            or (entry['address'], 'CD') in addresses or (entry['address'], 'CG1') not in addresses):
+        raise failure()
+    template = templates['residues']['ILE']
+    if template['unsupported'] or 'CD1' in template['atoms']:
+        raise failure()
+    for name in ('CD', 'CG1'):
+        expected = {right if left == name else left for left, right in template['bonds'] if name in (left, right)}
+        if name == 'CD' and expected != {'CG1', 'HD1', 'HD2', 'HD3'}:
+            raise failure()
+        if name == 'CG1' and expected != {'CB', 'CD', 'HG11', 'HG12'}:
+            raise failure()
+        if not expected <= target.keys() or name not in target:
+            raise failure()
+        for site in {name, *expected}:
+            actual, requested = target[site], template['atoms'][site]
+            if (actual['type'] != requested['type'] or abs(actual['charge'] - requested['charge']) > 1e-4
+                    or abs(actual['mass'] - templates['masses'][requested['type']]) > .03
+                    or coordinates[actual['serial']-1]['element'] not in ('', requested['type'][0])):
+                raise failure()
+        if neighbors[target[name]['serial']] != {target[site]['serial'] for site in expected}:
+            raise failure()
+    return 'CD'
+
+
 def verify_fragment_artifact(preparation, source_lines, prepared_lines, plan, receipt, pdb, psf, topology, *, state_intent=None):
     """Prove concrete topology on one actual source OR assembly PDB/PSF pair."""
     try:
@@ -148,7 +181,7 @@ def verify_fragment_artifact(preparation, source_lines, prepared_lines, plan, re
                 actual_cross.add((left, right))
         original, addresses = _source_atoms(source_lines, plan)
         retained = _retained_links(source_lines, plan, original, addresses, state_intent)
-        source_to_actual, checked_ends = {}, []
+        source_to_actual, checked_ends, name_changes, deleted_atoms, mapped_atoms = {}, [], [], [], set()
         by_index = {row["fragment_index"]: row for row in bindings}
         for fragment in plan["fragments"]:
             binding = by_index[fragment["index"]]
@@ -176,10 +209,36 @@ def verify_fragment_artifact(preparation, source_lines, prepared_lines, plan, re
                 name = entry["name"]
                 if rid == ids[-1] and name not in target:
                     name = {"O": "OT1", "OXT": "OT2"}.get(name, name)
+                if name not in target and entry['resname'] == 'ILE' and name == 'CD1':
+                    name = _ile_terminal_carbon(entry, target, templates, coordinates, neighbors, addresses)
                 if name in target:
-                    source_to_actual[serial] = target[name]["serial"]
+                    actual_serial = target[name]['serial']
+                    if actual_serial in mapped_atoms:
+                        raise failure()
+                    mapped_atoms.add(actual_serial)
+                    source_to_actual[serial] = actual_serial
+                    if name != entry['name']:
+                        name_changes.append({'source_serial': serial, 'actual_serial': actual_serial,
+                            'segment': segment, 'resid': rid, 'resname': entry['resname'], 'from': entry['name'], 'to': name,
+                            'basis': 'same_source_CHARMM_protein_RTF' if entry['name'] == 'CD1' else 'terminal_patch'})
                 elif entry["element"] not in ("H", "D", "T"):
-                    raise failure()
+                    patch = binding['terminals']['c_terminal']['form_value']
+                    # PDB's terminal OXT is CHARMM's OT2. An explicitly
+                    # requested CT2/CT3 amide uses the complete RESI+PRES
+                    # carbonyl/amide profile, not the carboxyl's second oxygen.
+                    # These PRES templates need not contain DELETE OT2: OT2
+                    # belongs to CTER, not the base RESI. Never claim such a
+                    # directive exists or excuse other missing heavy atoms.
+                    if (rid != ids[-1] or entry['name'] != 'OXT' or entry['element'] != 'O'
+                            or 'OT2' in target or patch not in ('CT2', 'CT3')):
+                        raise failure()
+                    profile = terminal_profile(templates, residues[-1]['resname'], [patch])
+                    if (set(profile['atoms']) & {'OXT', 'OT2'} or not {'C', 'O', 'NT'} <= profile['atoms'].keys()
+                            or not {('C', 'O'), ('C', 'NT')} <= profile['bonds']):
+                        raise failure()
+                    deleted_atoms.append({'source_serial': serial, 'segment': segment, 'resid': rid,
+                        'resname': entry['resname'], 'atom': 'OXT', 'charmm_atom': 'OT2', 'patch': patch,
+                        'basis': 'explicit_requested_amide_terminal_RTF_profile'})
             # Compose both ends together only when they share the same residue.
             end_groups = defaultdict(list)
             for end, rid, residue in (("n_terminal", ids[0], residues[0]), ("c_terminal", ids[-1], residues[-1])):
@@ -237,6 +296,8 @@ def verify_fragment_artifact(preparation, source_lines, prepared_lines, plan, re
                 "retained_cross_fragment_bonds": len(expected_cross), "disulfide_bonds_checked": disulfides,
                 "peptide_bonds_checked": len(peptide),
                 "plan_fingerprint": plan["fingerprint"], "mapping_sha256": canonical(receipt),
+                **({'retained_atom_name_changes': name_changes} if name_changes else {}),
+                **({'requested_terminal_atom_deletions': deleted_atoms} if deleted_atoms else {}),
                 "evidence_sha256": evidence,
                 "scope": "artifact_fragment_segments_terminal_sites_and_declared_connectivity_only",
                 "server_origin_verified": False, "scientific_correctness_verified": False}

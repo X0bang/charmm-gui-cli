@@ -35,6 +35,8 @@ def residue(serial, resid, x, *, chain="A", segment="", name="ALA", insertion=" 
         positions.append(("CB", (x, -1, 0)))
     if name in ("CYS", "CYX"):
         positions.append(("SG", (x, -2, 0)))
+    if name == 'ILE':
+        positions.extend([('CG1', (x, -2, 0)), ('CG2', (x, -1, 1)), ('CD1', (x, -3, 0))])
     rows = [atom(serial+i, name, resid, xyz, chain=chain, segment=segment, name=kind, element=kind[0])
             for i, (kind, xyz) in enumerate(positions)]
     if insertion != " ":

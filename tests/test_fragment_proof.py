@@ -38,6 +38,8 @@ BASE = {
             "N CA N CD CA HA CA CB CB HB1 CB HB2 CB CG CG HG1 CG HG2 CG CD CD HD1 CD HD2 CA C C O C +N"),
     "CYS": (sites("N NH1 -.47;HN H .31;CA CT1 .07;HA HB1 .09;CB CT2 -.11;HB1 HA2 .09;HB2 HA2 .09;SG S -.23;HG HS .16;C C .51;O O -.51"),
             "N HN N CA CA HA CA CB CB HB1 CB HB2 CB SG SG HG CA C C O C +N"),
+    "ILE": (sites("N NH1 -.47;HN H .31;CA CT1 .07;HA HB1 .09;CB CT1 -.09;HB HA1 .09;CG2 CT3 -.27;HG21 HA3 .09;HG22 HA3 .09;HG23 HA3 .09;CG1 CT2 -.18;HG11 HA2 .09;HG12 HA2 .09;CD CT3 -.27;HD1 HA3 .09;HD2 HA3 .09;HD3 HA3 .09;C C .51;O O -.51"),
+            "N HN N CA CA HA CA CB CB HB CB CG1 CB CG2 CG2 HG21 CG2 HG22 CG2 HG23 CG1 HG11 CG1 HG12 CG1 CD CD HD1 CD HD2 CD HD3 CA C C O C +N"),
 }
 PATCHES = {
     "NTER": (sites("N NH3 -.30;HT1 HC .33;HT2 HC .33;HT3 HC .33;CA CT1 .21;HA HB1 .10"), ["HN"], "N HT1 N HT2 N HT3"),
@@ -181,6 +183,84 @@ class FragmentProofTests(unittest.TestCase):
         self.assertEqual(caught.exception.category, "fragment_topology_unverified")
         self.assertTrue(caught.exception.next_step)
         return caught.exception
+
+    def restage_source(self):
+        self.prepared, self.plan = prepare_fragmented_lines(self.source, accept_breaks=True)
+        source_path, prepared_path = self.root / 'source.pdb', self.root / 'prepared.pdb'
+        source_path.write_text('\n'.join(self.source) + '\n')
+        prepared_path.write_text('\n'.join(self.prepared) + '\n')
+        self.receipt = {}
+        _preparation_fields(self.root / 'selection.html', {'ligand_resname': 'LIG', 'preparation': self.preparation},
+            fragment_plan=self.plan, fragment_source_pdb=source_path, fragment_protein_pdb=prepared_path, fragment_mapping=self.receipt)
+
+    def test_ile_cd1_mapping_uses_actual_rtf_types_and_complete_methyl_branch(self):
+        self.setup_input(first='ILE')
+        result = self.verify()
+        renamed = [row for row in result['retained_atom_name_changes'] if row['from'] == 'CD1']
+        self.assertEqual(len(renamed), 2)
+        self.assertTrue(all(row['to'] == 'CD' and row['basis'] == 'same_source_CHARMM_protein_RTF' for row in renamed))
+
+    def test_ile_alias_refuses_wrong_type_charge_mass_element_and_branch_connectivity(self):
+        self.setup_input(first='ILE')
+        for field, value in (('type', 'CT2'), ('charge', -.18), ('mass', 1.008)):
+            def mutate(atoms, edges, lookup):
+                atoms[lookup['PROA', '1', 'CD']-1][field] = value
+            self.refused(lambda: self.verify(self.model(mutate=mutate)))
+        def branch(atoms, edges, lookup):
+            a, b, c = (lookup['PROA', '1', name] for name in ('CD', 'CG1', 'CB'))
+            edges.remove(tuple(sorted((a, b))))
+            edges.add(tuple(sorted((a, c))))
+        self.refused(lambda: self.verify(self.model(mutate=branch)))
+        pdb, psf = self.model()
+        pdb.write_text('\n'.join(line[:76] + ' N' + line[78:] if line.startswith('ATOM') and line[12:16].strip() == 'CD'
+                                  else line for line in pdb.read_text().splitlines()) + '\n')
+        self.refused(lambda: self.verify((pdb, psf)))
+
+    def test_ile_source_name_collision_and_non_ile_missing_atoms_are_not_aliases(self):
+        self.setup_input(first='ILE')
+        self.source.insert(8, atom(90, 'ILE', 1, (0., -3., 0.), name='CD', element='C'))
+        self.restage_source()
+        self.refused(self.verify)
+        self.setup_input()
+        self.source.insert(5, atom(90, 'ALA', 1, (0., -3., 0.), name='CD1', element='C'))
+        self.restage_source()
+        self.refused(self.verify)
+
+    def test_explicit_ct2_ct3_can_replace_only_the_terminal_extra_carboxyl_oxygen(self):
+        for cap in ('CT2', 'CT3'):
+            self.setup_input(c=cap)
+            self.source.insert(-1, atom(90, 'ALA', 4, (23., 1.8, 0.), name='OXT', element='O'))
+            self.restage_source()
+            result = self.verify()
+            self.assertEqual(result['requested_terminal_atom_deletions'], [{'source_serial': 90,
+                'segment': 'PROB', 'resid': '4', 'resname': 'ALA', 'atom': 'OXT', 'charmm_atom': 'OT2', 'patch': cap,
+                'basis': 'explicit_requested_amide_terminal_RTF_profile'}])
+
+    def test_carboxyl_patch_retains_oxt_as_ot2_and_none_does_not_authorize_oxygen_loss(self):
+        self.source.insert(-1, atom(90, 'ALA', 4, (23., 1.8, 0.), name='OXT', element='O'))
+        self.restage_source()
+        result = self.verify()
+        self.assertNotIn('requested_terminal_atom_deletions', result)
+        self.assertTrue(any(row['from'] == 'OXT' and row['to'] == 'OT2' for row in result['retained_atom_name_changes']))
+        self.setup_input(c='NONE')
+        self.source.insert(-1, atom(90, 'ALA', 4, (23., 1.8, 0.), name='OXT', element='O'))
+        self.restage_source()
+        self.refused(self.verify)
+
+    def test_amide_request_does_not_excuse_internal_missing_atoms_or_drop_declared_cross_links(self):
+        self.setup_input(c='CT2')
+        self.source.insert(5, atom(90, 'ALA', 1, (0., 1.8, 0.), name='OXT', element='O'))
+        self.restage_source()
+        self.refused(self.verify)
+        self.setup_input(c='CT2')
+        self.source[-1:-1] = [atom(90, 'ALA', 4, (23., 1.8, 0.), name='OXT', element='O'), 'CONECT   90    5']
+        self.restage_source()
+        self.refused(self.verify)
+
+    def test_two_source_names_cannot_be_folded_onto_one_retained_actual_atom(self):
+        self.source.insert(-1, atom(90, 'ALA', 4, (23., .8, 0.), name='OT1', element='O'))
+        self.restage_source()
+        self.refused(self.verify)
 
     def test_actual_sites_connectivity_pass_without_asserting_origin_or_science(self):
         proof = self.verify()
