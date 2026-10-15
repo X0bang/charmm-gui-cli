@@ -15,6 +15,7 @@ from charmm_gui_cli.pipeline.config import load_config, plan, validate_config
 from charmm_gui_cli.pipeline import workflow
 from charmm_gui_cli.locales.i18n import set_language, t
 from .presentation.summaries import brief, precheck_summary, report_summary
+from .presentation.arguments import LocalizedParser, LocalizedHelpFormatter, LocalizedDescriptionFormatter, GuidedHelpFormatter, FullHelpAction
 
 
 _JSON_OUTPUT = False
@@ -34,11 +35,11 @@ def add_build_runtime_options(command):
     command.add_argument("--post-timeout", type=float, default=900, help=t("help.post_timeout"))
     command.add_argument("--cookies", type=Path, help=t('help.text.00'))
     waiting = command.add_mutually_exclusive_group()
-    waiting.add_argument("--wait", dest="wait", action="store_true", help=t('help.text.01'))
-    waiting.add_argument("--no-wait", dest="wait", action="store_false", help=t('help.text.02'))
+    waiting.add_argument("--wait", dest="wait", action="store_true", help=argparse.SUPPRESS)
+    waiting.add_argument("--no-wait", dest="wait", action="store_false", help=argparse.SUPPRESS)
     command.set_defaults(wait=True)
-    command.add_argument("--interval", type=int, default=30)
-    command.add_argument("--max-wait", type=int, default=21600)
+    command.add_argument("--interval", type=int, default=30, help=t("help.interval"))
+    command.add_argument("--max-wait", type=int, default=21600, help=t("help.max_wait"))
     checking = command.add_mutually_exclusive_group()
     checking.add_argument("--grompp", action="store_true", help=t('help.text.03'))
     checking.add_argument("--no-grompp", action="store_true", help=t('help.text.04'))
@@ -46,67 +47,18 @@ def add_build_runtime_options(command):
     command.add_argument("--no-preview", action="store_true", help=t('help.text.06'))
 
 
-class LocalizedHelpFormatter(argparse.HelpFormatter):
-    def _format_usage(self, usage, actions, groups, prefix):
-        return super()._format_usage(usage, actions, groups, t("help.usage") if prefix is None else prefix)
-
-
-class LocalizedDescriptionFormatter(LocalizedHelpFormatter, argparse.RawDescriptionHelpFormatter):
-    pass
-
-
-class LocalizedParser(argparse.ArgumentParser):
-    def __init__(self, *args, **kwargs):
-        kwargs.setdefault("formatter_class", LocalizedHelpFormatter)
-        super().__init__(*args, **kwargs)
-        self._positionals.title = t("help.positionals")
-        self._optionals.title = t("help.options")
-
-    def add_argument(self, *args, **kwargs):
-        if kwargs.get("help") == "show this help message and exit":
-            kwargs["help"] = t("help.show")
-        return super().add_argument(*args, **kwargs)
-
-    def error(self, message):
-        # argparse messages may reflect unknown arguments (including secrets).
-        self.print_usage(sys.stderr)
-        self.exit(2, t("cli.error", message=t("help.invalid_arguments")) + "\n")
-
-    def parse_args(self, args=None, namespace=None):
-        args = list(sys.argv[1:] if args is None else args)
-        if self.prog == "charmm-gui-cli":
-            # Support global options on either side of a command. Preserve all
-            # other arguments, and never interpret anything after literal --.
-            before, rest = [], []
-            index = 0
-            while index < len(args):
-                item = args[index]
-                if item == "--":
-                    rest.extend(args[index:])
-                    break
-                option = item.split("=", 1)[0]
-                if option in ("--json", "--foreground", "--lang", "--token-file"):
-                    before.append(item)
-                    if "=" not in item and option in ("--lang", "--token-file") and index + 1 < len(args):
-                        index += 1
-                        before.append(args[index])
-                else:
-                    rest.append(item)
-                index += 1
-            args = before + rest
-        return super().parse_args(args, namespace)
-
-
 def parser():
     from charmm_gui_cli.locales.helptext import OVERVIEW, BUILD_GUIDE
-    root = LocalizedParser(prog="charmm-gui-cli", description=OVERVIEW + "\n" + t("help.background_overview"),
-                           formatter_class=LocalizedDescriptionFormatter)
+    root = LocalizedParser(prog="charmm-gui-cli", description=OVERVIEW,
+                           formatter_class=GuidedHelpFormatter)
+    root.add_argument("--help-all", action=FullHelpAction, nargs=0, default=argparse.SUPPRESS, help=t("help.all"))
     root.add_argument("--version", action="version", version=__version__, help=t("help.version"))
     root.add_argument("--lang", choices=("zh", "en"), help=t("help.lang"))
     root.add_argument("--json", action="store_true", help=t("help.json"))
     root.add_argument("--foreground", action="store_true", help=t("help.foreground"))
     root.add_argument("--token-file", type=Path, help=t('help.text.07'))
-    commands = root.add_subparsers(dest="command", required=True)
+    commands = root.add_subparsers(dest="command", required=True, metavar=t("help.command"))
+    commands.common_commands = True
     updater = commands.add_parser("update", help=t("update.help"))
     updater.add_argument("--check", action="store_true", help=t("update.check_help"))
     updater.add_argument("--prefix", type=Path, help=t("update.prefix_help"))
@@ -229,12 +181,12 @@ def parser():
     build_resume.add_argument("directory", nargs="?", type=Path, help=t('help.text.59'))
     for command in (build, build_resume):
         add_build_runtime_options(command)
-    batch = commands.add_parser("batch", help=t('help.text.60'))
+    batch = commands.add_parser("batch", help=t('help.text.60'), epilog=t("help.queue_guide", start="batch", resume="batch-resume", status="batch-status"), formatter_class=LocalizedDescriptionFormatter)
     batch.add_argument("config", type=Path)
     batch.add_argument("--name", help=t("help.queue_name"))
     batch.add_argument("--out", type=Path, help=t('help.text.61'))
     batch.add_argument("--dry-run", action="store_true", help=t('help.text.62'))
-    batch_resume = commands.add_parser("batch-resume", help=t('help.text.63'))
+    batch_resume = commands.add_parser("batch-resume", help=t('help.text.63'), epilog=t("help.queue_guide", start="batch", resume="batch-resume", status="batch-status"), formatter_class=LocalizedDescriptionFormatter)
     batch_resume.add_argument("directory", type=Path)
     batch_resume.add_argument("--retry-failed-local", action="store_true", help=t("help.queue_retry"))
     for command in (batch, batch_resume):
@@ -245,32 +197,33 @@ def parser():
     batch_status.add_argument("directory", type=Path)
     batch_status.add_argument("--remote-check", action="store_true")
     batch_status.add_argument("--csv", type=Path, help=t('help.text.65'))
-    sweep = commands.add_parser("sweep", help=t('help.text.66'))
+    sweep = commands.add_parser("sweep", help=t('help.text.66'), epilog=t("help.queue_guide", start="sweep", resume="sweep-resume", status="sweep-status"), formatter_class=LocalizedDescriptionFormatter)
     sweep.add_argument("config", type=Path)
     sweep.add_argument("--name", help=t("help.queue_name"))
     sweep.add_argument("--out", type=Path)
     sweep.add_argument("--dry-run", action="store_true", help=t('help.text.67'))
-    sweep_resume = commands.add_parser("sweep-resume", help=t('help.text.68'))
+    sweep_resume = commands.add_parser("sweep-resume", help=t('help.text.68'), epilog=t("help.queue_guide", start="sweep", resume="sweep-resume", status="sweep-status"), formatter_class=LocalizedDescriptionFormatter)
     sweep_resume.add_argument("directory", type=Path)
     sweep_resume.add_argument("--retry-failed-local", action="store_true", help=t("help.queue_retry"))
     for command in (sweep, sweep_resume):
         add_build_runtime_options(command)
         command.add_argument("--max-active", type=int, default=1, help=t('help.text.92'))
-        command.add_argument("--submit-interval", type=int, default=30)
+        command.add_argument("--submit-interval", type=int, default=30, help=t('help.text.91'))
     sweep_status = commands.add_parser("sweep-status", help=t('help.text.69'))
     sweep_status.add_argument("directory", type=Path)
     sweep_status.add_argument("--remote-check", action="store_true")
     sweep_status.add_argument("--csv", type=Path)
-    precheck = commands.add_parser("check", help=t('help.text.70'))
+    precheck = commands.add_parser("check", help=t('help.text.70'), description=t("help.check_guide"), formatter_class=LocalizedDescriptionFormatter)
     for name in ("protein", "ligand", "complex", "components"):
-        precheck.add_argument("--" + name, dest="complex_pdb" if name == "complex" else name, type=Path)
-    precheck.add_argument("--ligand-resname", default="LIG")
-    precheck.add_argument("--ligand-smiles")
-    precheck.add_argument("--accept-conect-bond-orders", action="store_true")
-    precheck.add_argument("--hydrogens", choices=("preserve", "add_missing"), default="add_missing")
+        precheck.add_argument("--" + name, dest="complex_pdb" if name == "complex" else name, type=Path,
+                              help=t({"protein": "help.text.38", "ligand": "help.text.39", "complex": "help.text.40", "components": "help.text.41"}[name]))
+    precheck.add_argument("--ligand-resname", default="LIG", help=t('help.text.42'))
+    precheck.add_argument("--ligand-smiles", help=t('help.text.43'))
+    precheck.add_argument("--accept-conect-bond-orders", action="store_true", help=t('help.text.44'))
+    precheck.add_argument("--hydrogens", choices=("preserve", "add_missing"), default="add_missing", help=t('help.text.45'))
     add_input_selection(precheck)
     precheck.add_argument("--out", type=Path, help=t('help.text.71'))
-    precheck.add_argument("--no-preview", action="store_true")
+    precheck.add_argument("--no-preview", action="store_true", help=t('help.text.06'))
     precheck.add_argument("--open", action="store_true", help=t("help.open_preview"))
     precheck.add_argument("--full", action="store_true", help=t('help.text.72'))
     preview = commands.add_parser("preview", help=t('help.text.73'))
@@ -293,9 +246,9 @@ def parser():
     resume = commands.add_parser("resume", help=t('help.text.83'))
     resume.add_argument("directory", type=Path)
     for command in (run, resume):
-        command.add_argument("--wait", action="store_true")
-        command.add_argument("--interval", type=int, default=30)
-        command.add_argument("--max-wait", type=int, default=21600, help=t('help.text.93'))
+        command.add_argument("--wait", action="store_true", help=t("help.legacy_wait"))
+        command.add_argument("--interval", type=int, default=30, help=t("help.interval"))
+        command.add_argument("--max-wait", type=int, default=21600, help=t("help.max_wait"))
         command.add_argument("--pdb-member", help=t('help.text.94'))
     status = commands.add_parser("status", help=t('help.text.84'))
     status.add_argument("jobid")
@@ -360,7 +313,7 @@ def main(argv=None):
     if not (sys.argv[1:] if argv is None else argv):
         parser().print_help()
         return 0
-    bootstrap = LocalizedParser(add_help=False, allow_abbrev=False)
+    bootstrap = LocalizedParser(prog="charmm-gui-cli", add_help=False, allow_abbrev=False)
     bootstrap.add_argument("--lang")
     early, _ = bootstrap.parse_known_args(sys.argv[1:] if argv is None else argv)
     if early.lang in ("zh", "en"):

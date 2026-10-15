@@ -4,7 +4,7 @@
 
 独立实验性客户端，非 CHARMM-GUI 官方软件。结构上传/参数化使用官网 HTTP 表单，建膜使用官方 Quick Bilayer API；官网变化可能需要适配。本程序不做 docking，不替用户选择质子化状态，不宣称输出已充分平衡。
 
-## 1. Ubuntu 22.04+ 一键安装
+## 1. Ubuntu 22.04+ / macOS 安装
 
 克隆仓库并安装：
 
@@ -137,14 +137,16 @@ charmm-gui-cli build \
 | `--ligand-resname` | LIG；必须明确选择一个配体残基 |
 | `--out` | 可省略，自动创建任务目录；指定时必须是新目录 |
 | `--name` | 可选的唯一任务名；使用 `jobs status/resume/report NAME` |
-| `--no-wait` | 提交或推进后返回，远端继续计算 |
+| `--foreground` | 等待本地流程返回结果退出码；默认后台运行，用 `jobs watch NAME` 查看 |
+| `--interval` | 常规轮询间隔，秒；默认 30、最小 10；退避或服务器 Retry-After 可延长 |
+| `--max-wait` | 本地等待循环的轮询预算，秒；默认 21600（6 小时），不是远端取消或硬性总超时 |
 | `--dry-run` | 仅本地准备和检查；不登录、不上传，可随后恢复 |
 | `--grompp` / `--no-grompp` | 默认检测到 gmx 就编译；前者要求必须编译，后者跳过编译 |
 | `--gmx` | 默认 `gmx`，可指定可执行文件路径 |
 
-这些默认参数不是针对任意膜蛋白的科学建议。多配体/有机辅因子使用实验性 `--components` 入口，见 [组分说明](COMPONENTS.md)；不支持共价配体、复杂金属配位、自动缺失片段修补或自动 pH 选择。蛋白 PDB 必须单模型、无未解决的 alternate locations，保留明确元素列；额外水、辅因子或其他 HETATM 需先明确处理，程序不会静默丢弃。
+这些默认参数不是针对任意膜蛋白的科学建议。多配体/有机辅因子使用实验性 `--components` 入口，见 [组分说明](COMPONENTS.md)；不支持共价配体、复杂金属配位、自动缺失片段修补或自动 pH 选择。默认删除结晶水，按完整性和占有率选择 altloc，转换 MSE→MET，并保守补全可推断的元素和链 ID；修复会记入检查与输入证据，原文件不改。多模型须显式选择；其他金属、辅因子和未知残基仍需明确处理。
 
-无效几何会被拒绝，例如蛋白–配体重原子距离小于 0.8 Å 或大于 6 Å。检查通过不证明原始结合姿势正确。
+过近或远离的配体会被拒绝，例如蛋白–配体重原子距离小于 2.2 Å 或单配体输入整体远于 6 Å。小于 0.8 Å 属于严重重叠，2.2 Å 内可能是共价连接或坐标错误；当前流程不支持共价配体。
 
 环境验收检查请求的脂质种类、水、离子种类及浓度直接证据。0.4.0 进一步核对上下叶层的最终脂质种类、数量与请求比例，证据来自尺寸流、packing head、最终坐标及 PSF；每种允许一个分子的离散舍入偏差。支持明确 P 头基的磷脂和 CHL1/O3；缺少可靠证据、未知头基或改变过的坐标约定会阻断验收。SMILES 转换还会拒绝同位素、自由基和配位键，避免悄悄改变化学定义。
 
@@ -154,7 +156,7 @@ charmm-gui-cli build \
 
 输入检查/化学转换 → 补氢与合并 → 上传 → CGenFF 参数化 → PPM/脂膜构建 → 下载 → 拓扑、环境和相对位姿验证。
 
-处理进度显示在终端 stderr；最终 stdout 为 JSON 摘要，给出任务、归档和完整报告位置。安装了 GROMACS 时自动使用原始最小化 MDP 执行 `grompp -maxwarn 0`，不运行 MD；未安装时会明确显示未编译，不把它当作 GROMACS 通过。
+处理进度显示在 stderr；终端 stdout 显示易读摘要，管道或 `--json` 输出机器可读 JSON。结果给出任务、归档和完整报告位置。安装了 GROMACS 时自动使用原始最小化 MDP 执行 `grompp -maxwarn 0`，不运行 MD；未安装时会明确显示未编译。
 
 ```bash
 # 最近任务，无需记住中间文件路径
@@ -164,8 +166,9 @@ charmm-gui-cli build-resume
 # 多任务时，也可指定任务目录
 charmm-gui-cli build-resume /path/to/run
 
-# 只提交/推进，不在终端等待
-charmm-gui-cli build --protein protein.pdb --ligand bound.sdf --no-wait
+# 默认后台运行，按需查看日志
+charmm-gui-cli build --name receptor-a --protein protein.pdb --ligand bound.sdf
+charmm-gui-cli jobs watch receptor-a
 ```
 
 建模默认在后台运行，任务只占当前目录下的 `./<任务名>/`，`--out DIR` 可指定其他位置，日志为该目录的 `run.log`；用 `jobs watch NAME` 跟踪，Ctrl-C 只退出查看。脚本和 Slurm 使用 `charmm-gui-cli --foreground build ...` 获取最终退出码。旧任务位置不迁移，`jobs` 仍通过全局索引查找。主要结果是：
@@ -179,9 +182,11 @@ charmm-gui-cli build --protein protein.pdb --ligand bound.sdf --no-wait
 
 模型解压完成后才交付为 `model/`，中断可恢复。修改模型会使旧验收结论失效；重复导出不会覆盖用户编辑的 `report.txt`、`README.txt` 或 `inputs/system-config.json`，请先备份修改或导出到新目录。
 
-每阶段默认最多等待 6 小时，每 30 秒查询；`--max-wait` 和 `--interval` 可调整。达到等待上限或终端中断不等于取消远端任务，使用 `build-resume` 继续；不要为同一个未完成任务再次 `build`。
+等待循环默认轮询预算 6 小时，常规查询间隔 30 秒；`--max-wait` 和 `--interval` 可调整。同步 POST、退避和本地验收不受这个预算硬性打断，预算到时也不取消远端任务；使用 `jobs resume NAME` 继续同一任务。
 
 后台启动返回码 0 只表示已启动；`jobs status NAME` 查看当前状态。前台模式返回码 0 也可能是 `--no-wait` 下的运行中状态。完整完成需看到 `state: validated`；2 表示错误或验证失败，130 表示中断或退出查看。
+
+`--wait/--no-wait` 是保留的兼容选项，常用帮助不再展示。它们与 `--foreground` 作用不同：`--no-wait` 只推进一轮，可能在建膜仍运行时返回，之后要显式 resume；不建议用它代替默认后台运行。`--foreground` 在默认等待模式下才适合脚本等待最终结果。
 
 ## 6. 本地预检与恢复
 

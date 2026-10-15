@@ -143,7 +143,7 @@ charmm-gui-cli login
 charmm-gui-cli --lang zh build system.yaml --name receptor-a
 ```
 
-这两种启动方式二选一。已创建 `receptor-a` 时使用 resume，不要再用相同任务名重复 build。0.6.0 默认由后台进程等待、下载并验收，终端立即返回启动信息；`jobs watch receptor-a` 跟踪日志。脚本或 Slurm 使用 `charmm-gui-cli --foreground build ...` 等待最终退出码。`--no-wait` 只推进一轮，之后需恢复。
+这两种启动方式二选一。已创建 `receptor-a` 时使用 resume。默认由后台进程等待、下载并验收，终端立即返回启动信息；`jobs watch receptor-a` 跟踪日志。脚本或 Slurm 使用 `charmm-gui-cli --foreground build ...` 等待最终退出码。保留的兼容选项 `--wait/--no-wait` 不再出现在常用帮助中：`--no-wait` 只推进一轮，之后需恢复，不能代替后台运行。`batch/sweep` 的队列调度仍在前台，可 Ctrl-C 后用相应的 `batch-resume/sweep-resume` 继续。
 
 ### 4. 查看进度、结果和中断恢复
 

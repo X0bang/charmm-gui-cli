@@ -29,6 +29,8 @@ charmm-gui-cli update          # 校验下载包并更新，不删除旧安装
 
 ## 使用
 
+`charmm-gui-cli -h` 查看常用流程；`--help-all` 列出高级与兼容命令；`build -h` 查看输入和建模参数。
+
 ```bash
 charmm-gui-cli doctor
 charmm-gui-cli login

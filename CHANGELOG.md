@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Shorten default help to common workflows and add --help-all for complete advanced/compatibility command discovery. Document polling units/budgets, queue foreground behavior and correct N/C terminal examples; keep legacy wait flags and namespaces compatible.
+- Diagnose recognizable option typos and invalid option values with command-specific help routes, without printing argv values or raw argparse messages. Cover flag-shaped credential values, inline values, abbreviations and literal -- separators.
+
 - Localize shared YAML/schema/numeric/lipid checks, missing input routes and task metadata diagnostics while retaining legacy machine-readable messages and recovery categories. Show parser line/column locations without configuration values; bind configuration errors to actual files and local recheck commands.
 - Report filesystem targets and permission/read-only/space causes without exception bodies, including saved local check/build failures. Distinguish foreign occupied paths from resumable tasks, preserve existing outputs and report C-terminal patch choices without suggesting N-terminal values.
 - Add public-command privacy/actionability regressions and refresh the canonical-path localization backlog; remaining chemistry, batch/sweep and detailed validation messages are not yet fully migrated.

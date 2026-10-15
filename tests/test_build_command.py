@@ -37,8 +37,9 @@ class BuildCommandTests(unittest.TestCase):
         with contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as error:
             main(["-h"])
         self.assertEqual(error.exception.code, 0)
-        for command in ("charmm-gui-cli login", "--complex complex.pdb", "--protein protein.pdb", "build-resume", "--no-wait"):
+        for command in ("charmm-gui-cli login", "--complex complex.pdb", "--protein protein.pdb", "jobs resume", "--help-all"):
             self.assertIn(command, output.getvalue())
+        self.assertNotIn("--no-wait", output.getvalue())
         self.token.assert_not_called()
 
     def test_missing_inputs_has_actionable_error_without_authentication(self):
