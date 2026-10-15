@@ -98,8 +98,8 @@ def execute(args):
             try:
                 _task_store.record_recovery(holder[0], ToolError(
                     "Local process interrupted; recorded remote jobs are retained.",
-                    category="interrupted", retryable=True,
-                    next_step="Use jobs resume or build-resume for the existing task."))
+                    key="build.interrupted", category="interrupted", retryable=True,
+                    next_step=shlex.join(['charmm-gui-cli', 'jobs', 'resume', str(task_root(holder[0]))])))
             except (ToolError, OSError):
                 pass
         raise
@@ -153,9 +153,11 @@ def _execute(args, holder):
     except ValueError:
         raise ToolError(key="network.retry_invalid", next_step="unset CHARMM_GUI_GET_RETRY_SECONDS") from None
     if args.interval < 10 or args.max_wait <= 0:
-        raise ToolError("--interval must be >=10 seconds and --max-wait must be positive.")
+        raise ToolError("--interval must be >=10 seconds and --max-wait must be positive.",
+                        key="build.poll_invalid", next_step="charmm-gui-cli build -h")
     if args.grompp and not shutil.which(args.gmx):
-        raise ToolError("--grompp requires GROMACS. Install gmx or supply --gmx /path/to/gmx; no job was submitted.")
+        raise ToolError("--grompp requires GROMACS. Install gmx or supply --gmx /path/to/gmx; no job was submitted.",
+                        key="build.gromacs_required", next_step="charmm-gui-cli doctor")
     if args.command == "build":
         components = getattr(args, "components", None)
         from ..chem.residues import INPUT_FIELDS
@@ -167,7 +169,10 @@ def _execute(args, holder):
             raise ToolError(key="config.mixed_sources", next_step=t("config.choose_yaml", command=shlex.join(["charmm-gui-cli", "build", str(args.config), "--dry-run"])))
         if components and (not args.complex_pdb or any(getattr(args, key) is not None for key in
                            ("protein", "ligand", "ligand_resname", "ligand_smiles")) or args.accept_conect_bond_orders):
-            raise ToolError("--components requires --complex and cannot be mixed with --protein, --ligand, --ligand-resname, --ligand-smiles or --accept-conect-bond-orders.")
+            from ..chem.input_diagnostics import check_command
+            raise ToolError("--components requires --complex and cannot be mixed with --protein, --ligand, --ligand-resname, --ligand-smiles or --accept-conect-bond-orders.",
+                            key="build.components_mixed", next_step=check_command(
+                                complex_pdb=args.complex_pdb or 'bound-complex.pdb', components=components))
         if not args.config and not (args.complex_pdb or (args.protein and args.ligand)):
             from charmm_gui_cli.chem.input_diagnostics import check_command
             raise ToolError(key="input.build_sources", next_step=t("input.supply_sources", command=check_command(
@@ -212,9 +217,9 @@ def _execute(args, holder):
         except ToolError:
             pass  # Actual transport validation remains authoritative.
         if not api_only and not cookies.is_file():
-            next_step = "charmm-gui-cli login; then resume this existing task." if directory is not None else "charmm-gui-cli login; then repeat build."
+            next_step = t("build.login_resume", command=shlex.join(['charmm-gui-cli', 'jobs', 'resume', str(task_root(directory))])) if directory is not None else "charmm-gui-cli login"
             raise ToolError("The saved website session is missing. Run charmm-gui-cli login; custom token files need matching --cookies or a Cookie file beside the token.",
-                            category="authentication", next_step=next_step)
+                            key="build.session_missing", category="authentication", next_step=next_step)
 
     if args.command == "build":
         reporter({"state": "preparing_inputs (local)"})

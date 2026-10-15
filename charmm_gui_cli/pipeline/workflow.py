@@ -10,6 +10,7 @@ import math
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shlex
 import tarfile
 import tempfile
 import time
@@ -30,6 +31,18 @@ from charmm_gui_cli.store.run_manifest import read
 
 from charmm_gui_cli.store.provenance import verify_archive_provenance
 
+
+def _local_action(directory, *, resume=False):
+    """Concrete recovery for a managed child or an advanced API-only run."""
+    from ..store.paths import root_for
+    directory = Path(directory).absolute()
+    root = root_for(directory / 'run.json')
+    if root is not None and (root / '.charmm-gui/full-run.json').is_file():
+        return shlex.join(['charmm-gui-cli', 'jobs', 'resume' if resume else 'status', str(root)])
+    if resume:
+        return shlex.join(['charmm-gui-cli', 'resume', str(directory), '--wait'])
+    return shlex.join(['ls', '-l', str(directory / 'run.json')])
+
 def save(directory, manifest):
     manifest["updated_at"] = now()
     atomic_json(Path(directory) / "run.json", manifest)
@@ -43,7 +56,7 @@ def record_errors(directory, manifest, saver=save):
     except (ToolError, KeyboardInterrupt) as exc:
         error = exc if isinstance(exc, ToolError) else ToolError(
             "Interrupted locally; the existing remote job and submission intents are retained.",
-            category="interrupted")
+            key="workflow.interrupted", category="interrupted", next_step=_local_action(directory))
         manifest["last_error"] = {**error.as_dict(), "at": now(), "stage": manifest.get("state")}
         saver(directory, manifest)
         raise
@@ -64,13 +77,23 @@ def start(client, config, directory, *, existing_configuration=False):
     config = validate_config(config, existing=existing_configuration)
     proposal = plan(config)
     if not proposal["ready_to_submit"]:
-        raise ToolError("Preparation incomplete: " + " ".join(proposal["blockers"]))
+        details = []
+        if not config['source_job_id']:
+            details.append({'key': 'workflow.source_required'})
+        if not config['preparation']['ligand_parameters_ready']:
+            details.append({'key': 'workflow.parameters_required'})
+        if isinstance(proposal.get('local_pdb'), dict) and proposal['local_pdb'].get('missing_ligands'):
+            details.append({'key': 'workflow.local_ligands_missing'})
+        raise ToolError("Preparation incomplete: " + " ".join(proposal["blockers"]),
+                        key="workflow.preparation_incomplete", details=details, next_step="charmm-gui-cli plan -h")
     client.validate_auth()
     directory = Path(directory)
     try:
         directory.mkdir(parents=True, exist_ok=False)
     except FileExistsError:
-        raise ToolError("Run directory already exists. Use resume; do not submit again.") from None
+        raise ToolError("Run directory already exists. Use resume; do not submit again.",
+                        key="workflow.directory_exists", params={"path": str(directory.absolute())},
+                        next_step=_local_action(directory)) from None
     with run_lock(directory):
         manifest = {
             "schema_version": 1, "tool_version": __version__, "created_at": now(),
@@ -80,10 +103,13 @@ def start(client, config, directory, *, existing_configuration=False):
         try:
             identifier = client.submit(proposal["request"]["form"])
             if identifier == config["source_job_id"]:
-                raise SubmissionUnknown("Server returned the source job ID despite clone_job=true. Check website jobs before attaching.")
+                raise SubmissionUnknown("Server returned the source job ID despite clone_job=true. Check website jobs before attaching.",
+                                        key="workflow.clone_identity_unknown", next_step=_local_action(directory))
         except (SubmissionUnknown, KeyboardInterrupt) as exc:
             manifest["state"] = "submission_unknown"
-            error = exc if isinstance(exc, SubmissionUnknown) else SubmissionUnknown("Interrupted during submission; inspect website jobs and attach before resuming.")
+            error = exc if isinstance(exc, SubmissionUnknown) else SubmissionUnknown(
+                "Interrupted during submission; inspect website jobs and attach before resuming.",
+                key="workflow.post_interrupted", next_step=_local_action(directory))
             manifest["last_error"] = {**error.as_dict(), "at": now(), "stage": "submitting"}
             save(directory, manifest)
             raise
@@ -102,7 +128,7 @@ def status_summary(data):
         return {"status": "running", "raw_status": status}
     if status not in ("pending", "running", "done", "error"):
         raise ToolError("Unrecognized job status; cannot infer completion or successful authentication.",
-                        category="unexpected_response", next_step="Inspect the existing job and authenticate with login if needed; do not resubmit.")
+                        key="workflow.status_unknown", category="unexpected_response", next_step="charmm-gui-cli jobs list")
     return {"status": status}
 
 
@@ -110,9 +136,11 @@ def attach(client, directory, identifier):
     identifier = job_id(identifier)
     with tracked_run(directory, read) as manifest:
         if manifest["state"] not in ("submission_unknown", "submitting") or manifest.get("job_id"):
-            raise ToolError("attach is only for a run with an ambiguous submission and no recorded job ID.")
+            raise ToolError("attach is only for a run with an ambiguous submission and no recorded job ID.",
+                            key="workflow.attach_ineligible", next_step=_local_action(directory))
         if identifier == manifest["config"]["source_job_id"]:
-            raise ToolError("Attach the new cloned build job, not the source preparation job.")
+            raise ToolError("Attach the new cloned build job, not the source preparation job.",
+                            key="workflow.attach_source", next_step=_local_action(directory))
         status_summary(client.status(identifier))
         manifest.update(job_id=identifier, state="submitted")
         save(directory, manifest)
@@ -126,15 +154,18 @@ def _download_archive(client, directory, manifest, archive, *, wait, deadline, p
     while not archive.exists():
         retry_at = manifest.get("archive_retry_at_unix", 0)
         if isinstance(retry_at, bool) or not isinstance(retry_at, (int, float)) or not math.isfinite(retry_at):
-            raise ToolError("Invalid saved archive retry time; inspect run.json before resuming.")
+            raise ToolError("Invalid saved archive retry time; inspect run.json before resuming.",
+                            key="workflow.archive_retry_invalid", next_step=_local_action(directory))
         delay = retry_at - time.time()
         if retry_at and wait and time.monotonic() >= deadline:
             raise ToolError("等待归档准备的本地时限已到；原任务和下载重试时间已保留。",
-                            category="archive_preparing", retryable=True, retry_after_seconds=max(0, math.ceil(delay)))
+                            key="workflow.archive_wait_limit", category="archive_preparing", retryable=True,
+                            retry_after_seconds=max(0, math.ceil(delay)), next_step=_local_action(directory, resume=True))
         if delay > 0:
             if not wait or time.monotonic() >= deadline:
                 raise ToolError("官网归档仍在准备；等待记录的重试时间后恢复同一任务。",
-                                category="archive_preparing", retryable=True, retry_after_seconds=math.ceil(delay))
+                                key="workflow.archive_waiting", category="archive_preparing", retryable=True,
+                                retry_after_seconds=math.ceil(delay), next_step=_local_action(directory, resume=True))
             time.sleep(min(30, delay, max(0, deadline - time.monotonic())))
             continue
         if progress:
@@ -181,12 +212,14 @@ def _download_archive(client, directory, manifest, archive, *, wait, deadline, p
 
 def resume(client, directory, *, wait=False, interval=30, max_wait=21600, pdb_member=None, progress=None):
     if interval < 10 or max_wait <= 0:
-        raise ToolError("Polling interval must be >= 10 seconds and max-wait must be positive.")
+        raise ToolError("Polling interval must be >= 10 seconds and max-wait must be positive.",
+                        key="workflow.poll_invalid", next_step="charmm-gui-cli resume -h")
     directory = Path(directory)
     with tracked_run(directory, read) as manifest:
         identifier = manifest.get("job_id")
         if not identifier:
-            raise SubmissionUnknown("Submission outcome is unknown. Check website jobs and use attach; resume never resubmits.")
+            raise SubmissionUnknown("Submission outcome is unknown. Check website jobs and use attach; resume never resubmits.",
+                                    key="workflow.submission_unknown", next_step=_local_action(directory))
         deadline = time.monotonic() + max_wait
         archive = run_archive_path(directory)
         awaiting_archive = manifest.get("state") == "archive_preparing" and (
@@ -212,7 +245,7 @@ def resume(client, directory, *, wait=False, interval=30, max_wait=21600, pdb_me
                     progress(event)
                 if status == "error":
                     raise ToolError("Remote building failed. Review this job in CHARMM-GUI; no resubmission was attempted.",
-                                    category="remote_failure", next_step="Inspect saved job output and the failed remote job; resume never resubmits.")
+                                    key="workflow.remote_failed", category="remote_failure", next_step=_local_action(directory))
                 if status == "done":
                     break
                 if status == "archive_preparing":
@@ -228,7 +261,8 @@ def resume(client, directory, *, wait=False, interval=30, max_wait=21600, pdb_me
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise ToolError("Wait limit reached. The remote job is retained; run resume later.",
-                                    category="wait_timeout", retryable=True)
+                                    key="workflow.wait_limit", category="wait_timeout", retryable=True,
+                                    next_step=_local_action(directory, resume=True))
                 time.sleep(min(interval, remaining))
         if not archive.exists():
             _download_archive(client, directory, manifest, archive, wait=wait, deadline=deadline, progress=progress)
@@ -245,5 +279,6 @@ def resume(client, directory, *, wait=False, interval=30, max_wait=21600, pdb_me
         save(directory, manifest)
         if not report["passed"]:
             raise ToolError("Expected ligand residues are missing from the assembled structure. See validation.json.",
-                            category="validation_failure", next_step="Review validation.json and the retained archive; do not use this structure as validated.")
+                            key="workflow.ligands_missing", category="validation_failure",
+                            next_step=shlex.join(['ls', '-l', str(directory / 'validation.json')]))
         return manifest

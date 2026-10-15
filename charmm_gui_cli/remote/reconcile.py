@@ -1,6 +1,8 @@
 """GET-only reconciliation; an absent result never authorizes a replay."""
 import json
 from pathlib import Path
+import re
+import shlex
 from urllib.parse import parse_qs, urlparse
 import uuid
 
@@ -12,6 +14,14 @@ from charmm_gui_cli.remote.web import soup_for
 from charmm_gui_cli.remote.web_state import parse_page_state
 from charmm_gui_cli.store.locking import run_lock
 from ..store.paths import read_value
+from ..store.layout import task_root
+from ..store.tasks import _job_metadata
+
+
+def _command(directory, action):
+    name = _job_metadata(directory).get('name')
+    target = name if isinstance(name, str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}', name) else str(task_root(directory))
+    return shlex.join(['charmm-gui-cli', 'jobs', action, target])
 
 
 def reconcile(directory, web, *, confirm_not_submitted=False, source_job_id=None):
@@ -31,7 +41,7 @@ def reconcile(directory, web, *, confirm_not_submitted=False, source_job_id=None
                     break
         if selected is None:
             return {"state": "no_unresolved_intent", "directory": str(directory), "post_sent": False,
-                    "next_step": "charmm-gui-cli jobs status NAME"}
+                    "next_step": _command(directory, 'status')}
         intent_path, output, previous, intent = selected
         identifier = source_job_id or manifest.get("source_job_id") or intent.get("job_id")
         if not identifier:
@@ -42,7 +52,7 @@ def reconcile(directory, web, *, confirm_not_submitted=False, source_job_id=None
             identifier = field.get("value") if field else None
         if not identifier:
             return {"state": "unknown", "directory": str(directory), "post_sent": False,
-                    "url": "https://www.charmm-gui.org/", "next_step": t("reconcile.no_id")}
+                    "url": "https://www.charmm-gui.org/", "next_step": t("reconcile.no_id_task", command=_command(directory, 'reconcile'))}
         identifier = job_id(identifier)
         url = official_links(source_job_id=identifier)["source_preparation"]
         response = web.request("GET", url)
@@ -71,7 +81,7 @@ def reconcile(directory, web, *, confirm_not_submitted=False, source_job_id=None
             atomic_json(intent_path, intent)
             manifest.update(source_job_id=identifier)
             atomic_json(directory / "full-run.json", manifest)
-            result.update(state="response_received", next_step="charmm-gui-cli jobs resume NAME")
+            result.update(state="response_received", next_step=_command(directory, 'resume'))
         else:
             # A matching old form is only a candidate: explicit human confirmation
             # is still needed, because server work may not yet have rendered.
@@ -79,11 +89,11 @@ def reconcile(directory, web, *, confirm_not_submitted=False, source_job_id=None
                          and old.get("step_number") is not None and page.get("step_number") == old["step_number"]
                          and page.get("next_url") == old.get("next_url"))
             if same_step and output.name != "upload-response.html":
-                result.update(state="confirmation_required", next_step=t("reconcile.confirm"))
+                result.update(state="confirmation_required", next_step=t("reconcile.confirm_task", command=_command(directory, 'reconcile') + ' --confirm-not-submitted'))
                 if confirm_not_submitted:
                     archive = intent_path.with_name(intent_path.name + ".retired-" + uuid.uuid4().hex)
                     intent_path.rename(archive)
-                    result.update(state="not_submitted_confirmed", retired_intent=str(archive), next_step="charmm-gui-cli jobs resume NAME")
+                    result.update(state="not_submitted_confirmed", retired_intent=str(archive), next_step=_command(directory, 'resume'))
             else:
-                result.update(state="unknown", next_step=t("reconcile.inspect"))
+                result.update(state="unknown", next_step=t("reconcile.inspect_task", command=_command(directory, 'status')))
         return result

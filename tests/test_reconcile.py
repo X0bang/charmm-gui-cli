@@ -1,10 +1,12 @@
 import tempfile
 import unittest
 from pathlib import Path
+import shlex
 from unittest.mock import Mock
 
 from charmm_gui_cli.store.auth import atomic_json, atomic_write
 from charmm_gui_cli.remote.reconcile import reconcile
+from charmm_gui_cli.locales.i18n import set_language
 
 
 OLD = '''<script>var nstep=1; var formstop=0;</script><form action="?doc=input/pdbreader&amp;step=2">
@@ -19,6 +21,7 @@ class ReconcileTests(unittest.TestCase):
         atomic_write(self.preparation / "upload-response.html", OLD)
         atomic_json(self.preparation / "selection.intent.json", {"state": "submission_unknown", "fields": [["jobid", "123"]]})
         self.web = Mock()
+        self.addCleanup(set_language)
 
     def test_accepted_page_saves_response_without_post(self):
         self.web.request.return_value.text = '''<form action="?doc=input/pdbreader&amp;step=3"><input name="jobid" value="123">
@@ -28,6 +31,7 @@ class ReconcileTests(unittest.TestCase):
         self.assertTrue((self.preparation / "selection.html").is_file())
         self.assertEqual(self.web.request.call_args.args[0], "GET")
         self.assertEqual(self.web.request.call_count, 1)
+        self.assertEqual(shlex.split(result['next_step']), ['charmm-gui-cli', 'jobs', 'resume', str(self.directory)])
 
     def test_same_step_requires_explicit_confirmation(self):
         self.web.request.return_value.text = OLD
@@ -39,6 +43,7 @@ class ReconcileTests(unittest.TestCase):
         self.assertFalse((self.preparation / "selection.intent.json").exists())
         self.assertTrue(Path(result["retired_intent"]).exists())
         self.assertTrue(all(call.args[0] == "GET" for call in self.web.request.call_args_list))
+        self.assertEqual(shlex.split(result['next_step']), ['charmm-gui-cli', 'jobs', 'resume', str(self.directory)])
 
     def test_unknown_page_keeps_intent_even_with_confirmation(self):
         self.web.request.return_value.text = "<p>Unrecognized page</p>"
@@ -46,3 +51,26 @@ class ReconcileTests(unittest.TestCase):
         self.assertEqual(result["state"], "unknown")
         self.assertTrue((self.preparation / "selection.intent.json").exists())
         self.assertEqual(self.web.request.call_args.args[0], "GET")
+
+    def test_confirmation_and_unknown_routes_use_real_task_name_in_both_languages(self):
+        atomic_json(self.directory / 'job.json', {'name': 'named-task'})
+        for language in ('zh', 'en'):
+            set_language(language)
+            self.web.request.return_value.text = OLD
+            result = reconcile(self.directory, self.web)
+            self.assertIn('charmm-gui-cli jobs reconcile named-task --confirm-not-submitted', result['next_step'])
+            self.assertNotIn('NAME', result['next_step'])
+            self.assertTrue((self.preparation / 'selection.intent.json').exists())
+            self.web.request.return_value.text = '<p>Unrecognized page</p>'
+            result = reconcile(self.directory, self.web, confirm_not_submitted=True)
+            self.assertIn('charmm-gui-cli jobs status named-task', result['next_step'])
+            self.assertNotIn('NAME', result['next_step'])
+            self.assertTrue((self.preparation / 'selection.intent.json').exists())
+        self.assertTrue(all(call.args[0] == 'GET' for call in self.web.request.call_args_list))
+
+    def test_no_intent_requires_no_get_and_quotes_real_unnamed_directory(self):
+        atomic_write(self.preparation / 'selection.html', OLD)
+        result = reconcile(self.directory, self.web)
+        self.assertEqual(result['state'], 'no_unresolved_intent')
+        self.assertEqual(shlex.split(result['next_step']), ['charmm-gui-cli', 'jobs', 'status', str(self.directory)])
+        self.web.request.assert_not_called()

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Localize all exception construction in build, preparation, managed acceptance and API-run recovery, including interruption and uncertain-submission wrappers. Preserve legacy JSON messages/categories and POST protection, retain explicit preparation blockers and use concrete task/file commands for inspection and recovery.
+- Replace unresolved NAME placeholders in reconciliation with the actual task name or quoted path, including confirmation and manual-review routes. Reconciliation remains GET-only; unknown pages do not authorize a replay.
+- Verify relocation of a real completed membrane model through bilingual public status/report, explicit relink, in-place export and offline foreground resume with GROMACS compilation. The task is restored afterwards; critical archive/model/input/submission evidence remains unchanged and no second model/archive copy or provider request is created. This Linux verification does not claim real macOS provider acceptance.
+
 ## 0.8.10
 
 ### Fixes and improvements

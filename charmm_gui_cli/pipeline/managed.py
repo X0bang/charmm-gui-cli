@@ -143,7 +143,8 @@ def create_managed_build(*, protein=None, ligand=None, complex_pdb=None, ligand_
         directory = Path(output).expanduser().resolve()
     staging = directory / "sources" if modern(directory) else directory.parent / f".{directory.name}.sources"
     if staging.exists():
-        raise ToolError("Input staging for this build already exists; inspect it before starting a new run.")
+        raise ToolError("Input staging for this build already exists; inspect it before starting a new run.",
+                        key="build.staging_exists", params={"path": str(staging)}, next_step=shlex.join(['ls', '-ld', str(staging)]))
     with local_initialization(directory):
         sources = prepare_sources(protein=protein, ligand=ligand, complex_pdb=complex_pdb,
                                   ligand_resname=ligand_resname, ligand_smiles=ligand_smiles,
@@ -326,9 +327,11 @@ def _archive_binding(manifest, archive, *, create_receipt=False):
         bilayer_source = job_id(bilayer["config"]["source_job_id"])
     except (KeyError, TypeError, ValueError):
         raise ToolError("Archive provenance requires complete source/build job IDs and readable bilayer job lineage.",
+                        key="validation.lineage_incomplete", next_step=shlex.join(['ls', '-l', str(bilayer_directory / 'run.json')]),
                         details=[{"key": "validation.lineage_changed", "params": {"path": str(bilayer_directory / "run.json")}}]) from None
     if build_id != bilayer_id or source_id != bilayer_source or source_id == build_id:
         raise ToolError("Archive provenance mismatch between full-build source/build IDs and the bilayer job; do not reuse another job's archive.",
+                        key="validation.lineage_mismatch", next_step=shlex.join(['ls', '-l', str(bilayer_directory / 'run.json')]),
                         details=[{"key": "validation.lineage_changed", "params": {"path": str(bilayer_directory / "run.json")}}])
     provenance = verify_archive_provenance(bilayer_directory, bilayer, create_receipt=create_receipt)
     receipt = bilayer_directory / "download-receipt.json"
@@ -491,7 +494,9 @@ def finalize_managed_build(directory, *, grompp=False, gmx="gmx"):
         archive = full_archive_path(directory)
         state = manifest.get("state", "unknown")
         if state in ("remote_error", "preparation_failed", "submission_unknown"):
-            raise ToolError(f"Build state is {state}; final validation cannot replace recovery of this failure.")
+            raise ToolError(f"Build state is {state}; final validation cannot replace recovery of this failure.",
+                            key="validation.state_blocked", params={"state": state},
+                            next_step=shlex.join(['charmm-gui-cli', 'jobs', 'status', str(task_root(directory))]))
         if not archive.is_file() or state not in ("ligands_present", "downloaded_unverified", "validation_failed", "complete", "completed", "validated"):
             return {"status": "pending", "passed": None, "directory": str(directory), "build_state": state}
         try:
@@ -500,7 +505,9 @@ def finalize_managed_build(directory, *, grompp=False, gmx="gmx"):
             reference = Path(inputs["complex.pdb"])
             evidence = _evidence(manifest, archive, grompp, gmx, create_receipt=True)
         except (KeyError, TypeError, OSError):
-            raise ToolError("Completed build is missing readable input files/configuration required for final validation.") from None
+            raise ToolError("Completed build is missing readable input files/configuration required for final validation.",
+                            key="validation.inputs_unreadable", params={"path": str(task_root(directory))},
+                            next_step=shlex.join(['charmm-gui-cli', 'jobs', 'status', str(task_root(directory))])) from None
         fingerprint = _canonical_hash(evidence)
         results = directory / "results"
         report_path = results / "validation.json"

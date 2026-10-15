@@ -157,10 +157,12 @@ class BuildCommandTests(unittest.TestCase):
         self.assertEqual(advance.call_args.args[0], self.run)
 
     def test_explicit_grompp_missing_executable_fails_before_login(self):
-        with patch("charmm_gui_cli.pipeline.build_command.shutil.which", return_value=None):
-            code, _, error = self.call(["build", "--protein", "p.pdb", "--ligand", "l.sdf", "--grompp"])
-        self.assertEqual(code, 2)
-        self.assertIn("no job was submitted", error)
+        for language, text in (('en', 'No job was submitted'), ('zh', '本次未提交任务')):
+            with patch("charmm_gui_cli.pipeline.build_command.shutil.which", return_value=None):
+                code, _, error = self.call(['--lang', language, "build", "--protein", "p.pdb", "--ligand", "l.sdf", "--grompp"])
+            self.assertEqual(code, 2)
+            self.assertIn(text, error)
+            self.assertIn('charmm-gui-cli doctor', error)
         self.token.assert_not_called()
 
     def test_failed_final_validation_is_nonzero(self):

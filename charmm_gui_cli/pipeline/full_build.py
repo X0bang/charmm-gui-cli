@@ -4,6 +4,7 @@ import json
 import hashlib
 from pathlib import Path
 import re
+import shlex
 import time
 import sys
 from urllib.parse import parse_qs, urlparse
@@ -66,11 +67,14 @@ def _read(directory):
     try:
         manifest = read_value(Path(directory) / "full-run.json")
     except (ValueError, OSError):
-        raise ToolError("Cannot read full-run.json.") from None
+        raise ToolError("Cannot read full-run.json.", key="build.manifest_unreadable",
+                        next_step=shlex.join(['ls', '-l', str(Path(directory) / 'full-run.json')])) from None
     if not isinstance(manifest, dict) or type(manifest.get("schema_version")) is not int or manifest["schema_version"] != 2:
-        raise ToolError("Unsupported full-build manifest version.")
+        raise ToolError("Unsupported full-build manifest version.", key="build.manifest_version",
+                        next_step=shlex.join(['ls', '-l', str(Path(directory) / 'full-run.json')]))
     if not manifest.get("inputs"):
-        raise ToolError("Input preparation did not complete; inspect the existing artifacts and correct the configuration.")
+        raise ToolError("Input preparation did not complete; inspect the existing artifacts and correct the configuration.",
+                        key="build.inputs_incomplete", next_step=shlex.join(['ls', '-ld', str(inputs_path(directory))]))
     return manifest
 
 
@@ -86,7 +90,8 @@ def _submit(web, source, destination, fields, uploads=None):
     if Path(destination).is_file():
         return
     if Path(destination).with_suffix(".intent.json").exists():
-        raise SubmissionUnknown("A previous modeling POST has an unresolved submission intent; inspect/recover it before continuing. No repeated POST was sent.")
+        raise SubmissionUnknown("A previous modeling POST has an unresolved submission intent; inspect/recover it before continuing. No repeated POST was sent.",
+                                key="build.post_unknown", next_step=shlex.join(['ls', '-l', str(Path(destination).with_suffix('.intent.json'))]))
     web.submit_snapshot(source, destination, fields, uploads)
 
 
@@ -111,35 +116,42 @@ def _remote_groups(manifest, *, check_files=True):
     if not config.get("components_mode") and groups is None:
         return None
     if not isinstance(groups, list) or not groups:
-        raise ToolError("Multi-component build is missing explicit chemistry groups.")
+        raise ToolError("Multi-component build is missing explicit chemistry groups.",
+                        key="build.groups_missing", next_step="charmm-gui-cli check --help")
     names, resolved = set(), []
     for group in groups:
         if not isinstance(group, dict):
-            raise ToolError("Invalid multi-component chemistry group.")
+            raise ToolError("Invalid multi-component chemistry group.", key="build.group_invalid", next_step="charmm-gui-cli check --help")
         name = group.get("resname")
         if not isinstance(name, str) or not re.fullmatch(r"[A-Z][A-Z0-9]{0,2}", name) or name in names:
-            raise ToolError("Remote chemistry groups need unique explicit residue names.")
+            raise ToolError("Remote chemistry groups need unique explicit residue names.",
+                            key="build.group_names_invalid", next_step="charmm-gui-cli check --help")
         names.add(name)
         if group.get("mode") == "trusted_charmm":
             raise ToolError("Remote upload of trusted CHARMM topology (trusted_charmm) is not supported; no new remote request was sent.",
-                            category="unsupported_feature", next_step="Keep the local topology checks; use an explicitly supported remote topology workflow, not automatic CGenFF substitution.")
+                            key="build.trusted_upload_unsupported", category="unsupported_feature", next_step="charmm-gui-cli check --help")
         if group.get("mode") != "cgenff_required":
-            raise ToolError("Remote multi-component preparation requires explicitly defined CGenFF chemistry for every group.")
+            raise ToolError("Remote multi-component preparation requires explicitly defined CGenFF chemistry for every group.",
+                            key="build.group_mode_invalid", next_step="charmm-gui-cli check --help")
         if not isinstance(group.get("instances"), list) or len(group["instances"]) != 1:
-            raise ToolError("Remote multi-component builds currently require one instance per distinct residue name.")
+            raise ToolError("Remote multi-component builds currently require one instance per distinct residue name.",
+                            key="build.group_instances_unsupported", next_step="charmm-gui-cli check --help")
         files = group.get("files")
         sdf = files.get("sdf") if isinstance(files, dict) else None
         if not isinstance(sdf, str) or not sdf:
-            raise ToolError("Each chemistry group requires its prepared SDF file.")
+            raise ToolError("Each chemistry group requires its prepared SDF file.",
+                            key="build.group_sdf_missing", next_step="charmm-gui-cli check --help")
         if check_files:
             allowed = {str(Path(value).resolve()) for value in manifest["inputs"]["files"].values() if isinstance(value, str)}
             if not Path(sdf).is_file() or str(Path(sdf).resolve()) not in allowed:
-                raise ToolError("A component SDF is missing or is not a recorded prepared input file.")
+                raise ToolError("A component SDF is missing or is not a recorded prepared input file.",
+                                key="build.group_sdf_unrecorded", next_step="charmm-gui-cli check --help")
         resolved.append({**group, "sdf": sdf})
     declared = config.get("component_resnames")
     if declared is not None and (not isinstance(declared, list) or any(not isinstance(name, str) for name in declared)
                                  or len(set(declared)) != len(declared) or set(declared) != names):
-        raise ToolError("Configured component residue names disagree with the prepared chemistry groups.")
+        raise ToolError("Configured component residue names disagree with the prepared chemistry groups.",
+                        key="build.group_names_mismatch", next_step="charmm-gui-cli check --help")
     return resolved
 
 
@@ -276,7 +288,8 @@ def require_protein_state_support(directory, manifest):
             except (OSError, ValueError):
                 unknown = True
         if unknown:
-            raise SubmissionUnknown("A previous modeling POST has an unresolved submission intent; inspect/recover it before continuing. No repeated POST was sent.")
+            raise SubmissionUnknown("A previous modeling POST has an unresolved submission intent; inspect/recover it before continuing. No repeated POST was sent.",
+                                    key="build.post_unknown", next_step=shlex.join(['charmm-gui-cli', 'jobs', 'status', str(task_root(directory))]))
     if fragment is not None:
         from .fragments import validate_local
         validate_local(directory, manifest)
@@ -289,7 +302,8 @@ def require_protein_state_support(directory, manifest):
 def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, progress=None):
     """Advance a saved build without repeating any recorded submission."""
     if interval < 10 or max_wait <= 0:
-        raise ToolError("Polling interval must be >=10 seconds and max-wait positive.")
+        raise ToolError("Polling interval must be >=10 seconds and max-wait positive.",
+                        key="build.poll_invalid", next_step="charmm-gui-cli jobs resume --help")
     directory = Path(directory).resolve()
     with tracked_run(directory, _read, _save) as manifest:
         build_directory = directory / "bilayer"
@@ -315,7 +329,8 @@ def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, pro
         parameterized = upload_dir / "parameterization.html"
         if not uploaded.exists():
             if upload_dir.exists():
-                raise SubmissionUnknown("Upload directory already exists without a response; inspect/recover the prior upload before continuing. No repeated upload was sent.")
+                raise SubmissionUnknown("Upload directory already exists without a response; inspect/recover the prior upload before continuing. No repeated upload was sent.",
+                                        key="build.upload_unknown", next_step=shlex.join(['charmm-gui-cli', 'jobs', 'status', str(task_root(directory))]))
             if groups is None:
                 from charmm_gui_cli.pipeline.sweep import seal_preparation
                 seal_preparation(directory)
@@ -454,11 +469,13 @@ def _await_preparation(web, directory, manifest, initial_page, wait, interval, m
         if page["job_id"] and page["job_id"] != manifest["source_job_id"]:
             manifest["state"] = "preparation_unrecognized"
             _save(directory, manifest)
-            raise ToolError("Preparation response belongs to a different job; refusing to continue.")
+            raise ToolError("Preparation response belongs to a different job; refusing to continue.",
+                            key="build.preparation_wrong_job", next_step=shlex.join(['ls', '-l', str(current)]))
         if page["state"] == "auth_required":
             manifest["state"] = "preparation_auth_required"
             _save(directory, manifest)
-            raise AuthError("Website session expired. Run charmm-gui-cli login and build-resume.")
+            raise AuthError("Website session expired. Run charmm-gui-cli login and build-resume.", key="build.session_expired",
+                            next_step=t("build.login_resume", command=shlex.join(['charmm-gui-cli', 'jobs', 'resume', str(task_root(directory))])))
         if page["state"] == "error":
             manifest.update(state="preparation_failed", preparation_errors=page["errors"])
             _save(directory, manifest)
@@ -486,7 +503,8 @@ def _await_preparation(web, directory, manifest, initial_page, wait, interval, m
             return
         if time.monotonic() >= deadline:
             raise ToolError("Preparation wait limit reached; build-resume can continue later.",
-                            category="wait_timeout", retryable=True, next_step="Run build-resume on the existing run.")
+                            key="build.preparation_wait_limit", category="wait_timeout", retryable=True,
+                            next_step=shlex.join(['charmm-gui-cli', 'jobs', 'resume', str(task_root(directory))]))
         time.sleep(min(interval, max(0, deadline - time.monotonic())))
         current = _poll_preparation(web, directory, manifest, page)
 

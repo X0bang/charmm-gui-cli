@@ -48,7 +48,13 @@ def execute(args):
             raise ToolError(key="cli.polling")
         directory = args.out if args.command == "run" else args.directory
         if args.command == "run":
-            result = workflow.start(client, load_config(args.config), directory)
+            try:
+                result = workflow.start(client, load_config(args.config), directory)
+            except ToolError as error:
+                if error.key == 'workflow.preparation_incomplete':
+                    import shlex
+                    error.next_step = shlex.join(['charmm-gui-cli', 'plan', str(args.config)])
+                raise
             if not args.wait:
                 emit(brief(result))
                 return 0
