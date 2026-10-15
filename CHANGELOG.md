@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.8.5
+
+### Fixes and improvements
 
 - Accept literal PDB Reader state catalogues terminated by JavaScript ASI before a new declaration or at script end, as observed in the live form. Retain JSON-only decoding and reject expression continuations or duplicate catalogues; no website JavaScript is executed and state proof gates remain unchanged.
 
@@ -12,6 +14,10 @@
 - Localize shared YAML/schema/numeric/lipid checks, missing input routes and task metadata diagnostics while retaining legacy machine-readable messages and recovery categories. Show parser line/column locations without configuration values; bind configuration errors to actual files and local recheck commands.
 - Report filesystem targets and permission/read-only/space causes without exception bodies, including saved local check/build failures. Distinguish foreign occupied paths from resumable tasks, preserve existing outputs and report C-terminal patch choices without suggesting N-terminal values.
 - Add public-command privacy/actionability regressions and refresh the canonical-path localization backlog; remaining chemistry, batch/sweep and detailed validation messages are not yet fully migrated.
+
+### Validation scope
+
+Local English and Chinese regressions cover these fixes, including strict literal-catalogue boundaries and map-neutral stereochemistry checks. Source and wheel distributions are checked separately. The catalogue compatibility fix was confirmed against a saved live form, but fresh end-to-end provider acceptance of converted ligands and explicit protein states remains pending. No change to submission recovery, automatic POST retry, docking or force-field conversion is introduced.
 
 ## 0.8.4
 
