@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import uuid
 
@@ -78,10 +79,10 @@ def _safe_to_forget(directory, *, check_process=True):
     return full
 
 
-def _entries(directory, identifier, name):
+def _entries(directory, identifier, name, *, additional_aliases=()):
     entries = []
     old_root = origin(task_root(directory))
-    aliases = {str(directory), str(old_root / '.charmm-gui') if directory.name == '.charmm-gui' else str(directory)}
+    aliases = {str(directory), str(old_root / '.charmm-gui') if directory.name == '.charmm-gui' else str(directory), *additional_aliases}
     for registry in _registries():
         folders = [registry / 'names', registry / 'run-history']
         if any(path.is_symlink() for path in folders):
@@ -98,30 +99,117 @@ def _entries(directory, identifier, name):
                 if path == registry / 'names' / (name + '.json'):
                     raise _error('unsafe_index', directory, path=str(path)) from None
                 continue
-            matching = record.get('task_id') == identifier if record.get('task_id') is not None else record.get('directory') in aliases
+            matching = (record.get('task_id') == identifier if record.get('task_id') is not None
+                        else isinstance(record.get('directory'), str) and record['directory'] in aliases)
             if matching and (identifier is not None or record.get('task_id') is None):
                 entries.append({'registry': registry, 'path': path, 'sha256': digest,
                                 'relative': path.relative_to(registry), 'bytes': path.stat().st_size})
     return entries
 
 
-def forget(target, *, yes=False):
+def _missing_context(target):
+    """Resolve only an explicit missing index binding, never infer remote state."""
+    token = str(target)
+    supplied = Path(token).expanduser()
+    explicit = supplied.is_absolute() or '/' in token or token.startswith('~')
+    candidates = []
+    if not explicit:
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}', token):
+            raise ToolError(key='input.task_name', next_step='charmm-gui-cli jobs forget -h')
+        for registry in tasks._registries():
+            path = Path(registry) / 'names' / (token + '.json')
+            if path.exists() or path.is_symlink():
+                try:
+                    record, digest = _record(path)
+                except (OSError, ValueError):
+                    raise _error('unsafe_index', path.parent, path=str(path)) from None
+                if record.get('name') != token:
+                    raise ToolError(key='cleanup.missing_not_indexed', next_step='charmm-gui-cli jobs list')
+                candidates = [(record, digest)]
+                break
+    else:
+        roots = {supplied.resolve(), supplied.resolve() / '.charmm-gui'}
+        for registry in _registries():
+            folders = [registry / 'names', registry / 'run-history']
+            if any(folder.is_symlink() for folder in folders):
+                raise _error('unsafe_index', supplied, path=str(registry))
+            paths = [*folders[0].glob('*.json'), *folders[1].glob('*.json')]
+            if (registry / 'latest-run.json').exists():
+                paths.append(registry / 'latest-run.json')
+            if len(paths) > 10000:
+                raise _error('index_limit', supplied, path=str(registry))
+            for path in sorted(paths):
+                try:
+                    record, digest = _record(path)
+                    if isinstance(record.get('directory'), str) and Path(record['directory']).is_absolute() and Path(record['directory']).resolve() in roots:
+                        candidates.append((record, digest))
+                except (OSError, ValueError):
+                    continue
+    if not candidates:
+        raise ToolError(key='cleanup.missing_not_indexed', next_step='charmm-gui-cli jobs list')
+    for record, _ in candidates:
+        if (not isinstance(record.get('directory'), str)
+                or record.get('task_id') is not None and not isinstance(record['task_id'], str)
+                or record.get('name') is not None and not isinstance(record['name'], str)):
+            raise ToolError(key='cleanup.missing_not_indexed', next_step='charmm-gui-cli jobs list')
+    identities = {(record.get('task_id'), record.get('directory')) for record, _ in candidates}
+    if len(identities) != 1:
+        raise ToolError(key='cleanup.missing_ambiguous', next_step='charmm-gui-cli jobs list')
+    record, digest = candidates[0]
+    raw = record.get('directory')
+    identifier = record.get('task_id')
+    if (not isinstance(raw, str) or not Path(raw).is_absolute()
+            or identifier is not None and (not isinstance(identifier, str) or not re.fullmatch(r'[0-9a-f]{32}', identifier))):
+        raise _error('missing_not_indexed', supplied)
+    directory = Path(raw).resolve()
+    if directory.exists() or directory.is_symlink():
+        raise _error('missing_present', directory, path=str(task_root(directory)))
+    return directory, identifier, record.get('name'), raw, digest
+
+
+def _borrowed_lease(directory, descriptor):
+    """Internal callers may retain the same process lease across a task move."""
+    try:
+        import fcntl
+        import stat
+        if type(descriptor) is not int or (directory / 'run.lock').is_symlink():
+            raise ValueError
+        held, target = os.fstat(descriptor), (directory / 'run.lock').stat()
+        if not stat.S_ISREG(held.st_mode) or (held.st_dev, held.st_ino) != (target.st_dev, target.st_ino):
+            raise ValueError
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (OSError, ValueError):
+        raise _error('lease_invalid', directory) from None
+
+
+def forget(target, *, yes=False, missing=False, _lease=None):
     """Default is a read-only plan; --yes moves only matching index records."""
-    directory = tasks.resolve_run(target).resolve()
-    _safe_to_forget(directory)
-    identifier = task_id(directory)
-    embedded = tasks._job_metadata(directory)
-    embedded_name = embedded.get('name')
+    if missing:
+        context = _missing_context(target)
+        directory, identifier, embedded_name, raw_directory, _ = context
+    else:
+        try:
+            directory = tasks.resolve_run(target).resolve()
+        except ToolError as error:
+            if error.key == 'jobs.directory_missing':
+                error.next_step = shlex.join(['charmm-gui-cli', 'jobs', 'forget', str(target), '--missing', '--dry-run'])
+            raise
+        if _lease is not None:
+            _borrowed_lease(directory, _lease)
+        _safe_to_forget(directory, check_process=_lease is None)
+        identifier = task_id(directory)
+        embedded_name = tasks._job_metadata(directory).get('name')
+        raw_directory = str(directory)
     name = embedded_name or str(task_root(directory))
-    entries = _entries(directory, identifier, name)
+    entries = _entries(directory, identifier, name, additional_aliases=[raw_directory])
     result = {'state': 'forget_plan', 'name': name, 'directory': str(task_root(directory)), 'task_id': identifier,
               'index_records': len(entries), 'index_bytes': sum(item['bytes'] for item in entries),
               'index_files': [str(item['path']) for item in entries],
-              'task_data_preserved': True, 'remote_requests': 0,
-              'next_step': shlex.join(['charmm-gui-cli', 'jobs', 'forget', str(target), '--yes'])}
+              'task_data_preserved': True, 'remote_requests': 0, 'missing_directory': missing,
+              'next_step': shlex.join(['charmm-gui-cli', 'jobs', 'forget', str(target), *(['--missing'] if missing else []), '--yes'])}
     if not yes:
         return result
-    fd = claim(directory)
+    fd = None if missing else _lease if _lease is not None else claim(directory)
     try:
         with ExitStack() as stack:
             # All cooperating name/history writers use the same names lock.
@@ -131,13 +219,18 @@ def forget(target, *, yes=False):
                     raise _error('unsafe_index', directory, path=str(names))
                 names.mkdir(mode=0o700, parents=True, exist_ok=True)
                 stack.enter_context(run_lock(names))
-            stack.enter_context(run_lock(directory))
+            if not missing:
+                stack.enter_context(run_lock(directory))
             # Own the lease now; inspect submission state without mistaking our
             # own flock for an active model worker.
-            _safe_to_forget(directory, check_process=False)
-            if task_id(directory) != identifier:
-                raise _error('not_task', directory, path=str(task_root(directory)))
-            entries = _entries(directory, identifier, name)
+            if missing:
+                if _missing_context(target) != context:
+                    raise _error('index_changed', directory)
+            else:
+                _safe_to_forget(directory, check_process=False)
+                if task_id(directory) != identifier:
+                    raise _error('not_task', directory, path=str(task_root(directory)))
+            entries = _entries(directory, identifier, name, additional_aliases=[raw_directory])
             receipts, moved = {}, []
             event = uuid.uuid4().hex
             current_path = directory
@@ -153,7 +246,7 @@ def forget(target, *, yes=False):
                         current_path = backup
                         backup.mkdir(mode=0o700, parents=True, exist_ok=False)
                         receipt = {'version': 1, 'state': 'moving', 'at': now(), 'name': name, 'task_id': identifier,
-                                   'directory': str(directory), 'files': [
+                                   'directory': str(directory), 'missing_directory': missing, 'files': [
                                        {'path': str(row['relative']), 'sha256': row['sha256']}
                                        for row in entries if row['registry'] == registry], 'moved_files': []}
                         receipts[registry] = (backup, receipt)
@@ -208,12 +301,15 @@ def forget(target, *, yes=False):
                 diagnostic.next_step = shlex.join(['ls', '-ld', str(current_path.parent)])
                 raise diagnostic from None
     finally:
-        os.close(fd)
+        if fd is not None and _lease is None:
+            os.close(fd)
     result.update(state='forgotten', index_records=len(entries), index_bytes=sum(item['bytes'] for item in entries),
                   index_files=[str(item['path']) for item in entries],
                   backup_directories=[str(backup) for backup, _ in receipts.values()],
                   next_step=shlex.join(['charmm-gui-cli', 'jobs', 'relink', name, str(task_root(directory))]
                                       if embedded_name else ['charmm-gui-cli', 'jobs', 'remember', str(task_root(directory))]))
+    if missing:
+        result['next_step'] = 'charmm-gui-cli jobs list'
     return result
 
 

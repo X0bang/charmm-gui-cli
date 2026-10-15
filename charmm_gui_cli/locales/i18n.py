@@ -4,6 +4,12 @@ import os
 
 
 MESSAGES = {
+    "cleanup.missing_help": {"zh": "显式归档原目录已丢失的索引；不推断进程或远端任务已结束", "en": "Explicitly archive indexes whose original directory is missing; does not establish process or remote completion"},
+    "cleanup.missing_note": {"zh": "原任务目录不可访问，无法核对进程或远端状态；仅归档索引。找回目录后可用 jobs relink/remember 恢复。", "en": "The original task directory is unavailable, so process/remote state cannot be checked; only indexes are archived. Use jobs relink/remember after finding the retained directory."},
+    "cleanup.missing_not_indexed": {"zh": "没有可唯一对应此目标的本地索引，未猜测任务身份或改动记录。", "en": "No local index uniquely identifies this target; task identity was not guessed and records are unchanged."},
+    "cleanup.missing_ambiguous": {"zh": "此路径对应多个历史任务身份；请用明确的已注册名称选择，不按路径猜测。", "en": "This path has multiple historical task identities; select an explicit registered name instead of guessing by path."},
+    "cleanup.missing_present": {"zh": "原目录仍存在，不能按丢失目录处理：{path}；请使用普通的 jobs forget 或先核对任务。", "en": "The original directory still exists and cannot be treated as missing: {path}; use ordinary jobs forget or inspect the task first."},
+    "cleanup.lease_invalid": {"zh": "内部进程锁与目标任务不符，未操作任务或索引。", "en": "The internal process lease does not match the target task; task and index were not modified."},
     "cleanup.forget_help": {"zh": "归档任务的本地索引，不删除任务文件（默认只查看计划）", "en": "Archive a task's local index without deleting its files (plan only by default)"},
     "cleanup.remember_help": {"zh": "重新收录保留的任务目录，不运行建模或重新提交", "en": "Re-register a retained task directory without running or resubmitting modeling"},
     "cleanup.remembered": {"zh": "已重新收录本地任务：{path}；未运行建模或改变任务证据。", "en": "Local task re-registered: {path}; modeling was not run and task evidence is unchanged."},

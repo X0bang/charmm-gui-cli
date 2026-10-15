@@ -345,6 +345,80 @@ forget(str(directory),yes=True)
             self.assertIn(text,output)
         self.assertEqual(before,self.data())
 
+    def test_explicit_missing_name_archives_only_indexes_and_retained_task_can_relink(self):
+        original=self.data()
+        retained=self.base/'.retained-task'
+        self.root.rename(retained)
+        old=self.root
+        self.root,self.run=retained,retained/'.charmm-gui'
+        before=self.indexes()
+        for language,text in (('en','cannot be checked'),('zh','无法核对')):
+            code,output,error=self.call(['jobs','forget','receptor-a','--missing'],tty=True,language=language)
+            self.assertEqual(code,0,error)
+            self.assertIn(text,output)
+            self.assertEqual(before,self.indexes())
+        code,output,error=self.call(['jobs','forget','receptor-a','--missing','--yes','--json'])
+        self.assertEqual(code,0,error)
+        self.assertTrue(json.loads(output)['missing_directory'])
+        self.assertFalse(old.exists())
+        self.assertEqual(original,self.data())
+        self.assertEqual(relink('receptor-a',self.root)['state'],'relinked')
+
+    def test_missing_option_refuses_existing_directories_and_unindexed_or_malformed_targets(self):
+        before=self.indexes()
+        with self.assertRaises(ToolError) as error: forget('receptor-a',yes=True,missing=True)
+        self.assertEqual(error.exception.key,'cleanup.missing_present')
+        self.assertEqual(before,self.indexes())
+        code,_,error=self.call(['jobs','forget','UNREGISTERED_SECRET','--missing','--yes'])
+        self.assertEqual(code,2)
+        self.assertNotIn('UNREGISTERED_SECRET',error)
+        record=read_value(self.primary/'names/receptor-a.json')
+        record['task_id']=[]
+        atomic_json(self.primary/'names/receptor-a.json',record)
+        with self.assertRaises(ToolError) as error: forget('receptor-a',yes=True,missing=True)
+        self.assertEqual(error.exception.key,'cleanup.missing_not_indexed')
+        record['task_id']='a'*32
+        record['name']='other-task'
+        atomic_json(self.primary/'names/receptor-a.json',record)
+        with self.assertRaises(ToolError) as error: forget('receptor-a',yes=True,missing=True)
+        self.assertEqual(error.exception.key,'cleanup.missing_not_indexed')
+
+    def test_missing_unnamed_path_and_conflicting_historical_identities_are_explicit(self):
+        old=self.base/'legacy-anonymous'
+        old.mkdir()
+        atomic_json(old/'full-run.json',{'schema_version':2,'state':'inputs_ready'})
+        tasks.remember_run(old)
+        old.rename(self.base/'.retained-legacy')
+        result=forget(str(old),yes=True,missing=True)
+        self.assertTrue(result['missing_directory'])
+        self.assertFalse(old.exists())
+        self.assertEqual(json.loads((self.base/'.retained-legacy/full-run.json').read_text())['state'],'inputs_ready')
+        atomic_json(self.primary/'run-history/conflict-a.json',{'directory':str(old),'task_id':'a'*32})
+        atomic_json(self.primary/'run-history/conflict-b.json',{'directory':str(old),'task_id':'b'*32})
+        with self.assertRaises(ToolError) as error: forget(str(old),yes=True,missing=True)
+        self.assertEqual(error.exception.key,'cleanup.missing_ambiguous')
+
+    def test_internal_borrowed_lease_is_validated_and_not_closed_by_index_archival(self):
+        foreign=os.open(self.base/'foreign-lock',os.O_CREAT|os.O_RDWR,0o600)
+        try:
+            with self.assertRaises(ToolError) as error: forget('receptor-a',yes=True,_lease=foreign)
+            self.assertEqual(error.exception.key,'cleanup.lease_invalid')
+        finally: os.close(foreign)
+        fd=claim(self.run)
+        try:
+            result=forget('receptor-a',yes=True,_lease=fd)
+            self.assertEqual(result['state'],'forgotten')
+            os.fstat(fd)
+        finally: os.close(fd)
+
+    def test_unrelated_malformed_directory_field_is_preserved_not_rendered_or_archived(self):
+        invalid=self.primary/'run-history/invalid-directory.json'
+        atomic_json(invalid,{'directory':[],'body':'BODY_SECRET'})
+        before=invalid.read_bytes()
+        result=forget('receptor-a',yes=True)
+        self.assertEqual(before,invalid.read_bytes())
+        self.assertNotIn('BODY_SECRET',json.dumps(result))
+
 
 if __name__=='__main__':
     unittest.main()

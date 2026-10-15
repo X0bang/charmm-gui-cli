@@ -404,6 +404,8 @@ def format_forget(value, **context):
     lines = [t("cleanup.forgotten" if value['state'] == 'forgotten' else "cleanup.forget_plan", name=_text(value['name'])),
              t("cleanup.records", count=value['index_records']),
              t("cleanup.preserved", path=_path(value['directory']))]
+    if value.get('missing_directory'):
+        lines.append(t('cleanup.missing_note'))
     for path in value.get('index_files', [])[:5]:
         lines.append(t("cleanup.index_file", path=_path(path)))
     if len(value.get('index_files', [])) > 5:

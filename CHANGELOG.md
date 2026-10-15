@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add explicit index-only `jobs forget --missing` plans for uniquely identified unavailable directories, retaining hashed backups and refusing existing paths or ambiguous records. Missing-directory archival does not establish process or remote completion.
+- Add native non-replacing directory-move primitives for recoverable cleanup; refuse unsupported filesystems and occupied destinations without copy/delete fallback. Whole-task cleanup is not exposed by this foundation.
+
 ## 0.8.6
 
 ### Fixes and improvements

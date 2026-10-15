@@ -14,6 +14,8 @@ charmm-gui-cli jobs relink receptor-a /path/to/receptor-a  # 恢复注册
 
 旧的无名称任务可用 `jobs forget /path/to/task --yes` 归档索引，再用 `jobs remember /path/to/task` 重新收录；`remember` 仅恢复本地索引，不调用建模流程。对有名称的任务，它按同样的备份/身份规则恢复注册，不绕过名称冲突。
 
+原位置已不存在且按身份也找不到目录时，可显式使用 `jobs forget NAME --missing` 查看仅索引归档计划，确认后加 `--yes`。无名称旧任务可传原绝对路径。此选项不能证明后台进程或官网任务已经停止，只归档已登记且身份唯一的索引，不创建缺失的目录、不取消任务，也不删除模型。原位置仍存在、索引损坏或路径对应多个历史任务身份时会拒绝。找到保留的任务后仍可 `jobs relink/remember` 恢复。
+
 ## 建模与恢复命令
 
 ```bash
@@ -50,7 +52,7 @@ charmm-gui-cli --foreground jobs resume receptor-a
 
 | 分类 | 处理方式 |
 | --- | --- |
-| authentication | `login` 后恢复原任务；程序不保存密码或静默重登录 |
+| authentication | 普通会话运行 `login` 后恢复原任务；显式配置 `login --remember` 或 `CHARMM_GUI_PASSWORD_COMMAND` 的会话可自动成对续期，不重发建模 POST |
 | access_denied | 确认登录账户拥有该任务，切换正确账户后恢复 |
 | transient_network / transient_http | 建模期间 GET 默认退避等待最多 20 分钟；独立查询最多尝试三次，耗尽后记录可恢复错误 |
 | transport_error | TLS/代理等非瞬时错误进入 `paused_network`，修复后显式恢复同一批次，不关闭证书验证或循环自动重试 |
@@ -69,7 +71,7 @@ charmm-gui-cli --foreground jobs resume receptor-a
 
 给 `report.txt` 或 `README.txt` 添加的备注不作为验收证据；重新生成时，先保存为 `.user-edited`（重复备注使用编号备份）。若唯一的 `model/` 不见了，恢复从原始归档重新解压并验收；修改过的模型或输入配置不会被覆盖。
 
-官网可能先报告 `done`，但尚未生成归档；第一次下载会触发压缩，状态变成 `compressing`。程序将其显示为 `archive_preparing`，保留原响应和任务 ID，记录至少 120 秒的下载重试间隔。`--wait` 在时限内等待；单轮运行则提示稍后恢复。压缩可能超过官网提示的 1–2 分钟，这不等于模型失败，也不等于已经下载或验收通过。批量任务仍占用活动槽位，不另建替代任务。其他未知文本、HTML 或损坏归档仍会拒绝。
+官网可能先报告 `done`，但尚未生成归档；第一次下载会触发压缩，状态变成 `compressing`。程序将其显示为 `archive_preparing`，保留原响应和任务 ID；先以 20–30 秒间隔查询，再逐步退避至 120 秒，并遵守更长的 Retry-After 或已记录等待时间。`--wait` 在时限内等待；单轮运行则提示稍后恢复。压缩期间批量任务仍占用活动槽位，不另建替代任务。其他未知文本、HTML 或损坏归档仍会拒绝。
 
 若不确定的 Quick Bilayer 提交实际上已创建任务，关联其**新建膜** job ID：
 
