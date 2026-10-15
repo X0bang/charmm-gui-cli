@@ -154,7 +154,7 @@ class AuditFixTests(unittest.TestCase):
         _task_store.record_recovery(run, SubmissionUnknown("Uncertain POST"))
         value = managed.inspect_run(str(run))
         self.assertEqual(value["execution_state"], "submission_unknown")
-        self.assertIn("jobs reconcile task", format_job_status(value))
+        self.assertIn("jobs reconcile " + str(run.parent), format_job_status(value))
 
     def test_check_failure_and_review_items_are_visible(self):
         value = {"passed": False, "error": {"message": "Incorrect bound pose", "next_step": "charmm-gui-cli check -h"},

@@ -89,6 +89,11 @@ def inspect_run(target, *, remote_check=False, token_file=None):
     delivery = directory / "delivery.json"
     if delivery.is_file():
         result["delivery"] = _task_store._read_json(delivery)
+    from ..presentation.execution import describe_execution
+    from ..store.execution_evidence import submission_evidence
+    result['submission_evidence'] = submission_evidence(directory)
+    result['execution_summary'] = describe_execution(result, target=str(target) if target is not None else None,
+                                                    legacy_error=manifest.get('last_error'))
     return result
 
 
@@ -103,13 +108,18 @@ def list_runs():
         record.update(_task_store._recovery_summary(directory))
         from charmm_gui_cli.store.workers import metadata
         record["background"] = metadata(directory)
+        from ..presentation.execution import describe_execution
+        from ..store.execution_evidence import submission_evidence
+        record['submission_evidence'] = submission_evidence(directory)
+        record['execution_summary'] = describe_execution(record)
     return records
 
 
 def latest_run():
     records = list_runs()
     if not records:
-        raise ToolError("No readable recent build is recorded. Start a build or supply its run directory.")
+        raise ToolError("No readable recent build is recorded. Start a build or supply its run directory.", key='jobs.no_recent',
+                        next_step='charmm-gui-cli jobs list')
     return Path(records[0]["directory"])
 
 

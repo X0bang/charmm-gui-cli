@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add read-only execution diagnostics for legacy and current tasks, separating an active local lease from old provider stages. Classify explicit remote failures correctly, distinguish failed requests from model failures, expose uncertain/unreadable submissions without rewriting intents and keep all historical JSON state/category fields intact.
+- Label unqueried remote stages as last recorded, avoid treating missing workers or incomplete validation records as running/passed, preserve current versus timestamped prior-worker errors and distinguish time since a stale start from actual duration. New diagnostic fields and messages are bilingual with concrete task commands.
+- Localize common task-index/name/registration errors while retaining legacy exception strings; shell-quote unnamed recovery paths and classify newly saved remote_failure records as failed_remote.
 - Add explicit index-only `jobs forget --missing` plans for uniquely identified unavailable directories, retaining hashed backups and refusing existing paths or ambiguous records. Missing-directory archival does not establish process or remote completion.
 - Add recoverable `jobs clean` / `jobs restore` with read-only default plans, whole-task non-replacing moves, retained index backups and pre-move identity receipts. No permanent deletion or copy/delete fallback is used; quarantine does not reclaim disk space.
 - Protect active/uncertain tasks, preparation dependents and unfinished batch members. Completed child rows and source certificates resolve retained locations by UUID and physical directory identity without changing proof bytes or repeating submissions. Restore conflicts support an explicit new path without name registration.

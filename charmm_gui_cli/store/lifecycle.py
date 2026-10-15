@@ -1,13 +1,10 @@
 """Explicit, recoverable local index removal. Never touches task data or HTTP."""
 
 from contextlib import ExitStack
-import hashlib
-import json
 import os
 from pathlib import Path
 import re
 import shlex
-import stat
 import uuid
 
 from . import tasks
@@ -17,6 +14,7 @@ from .layout import task_root
 from .locking import now, run_lock
 from .paths import origin
 from .workers import claim, metadata
+from .json_records import read_object as _record
 
 
 def _error(key, directory, **params):
@@ -26,24 +24,6 @@ def _error(key, directory, **params):
 
 def _registries():
     return sorted({Path(path).expanduser().resolve() for path in tasks._registries()})
-
-
-def _record(path, *, limit=1024 * 1024):
-    path = Path(path)
-    # Inspect the opened inode, not a prior pathname stat. NONBLOCK also keeps
-    # an unexpected FIFO/device in an index from hanging ordinary queries.
-    descriptor = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0))
-    with os.fdopen(descriptor, 'rb') as handle:
-        info = os.fstat(handle.fileno())
-        if not stat.S_ISREG(info.st_mode) or info.st_size > limit or path.is_symlink():
-            raise ValueError
-        raw = handle.read(limit + 1)
-    if len(raw) > limit:
-        raise ValueError
-    value = json.loads(raw)
-    if not isinstance(value, dict):
-        raise ValueError
-    return value, hashlib.sha256(raw).hexdigest()
 
 
 def _safe_to_forget(directory, *, check_process=True):

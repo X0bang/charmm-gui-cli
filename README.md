@@ -80,6 +80,8 @@ charmm-gui-cli --foreground build system.yaml --name receptor-b
 charmm-gui-cli --foreground jobs resume receptor-b  # 脚本/Slurm：等待并返回最终退出码
 ```
 
+`jobs status/list` 区分本地进程与远端记录：没有活动运行锁时，不把旧的 `running` 阶段当成当前仍在执行；未查询官网时，远端阶段标为“上次记录”。旧错误记录也按类别区分远端失败、本地失败、暂停与未知提交。JSON 保留原字段，新增 `execution_summary` 和只读 `submission_evidence`；诊断不修改提交意图或重发请求。
+
 移动任务时保留整个目录（包括隐藏的 `.charmm-gui/`）。找不到原位置时，程序按任务身份在当前目录及其子目录查找；其他位置可显式关联：
 
 ```bash

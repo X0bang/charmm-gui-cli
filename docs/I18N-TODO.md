@@ -24,7 +24,7 @@ YAML 错误显示实际配置路径和修正后可执行的本地复查命令，
 | [pipeline/batch.py](../charmm_gui_cli/pipeline/batch.py) | 16 | 79, 89, 93, 128, 131, 140, 147, 149, 158, 209, 236, 247, 329, 625, 627, 630 |
 | [pipeline/build_command.py](../charmm_gui_cli/pipeline/build_command.py) | 5 | 99, 156, 158, 170, 216 |
 | [pipeline/full_build.py](../charmm_gui_cli/pipeline/full_build.py) | 19 | 61, 63, 65, 81, 106, 110, 113, 116, 119, 121, 125, 129, 134, 223, 230, 253, 373, 377, 404 |
-| [pipeline/managed.py](../charmm_gui_cli/pipeline/managed.py) | 6 | 112, 134, 307, 310, 463, 472 |
+| [pipeline/managed.py](../charmm_gui_cli/pipeline/managed.py) | 5 | 144, 317, 320, 473, 482 |
 | [pipeline/preview.py](../charmm_gui_cli/pipeline/preview.py) | 9 | 24, 27, 36, 43, 47, 54, 60, 67, 73 |
 | [pipeline/sweep.py](../charmm_gui_cli/pipeline/sweep.py) | 38 | 35, 43, 45, 55, 58, 61, 65, 70, 73, 77, 83, 85, 99, 117, 141, 146, 154, 163, 169, 173, 189, 202, 226, 232, 247, 251, 262, 265, 268, 273, 282, 290, 322, 330, 335, 339, 379, 391 |
 | [pipeline/workflow.py](../charmm_gui_cli/pipeline/workflow.py) | 15 | 44, 73, 83, 86, 104, 113, 115, 129, 132, 136, 184, 189, 214, 230, 247 |
@@ -33,9 +33,8 @@ YAML 错误显示实际配置路径和修正后可执行的本地复查命令，
 | [remote/web.py](../charmm_gui_cli/remote/web.py) | 23 | 33, 42, 153, 158, 194, 239, 245, 247, 255, 265, 268, 275, 284, 289, 316, 334, 336, 338, 345, 368, 372, 382, 389 |
 | [store/locking.py](../charmm_gui_cli/store/locking.py) | 1 | 19 |
 | [store/run_manifest.py](../charmm_gui_cli/store/run_manifest.py) | 2 | 13, 15 |
-| [store/tasks.py](../charmm_gui_cli/store/tasks.py) | 9 | 46, 74, 76, 85, 95, 108, 147, 228, 244 |
 
-合计：390 处静态/格式化调用。
+合计：380 处静态/格式化调用。
 
 ## 继续完善
 

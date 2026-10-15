@@ -112,7 +112,7 @@ class DiagnosticTests(unittest.TestCase):
             set_language(language)
             text = format_job_status(value)
             self.assertIn("Unknown lipid POPX", text)
-            self.assertIn("jobs reconcile sample", text)
+            self.assertIn("jobs reconcile " + str(run.parent), text)
 
     def test_remote_check_next_step_is_local_and_query_never_changes_records(self):
         root = Path(tempfile.mkdtemp(prefix="cgui-check-error-"))

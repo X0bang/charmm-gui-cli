@@ -43,7 +43,8 @@ def _new_json(path, value):
     try:
         os.link(name, path)
     except FileExistsError:
-        raise ToolError(f"Managed output already exists; refusing to overwrite {path.name}.") from None
+        raise ToolError(f"Managed output already exists; refusing to overwrite {path.name}.", key='jobs.output_exists',
+                        params={'path': str(path.absolute())}, next_step=shlex.join(['ls', '-ld', str(path.absolute())])) from None
     finally:
         Path(name).unlink(missing_ok=True)
 
@@ -71,9 +72,11 @@ def check_name_available(name, directory=None):
     if path.exists():
         stored = _read_json(path)
         if not isinstance(stored.get("directory"), str) or not stored["directory"]:
-            raise ToolError("Registered job name has unreadable directory metadata; inspect the local name record.")
+            raise ToolError("Registered job name has unreadable directory metadata; inspect the local name record.", key='jobs.name_metadata',
+                            params={'path': str(path)}, next_step=shlex.join(['ls', '-l', str(path)]))
         if directory is None or Path(stored.get("directory", "")).resolve() != Path(directory).resolve():
-            raise ToolError(f"Job name {name} is already registered. Use jobs resume {name}, or choose a new name.")
+            raise ToolError(f"Job name {name} is already registered. Use jobs resume {name}, or choose a new name.", key='jobs.name_taken',
+                            params={'name': name}, next_step=shlex.join(['charmm-gui-cli', 'jobs', 'status', name]))
 
 
 def assign_name(directory, name):
@@ -82,7 +85,8 @@ def assign_name(directory, name):
     validate_name(name)
     manifest = _read_json(directory / "full-run.json")
     if manifest.get("schema_version") != 2:
-        raise ToolError("Only initialized full builds can be named.")
+        raise ToolError("Only initialized full builds can be named.", key='jobs.not_full', params={'path': str(directory)},
+                        next_step=shlex.join(['ls', '-l', str(directory / 'full-run.json')]))
     from charmm_gui_cli.store.indexing import writes_allowed
     if not writes_allowed():
         # A dry-run may retain a local identity for later launch, but must not
@@ -92,7 +96,8 @@ def assign_name(directory, name):
             if existing.exists():
                 record = _read_json(existing)
                 if record.get("name") != name:
-                    raise ToolError("This job already has a different name; existing names are retained.")
+                    raise ToolError("This job already has a different name; existing names are retained.", key='jobs.name_mismatch',
+                                    params={'path': str(task_root(directory))}, next_step=shlex.join(['charmm-gui-cli','jobs','status',str(task_root(directory))]))
                 return record
             from charmm_gui_cli.store.discovery import task_id
             record = {"name": name, "directory": str(directory), "task_id": task_id(directory) or uuid.uuid4().hex,
@@ -105,7 +110,8 @@ def assign_name(directory, name):
         check_name_available(name, directory)
         existing = directory / "job.json"
         if existing.exists() and _read_json(existing).get("name") != name:
-            raise ToolError("This job already has a different name; existing names are retained.")
+            raise ToolError("This job already has a different name; existing names are retained.", key='jobs.name_mismatch',
+                            params={'path': str(task_root(directory))}, next_step=shlex.join(['charmm-gui-cli','jobs','status',str(task_root(directory))]))
         from charmm_gui_cli.store.discovery import task_id
         identifier = task_id(directory) or uuid.uuid4().hex
         record = {"name": name, "directory": str(directory), "task_id": identifier,
@@ -144,7 +150,8 @@ def resolve_run(target):
         raise ToolError(key="jobs.unknown", params={"name": target}, next_step="charmm-gui-cli jobs list")
     record = _read_json(record_path)
     if not isinstance(record.get("directory"), str) or not record["directory"]:
-        raise ToolError("Named job has unreadable directory metadata; inspect its local name record.")
+        raise ToolError("Named job has unreadable directory metadata; inspect its local name record.", key='jobs.name_metadata',
+                        params={'path': str(record_path)}, next_step=shlex.join(['ls', '-l', str(record_path)]))
     from charmm_gui_cli.store.discovery import locate
     return locate(record)
 
@@ -175,14 +182,14 @@ def record_recovery(directory, error=None, *, state=None):
         ambiguous = category == "submission_unknown" or manifest.get("state") == "submission_unknown"
         event["execution_state"] = ("submission_unknown" if ambiguous else
                                     "interrupted" if category == "interrupted" else
-                                    "failed_remote" if category in ("api_error", "http_error", "remote_error", "preparation_failed") or manifest.get("state") in ("remote_error", "preparation_failed") else
+                                    "failed_remote" if category in ("api_error", "http_error", "remote_error", "remote_failure", "preparation_failed") or manifest.get("state") in ("remote_error", "preparation_failed") else
                                     "failed_local")
         name = _job_metadata(directory).get("name")
-        resume = f"charmm-gui-cli jobs resume {name}" if name else f"charmm-gui-cli build-resume {directory}"
+        resume = shlex.join(['charmm-gui-cli','jobs','resume',str(name or task_root(directory))])
         if category in ("authentication", "auth_required"):
             event["next_step"] = "charmm-gui-cli login; " + resume
         elif category == "submission_unknown":
-            event["next_step"] = event["error"].get("next_step") or "Check the existing remote job; use jobs attach with its cloned build ID when available."
+            event["next_step"] = event["error"].get("next_step") or shlex.join(['charmm-gui-cli','jobs','reconcile',str(name or task_root(directory))])
         elif event["error"].get("retryable"):
             event["next_step"] = resume
         else:
@@ -225,7 +232,8 @@ def new_run_path(name=None):
         directory = parent / f"{stamp}-{uuid.uuid4().hex[:12]}"
         if not directory.exists():
             return (directory / ".charmm-gui").resolve()
-    raise ToolError("Could not allocate a new managed run path.")
+    raise ToolError("Could not allocate a new managed run path.", key='jobs.allocate', params={'path':str(parent)},
+                    next_step=shlex.join(['ls','-ld',str(parent)]))
 
 
 def new_batch_path(name=None, *, kind="batch", source=None):
@@ -241,7 +249,8 @@ def _run_record(directory):
     directory = Path(directory).expanduser().resolve()
     manifest = _read_json(directory / "full-run.json")
     if manifest.get("schema_version") != 2:
-        raise ToolError("Only full builds can be remembered.")
+        raise ToolError("Only full builds can be remembered.", key='jobs.not_full', params={'path':str(directory)},
+                        next_step=shlex.join(['ls','-l',str(directory/'full-run.json')]))
     record = {"directory": str(directory), "remembered_at": datetime.now(timezone.utc).isoformat(),
               "state": manifest.get("state", "unknown"), **_job_metadata(directory)}
     from charmm_gui_cli.store.discovery import task_id

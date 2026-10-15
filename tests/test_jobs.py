@@ -63,8 +63,13 @@ class JobsTests(unittest.TestCase):
             _task_store.resolve_run("missing")
         _task_store.assign_name(self.directory, "example")
         self.directory.rename(self.root / "retained-moved-run")
-        with self.assertRaisesRegex(ToolError, "unavailable"):
-            _task_store.resolve_run("example")
+        outside = self.root / 'unrelated-working-directory'
+        outside.mkdir()
+        # Discovery is cwd-scoped. Do not depend on the caller's /tmp or repo
+        # contents (which can correctly hit the bounded-search safety limit).
+        with patch('pathlib.Path.cwd', return_value=outside):
+            with self.assertRaisesRegex(ToolError, "unavailable"):
+                _task_store.resolve_run("example")
 
     def test_status_and_list_are_local_by_default_and_show_recovery(self):
         _task_store.assign_name(self.directory, "example")

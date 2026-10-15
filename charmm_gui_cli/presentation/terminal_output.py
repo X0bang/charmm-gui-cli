@@ -3,6 +3,7 @@
 from pathlib import Path
 import os
 import re
+import shlex
 
 from charmm_gui_cli.locales.i18n import t
 
@@ -109,11 +110,15 @@ def _chain_lines(inventory):
 def format_build(value, **context):
     if value.get("background", {}).get("running"):
         background = value["background"]
-        name = value.get("name") or _path(value.get("directory", ""))
+        from ..store.layout import task_root
+        root = task_root(value['directory']) if value.get('directory') else None
+        name = value.get("name") or (_path(root) if root else '—')
+        target = value.get('name') or (str(root) if root else None)
+        action = shlex.join(['charmm-gui-cli','jobs','watch',str(target)]) if target else 'charmm-gui-cli jobs list'
         return "\n".join([t("output.background", name=_text(name), pid=background.get("pid", "—")),
                          *_repair_lines(value.get("automatic_repairs", [])),
                          t("output.log", path=_path(background["log"])),
-                         t("cli.next", action="charmm-gui-cli jobs watch " + str(name))])
+                         t("cli.next", action=action)])
     from charmm_gui_cli.presentation.progress import describe_progress
     from charmm_gui_cli.store.auth import recovery_guidance
     state = value.get("state", value.get("status", "unknown"))
@@ -193,7 +198,8 @@ def format_build(value, **context):
     if error.get("message"):
         lines.append(t("cli.error", message=_error_text(error)))
         if execution is None and error.get("retryable") is False and state != "submission_unknown":
-            lines[1] = t("output.state", state=t("execution.failed_local"))
+            remote_failure = error.get('category') in ('remote_failure', 'remote_error', 'preparation_failed', 'api_error')
+            lines[1] = t("output.state", state=t("execution.failed_remote" if remote_failure else "execution.failed_local"))
     category = "submission_unknown" if state == "submission_unknown" else error.get("category", state)
     guidance = recovery_guidance(category, cause_category=error.get("cause_category"))
     name = value.get("name")
@@ -263,14 +269,26 @@ def format_jobs(value, **context):
         background = job.get("background", {})
         outcome = _job_outcome(job)
         label = t("jobs.outcome." + outcome)
+        from .execution import describe_execution
+        diagnostic = job.get('execution_summary') or describe_execution(job)
+        elapsed = _elapsed(background.get('elapsed_seconds', 0))
+        if not diagnostic['elapsed_is_duration']:
+            elapsed = t('execution.since_start', elapsed=elapsed)
         lines.append(f"{_text(job.get('name') or _path(job['directory']))} | {label} | "
-                     + t("jobs.running" if background.get("running") else "jobs.stopped") + " | " + _elapsed(background.get('elapsed_seconds', 0)))
+                     + t("jobs.running" if background.get("running") else "jobs.stopped") + " | " + elapsed)
         recovery = job.get("recovery") or {}
         error = recovery.get("error") or job.get("last_error") or {}
         if outcome.startswith("failed") or outcome == "interrupted":
             if error.get("message"):
                 lines.append("  " + t("cli.error", message=_error_text(error)))
-    lines.append(t("cli.next", action="charmm-gui-cli jobs status NAME"))
+        from .execution import describe_execution
+        diagnostic = job.get('execution_summary') or describe_execution(job)
+        if outcome in ('stopped', 'paused', 'submission_unknown', 'needs_validation'):
+            lines.append('  ' + t(diagnostic['reason_key']))
+    jobs = value.get('jobs', [])
+    from .execution import describe_execution
+    action = (jobs[0].get('execution_summary') or describe_execution(jobs[0]))['next_step'] if jobs else 'charmm-gui-cli build -h'
+    lines.append(t("cli.next", action=action))
     return "\n".join(lines)
 
 
@@ -280,35 +298,42 @@ def _elapsed(seconds):
 
 
 def _job_outcome(job):
-    state = job.get("state")
-    if state == "validated" and job.get("passed") is True and not job.get("validation_status"):
-        return "passed"
-    if state in ("remote_error", "preparation_failed") or job.get("execution_state") == "failed_remote":
-        return "failed_remote"
-    if state in ("validation_failed", "local_failed") or job.get("execution_state") == "failed_local":
-        return "failed_local"
-    background = job.get("background") or {}
-    if background.get("running"):
-        return "running"
-    if job.get("validation_status") == "stale_or_unreadable":
-        return "failed_local"
-    if (job.get("execution_state") == "interrupted" or state == "interrupted"
-            or background.get("pid") and not background.get("finished_at")):
-        return "interrupted"
-    return "ready" if state in ("inputs_ready", "prepared_reused", "pending") else "running"
+    from .execution import describe_execution
+    return (job.get('execution_summary') or describe_execution(job))['outcome']
 
 
 def format_job_status(value, **context):
+    from .execution import describe_execution
+    diagnostic = value.get('execution_summary') or describe_execution(value)
     display = dict(value)
     display.pop("background", None)
-    if value.get("background", {}).get("running") and value.get("execution_state") not in ("failed_local", "failed_remote", "submission_unknown") and value.get("state") != "submission_unknown":
+    if diagnostic['prior_error'] or diagnostic['outcome'] == 'running' and not diagnostic['error_current']:
         # The previous execution's recovery history is not this worker's state.
         for key in ("recovery", "last_error", "next_step", "execution_state"):
             display.pop(key, None)
     result = format_build(display)
+    lines = result.splitlines()
+    if len(lines) > 1 and value.get('validation_status') != 'stale_or_unreadable':
+        outcome = diagnostic['outcome']
+        label_key = 'execution.' + outcome if outcome in ('failed_local', 'failed_remote', 'interrupted') else 'jobs.outcome.' + outcome
+        lines[1] = t('output.state', state=t(label_key))
+    lines = [line for line in lines if not line.startswith(t('cli.next', action=''))]
+    if not diagnostic['remote_checked']:
+        prefix = t('output.remote_state', state='')
+        if diagnostic['outcome'] == 'failed_remote':
+            lines = [line for line in lines if not line.startswith(prefix)]
+        else:
+            lines = [t('execution.last_remote', state=line[len(prefix):]) if line.startswith(prefix) else line for line in lines]
+    if diagnostic['outcome'] not in ('running', 'passed', 'ready'):
+        lines.append(t(diagnostic['reason_key']))
+    if value.get('submission_evidence', {}).get('historical_receipts'):
+        lines.append(t('execution.historical_receipts', count=len(value['submission_evidence']['historical_receipts'])))
+    lines.append(t('cli.next', action=diagnostic['next_step']))
+    result = '\n'.join(lines)
     background = value.get("background", {})
     result += "\n" + t("jobs.running" if background.get("running") else "jobs.stopped")
-    result += " | " + t("progress.elapsed", elapsed=_elapsed(background.get('elapsed_seconds', 0)))
+    elapsed = _elapsed(background.get('elapsed_seconds', 0))
+    result += " | " + (t("progress.elapsed", elapsed=elapsed) if diagnostic['elapsed_is_duration'] else t('execution.since_start', elapsed=elapsed))
     if value.get("download_progress"):
         from ..locales.transfers import transfer_text
         if (transfer := transfer_text(value["download_progress"])):
@@ -317,11 +342,11 @@ def format_job_status(value, **context):
         wait = value["network_wait"]
         result += "\n" + t("network.waiting", attempt=wait.get("retry_attempt", "—"),
                            elapsed=_elapsed(wait.get("waiting_elapsed_seconds", 0)))
-    if background.get("running"):
+    if diagnostic['outcome'] == 'running':
         lines = result.splitlines()
         if lines:
             lines = [line for line in lines if not line.startswith(t("cli.next", action=""))]
-        result = "\n".join(lines) + "\n" + t("cli.next", action="charmm-gui-cli jobs watch " + str(value.get("name") or _path(value["directory"])))
+        result = "\n".join(lines) + "\n" + t("cli.next", action=diagnostic['next_step'])
     elif background.get("exit_code", 0) and not value.get("recovery", {}).get("error") and not value.get("last_error"):
         result += "\n" + t("background.worker_failed")
     for record in value.get("recent_stages", []):
