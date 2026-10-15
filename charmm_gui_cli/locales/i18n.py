@@ -1013,3 +1013,26 @@ MESSAGES.update({
     "validation.state_blocked": {"zh": "任务状态为 {state}；需先处理该失败，最终验收不能代替恢复。", "en": "Build state is {state}; recover this failure before final validation."},
     "validation.inputs_unreadable": {"zh": "已完成任务缺少最终验收所需的可读输入或配置：{path}。", "en": "The completed task lacks readable inputs or configuration required for final validation: {path}."},
 })
+
+MESSAGES.update({
+    "check_task.name_help": {"zh": "保存为可接续的命名任务，默认在 ./任务名/；输入只准备一次", "en": "Save a resumable named task under ./NAME/ by default; prepare inputs only once"},
+    "check_task.from_help": {"zh": "使用命名预检任务的已封存输入，在原目录继续；不要再传结构或输入处理选项", "en": "Continue a named check in place using its sealed inputs; do not repeat structure or input-processing options"},
+    "check_task.changed": {"zh": "预检任务的输入、配置或封存证据缺失或不一致；未覆盖、重新准备或重建证明。", "en": "The checked task has missing or inconsistent inputs, configuration or sealed evidence; files were not replaced, prepared again or resealed."},
+    "check_task.input_changed": {"zh": "已封存的预检输入发生变化：{path}", "en": "A sealed checked input changed: {path}"},
+    "validation.input_check_changed": {"zh": "命名预检或建模参数选择的证据已变化：{path}", "en": "Named-precheck or modeling-selection evidence changed: {path}"},
+    "check_task.not_owned": {"zh": "该目录不是具有完整身份及封存证据的命名预检任务；先用 check --name 创建预检。", "en": "This directory is not a named check with complete owned identity and sealed evidence; create one with check --name first."},
+    "check_task.failed": {"zh": "本地预检未通过，不能提交建模；先修正报告指出的输入问题。", "en": "Local precheck failed and cannot be submitted for modeling; correct the reported input findings first."},
+    "check_task.request_fixed": {"zh": "该预检任务已记录一次建模参数选择；继续同一请求，不能原地替换为另一组参数。", "en": "This checked task already records a modeling-option selection; continue that request rather than replacing its options in place."},
+    "check_task.request_needed": {"zh": "预检输入已保留；须先选择建模参数，才能启动远端准备。", "en": "Checked inputs are retained; choose modeling options before starting remote preparation."},
+    "check_task.mixed_sources": {"zh": "--from-check 不能与配置文件、结构文件、化学定义、补氢或输入处理选项混用；需要改变输入时重新预检。", "en": "--from-check cannot be mixed with a configuration file, structures, chemistry, hydrogen or input-processing options; run a new check to change inputs."},
+    "check_task.location_fixed": {"zh": "--from-check 在原任务目录继续，不能更改输出位置或任务名；如已移动目录，请先使用 jobs relink。", "en": "--from-check continues in the existing task directory and cannot change its output location or name; use jobs relink after moving it."},
+    "check_task.report_title": {"zh": "命名任务的本地输入检查", "en": "Named-task local input check"},
+    "check_task.report_scope": {"zh": "本报告只记录本地输入检查，不包含远端建模或最终模型验收。", "en": "This report covers local input checks only, not remote modeling or final model acceptance."},
+    "check_task.ready": {"zh": "本地预检通过（待建模）", "en": "Local precheck passed (ready to model)"},
+    "check_task.checking": {"zh": "正在本地预检", "en": "Local precheck in progress"},
+    "check_task.log_result": {"zh": "本地输入预检：{state}", "en": "Local input precheck: {state}"},
+    "check_task.interrupted": {"zh": "本地预检已中断，已有文件保留；先检查产物，未完成的预检请在新目录重试。", "en": "Local precheck was interrupted and existing files are retained; inspect them first and retry an incomplete check in a new directory."},
+    "check_task.stale": {"zh": "预检证据已失效", "en": "Precheck evidence is stale"},
+    "check_task.failed_label": {"zh": "本地预检失败", "en": "Local precheck failed"},
+    "check_task.no_final": {"zh": "当前只有本地预检结果，尚无可导出的最终模型；选择参数后继续同一任务。", "en": "Only local precheck results exist; there is no final model to export. Choose options and continue this task."},
+})

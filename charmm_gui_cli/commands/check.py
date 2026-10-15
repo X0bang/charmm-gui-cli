@@ -11,11 +11,16 @@ def execute(args):
     from charmm_gui_cli.chem.precheck import check_inputs
     from charmm_gui_cli.chem.preview import render_model, new_preview_path
     from ..chem.residues import options_from_args
-    report = check_inputs(out=args.out or new_preview_path("checks"), protein=args.protein,
+    options = dict(protein=args.protein,
         ligand=args.ligand, complex_pdb=args.complex_pdb, components=args.components,
         ligand_resname=args.ligand_resname, ligand_smiles=args.ligand_smiles,
         accept_conect_bond_orders=args.accept_conect_bond_orders, hydrogens=args.hydrogens, input_options=options_from_args(args))
-    if report.get("passed") and not args.no_preview:
+    if getattr(args, 'name', None):
+        from ..pipeline.checked_inputs import create
+        report = create(name=args.name, output=args.out, preview=not args.no_preview, **options)
+    else:
+        report = check_inputs(out=args.out or new_preview_path("checks"), **options)
+    if not getattr(args, 'name', None) and report.get("passed") and not args.no_preview:
         try:
             report["preview"] = render_model(report["prepared_complex"], Path(report["directory"]) / "preview",
                 ligand_resnames=report["component_resnames"], scope="prepared_input")

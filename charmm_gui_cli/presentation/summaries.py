@@ -10,7 +10,7 @@ def brief(manifest):
 
 def precheck_summary(report):
     result = {key: report[key] for key in ("passed", "status", "directory", "check_file", "review_required",
-        "server_submitted", "task_registered", "scientific_correctness_verified", "prepared_complex", "preview", "error") if key in report}
+        "server_submitted", "task_registered", "scientific_correctness_verified", "prepared_complex", "preview", "error", "name", "input_check_file") if key in report}
     inventory = report.get("protein_inventory", {})
     result["protein"] = {"residues": inventory.get("protein_residues_all_models"),
         "residues_missing_heavy_atoms": len(inventory.get("missing_heavy_atoms", [])),
@@ -27,7 +27,7 @@ def precheck_summary(report):
         result["structure_inventory"] = inventory["structure_inventory"]
     if "spatial_review" in report:
         result["spatial_review"] = report["spatial_review"].get("summary", {})
-    result["next_step"] = report.get("error", {}).get("next_step") or t("check.next_passed" if report.get("passed") else "check.next_failed")
+    result["next_step"] = report.get("error", {}).get("next_step") or report.get('next_step') or t("check.next_passed" if report.get("passed") else "check.next_failed")
     return result
 
 

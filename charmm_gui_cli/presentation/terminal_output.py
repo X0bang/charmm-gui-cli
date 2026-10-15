@@ -259,7 +259,7 @@ def format_check(value, **context):
             lines.append(t("check.preview", path=_path(image["file"])))
     if value.get("check_file"):
         lines.append(t("output.report", path=_path(value["check_file"])))
-    lines.append(t("cli.next", action=error.get("next_step") or ("charmm-gui-cli build -h" if value.get("passed") else "charmm-gui-cli check -h")))
+    lines.append(t("cli.next", action=error.get("next_step") or value.get('next_step') or ("charmm-gui-cli build -h" if value.get("passed") else "charmm-gui-cli check -h")))
     if context.get("full"):
         import json
         lines.append(t("check.full_details"))
@@ -272,7 +272,12 @@ def format_jobs(value, **context):
     for job in value.get("jobs", []):
         background = job.get("background", {})
         outcome = _job_outcome(job)
-        label = t("jobs.outcome." + outcome)
+        from .execution import describe_execution
+        diagnostic = job.get('execution_summary') or describe_execution(job)
+        check_view = job.get('precheck_only') and (not diagnostic['error_current'] or job.get('input_check_status') != 'passed')
+        label = (t('check_task.ready' if job.get('input_check_status') == 'passed' else
+                   'check_task.stale' if job.get('input_check_status') == 'stale' else 'check_task.failed_label')
+                 if check_view else t("jobs.outcome." + outcome))
         from .execution import describe_execution
         diagnostic = job.get('execution_summary') or describe_execution(job)
         elapsed = _elapsed(background.get('elapsed_seconds', 0))
@@ -281,7 +286,7 @@ def format_jobs(value, **context):
         lines.append(f"{_text(job.get('name') or _path(job['directory']))} | {label} | "
                      + t("jobs.running" if background.get("running") else "jobs.stopped") + " | " + elapsed)
         recovery = job.get("recovery") or {}
-        error = recovery.get("error") or job.get("last_error") or {}
+        error = recovery.get("error") or job.get("last_error") or job.get('input_check', {}).get('error') or {}
         if outcome.startswith("failed") or outcome == "interrupted":
             if error.get("message"):
                 lines.append("  " + t("cli.error", message=_error_text(error)))
@@ -307,6 +312,17 @@ def _job_outcome(job):
 
 
 def format_job_status(value, **context):
+    from .execution import describe_execution
+    diagnostic = value.get('execution_summary') or describe_execution(value)
+    if value.get('input_check_status') == 'checking' and value.get('background', {}).get('running'):
+        return '\n'.join([t('output.task', name=value.get('name') or _path(value['directory'])),
+                          t('output.state', state=t('check_task.checking')), t('output.log', path=_path(value['background']['log'])),
+                          t('cli.next', action=value['input_check']['next_step'])])
+    if value.get('precheck_only') and (not diagnostic['error_current'] or value.get('input_check_status') != 'passed'):
+        label = t('check_task.ready' if value.get('input_check_status') == 'passed' else
+                  'check_task.stale' if value.get('input_check_status') == 'stale' else 'check_task.failed_label')
+        return '\n'.join([t('output.task', name=value.get('name') or _path(value['directory'])),
+                          t('output.state', state=label), format_check(value['input_check'])])
     from .execution import describe_execution
     diagnostic = value.get('execution_summary') or describe_execution(value)
     display = dict(value)

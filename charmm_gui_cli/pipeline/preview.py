@@ -18,6 +18,10 @@ def preview_run(directory, *, report=None, out=None, width=1400, views=("side", 
     from charmm_gui_cli.pipeline.managed import _final_summary
     from charmm_gui_cli.store.locking import run_lock
     directory = Path(directory).expanduser().resolve()
+    if (not (directory / 'results/validation.json').exists()
+            and ((directory / 'input-check').exists() or (directory / 'input-check').is_symlink())):
+        from .checked_inputs import preview_checked
+        return preview_checked(directory, out=out, width=width, views=views)
     with run_lock(directory):
         summary = _final_summary(directory)
         if summary.get("validation_status") == "stale_or_unreadable" or not summary.get("report_file"):

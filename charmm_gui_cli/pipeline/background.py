@@ -39,6 +39,8 @@ def launch(args):
         directory = Path(result["directory"])
     else:
         directory = _task_store.resolve_run(args.directory)
+        from .checked_inputs import choose_model
+        choose_model(directory)
         from charmm_gui_cli.pipeline.full_build import _read
         manifest = _read(directory)
         result = {"directory": str(directory), "state": manifest.get("state", "unknown")}

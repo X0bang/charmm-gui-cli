@@ -158,6 +158,10 @@ def _execute(args, holder):
     if args.grompp and not shutil.which(args.gmx):
         raise ToolError("--grompp requires GROMACS. Install gmx or supply --gmx /path/to/gmx; no job was submitted.",
                         key="build.gromacs_required", next_step="charmm-gui-cli doctor")
+    if args.command == 'build' and getattr(args, 'from_check', None):
+        from .checked_inputs import from_args
+        args.directory = from_args(args)
+        args.command = 'build-resume'
     if args.command == "build":
         components = getattr(args, "components", None)
         from ..chem.residues import INPUT_FIELDS
@@ -186,6 +190,8 @@ def _execute(args, holder):
             from charmm_gui_cli.store.workers import metadata
             if metadata(directory)["running"]:
                 raise ToolError(key="background.running", next_step="charmm-gui-cli jobs list")
+        from .checked_inputs import choose_model
+        choose_model(directory)
     if args.command == "build" and getattr(args, "name", None):
         _task_store.check_name_available(args.name)
         if args.out is None:

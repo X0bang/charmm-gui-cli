@@ -170,6 +170,7 @@ def parser():
     build.add_argument("config", nargs="?", type=Path, help=t('help.text.37'))
     structures = build.add_argument_group(t("help.input_group"))
     structures.add_argument("--protein", type=Path, help=t('help.text.38'))
+    structures.add_argument('--from-check', help=t('check_task.from_help'))
     structures.add_argument("--ligand", type=Path, help=t('help.text.39'))
     structures.add_argument("--complex", dest="complex_pdb", type=Path, help=t('help.text.40'))
     structures.add_argument("--components", type=Path, help=t('help.text.41'))
@@ -248,6 +249,7 @@ def parser():
     precheck.add_argument("--hydrogens", choices=("preserve", "add_missing"), default="add_missing", help=t('help.text.45'))
     add_input_selection(precheck)
     precheck.add_argument("--out", type=Path, help=t('help.text.71'))
+    precheck.add_argument('--name', help=t('check_task.name_help'))
     precheck.add_argument("--no-preview", action="store_true", help=t('help.text.06'))
     precheck.add_argument("--open", action="store_true", help=t("help.open_preview"))
     precheck.add_argument("--full", action="store_true", help=t('help.text.72'))
@@ -366,6 +368,12 @@ def main(argv=None):
         return 130
     except KeyboardInterrupt as interrupted:
         from charmm_gui_cli.store.auth import recovery_guidance
+        if args.command == 'check':
+            import shlex
+            directory = getattr(interrupted, 'check_directory', None)
+            print(t('check_task.interrupted'), file=sys.stderr)
+            print(t('cli.next', action=shlex.join(['ls', '-la', directory]) if directory else 'charmm-gui-cli check --help'), file=sys.stderr)
+            return 130
         if args.command == 'jobs' and getattr(args, 'jobs_command', None) in ('clean', 'restore'):
             import shlex
             operation = getattr(interrupted, 'cleanup_operation', None) or getattr(args, 'operation', None)

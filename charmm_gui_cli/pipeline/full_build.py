@@ -258,6 +258,8 @@ def require_protein_state_support(directory, manifest):
     """Shared foreground/worker gate; preserve uncertain-POST priority."""
     from ..chem.protein_states import intent_for, validate_intent
     directory = Path(directory)
+    from .checked_inputs import require_requested
+    require_requested(directory, manifest)
     local = manifest.get("inputs", {}).get("manifest", {})
     states = intent_for(local)
     fragment = local.get("input_normalization", {}).get("fragment_preparation")
@@ -306,6 +308,8 @@ def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, pro
                         key="build.poll_invalid", next_step="charmm-gui-cli jobs resume --help")
     directory = Path(directory).resolve()
     with tracked_run(directory, _read, _save) as manifest:
+        from .checked_inputs import require_requested
+        require_requested(directory, manifest)
         build_directory = directory / "bilayer"
         normalization = manifest.get("inputs", {}).get("manifest", {}).get("input_normalization", {})
         if isinstance(normalization, dict) and "fragment_preparation" in normalization:
@@ -346,6 +350,7 @@ def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, pro
         identifier = _source_id(uploaded)
         manifest.update(source_job_id=identifier, state="selecting_components")
         _save(directory, manifest)
+        require_requested(directory, manifest)
         _submit(web, uploaded, selected, _chains(uploaded))
         manifest["state"] = "parameterizing"
         _save(directory, manifest)
@@ -369,6 +374,7 @@ def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, pro
             manifest["fragment_mapping"] = fragment_mapping
         manifest["applied_terminals"] = {key: value for key, value in fields.items() if key.startswith("terminal[")}
         _save(directory, manifest)
+        require_requested(directory, manifest)
         _submit(web, selected, parameterized, fields, uploads)
         # Completed-page parsing is kept separate from transport because API
         # status=null and monitor.php output cannot classify web preparation.
@@ -394,6 +400,8 @@ def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, pro
 
 def _start_prepared_bilayer(directory, manifest, api, prepared_config, wait, interval, max_wait, progress):
     """Common API clone path for original and evidence-verified reused sources."""
+    from .checked_inputs import require_requested
+    require_requested(directory, manifest)
     from ..chem.protein_states import intent_for
     normalization = manifest["inputs"].get("manifest", {}).get("input_normalization", {})
     if isinstance(normalization, dict) and "fragment_preparation" in normalization:

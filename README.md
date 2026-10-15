@@ -64,7 +64,22 @@ charmm-gui-cli build --complex complex.pdb \
 
 终端和报告分别展示请求设置与提交记录；例如 NTER 自动回退为 GLYP 时显示 `NTER → GLYP`。提交结果未知或只有历史记录时会明确标注，不把请求值当作已应用值。`inputs/system-config.json` 保留原始 requested/applied 字段，并新增按链整理的 `parameter_summary`。
 
-`check` 显示失败原因、自动修复和结构审阅项，`check --full` 显示完整证据；`--json`、`--lang`、`--foreground` 可放在子命令前后。新任务本地准备失败不会占住任务名，修正输入后可以重试。
+`check` 显示失败原因、自动修复和结构审阅项，`check --full` 显示完整证据；`--json`、`--lang`、`--foreground` 可放在子命令前后。直接 `build` 的初次本地准备失败不会占住任务名；显式命名的预检则保留失败目录和记录，便于检查原因。
+
+### 先预检，再继续同一任务
+
+```bash
+charmm-gui-cli check --name receptor-a \
+  --protein protein.pdb --ligand bound-ligand.sdf
+charmm-gui-cli build --from-check receptor-a \
+  --upper POPC:POPE=7:3 --lower POPC=1 \
+  --salt KCl --salt-concentration 0.10
+charmm-gui-cli jobs watch receptor-a
+```
+
+命名预检无需登录，在 `./receptor-a/` 保存检查结果、预览和准备好的输入。后续建模直接使用这些文件，不重新处理原始结构，也不再创建第二个任务。`check --out DIR` 可选定任务目录；`build --from-check` 不再传结构文件、输入处理选项或另一输出位置。
+
+首次 `build --from-check`（包括 `--dry-run`）会固定建模参数，之后只能用同一设置恢复；要更换设置，请新建任务。直接 `jobs resume receptor-a` 会选用默认建模参数，因此需要自定义脂质、盐或末端时应先执行上面的 `build --from-check`。详见[预检与恢复](docs/USAGE.md#6-本地预检与恢复)。
 
 常见配置和路径错误会指出具体文件及本地复查方式，不回显 YAML 内容。直接参数错误给出的默认基线检查不替代自定义设置；修正参数后再用 `build --dry-run` 核对。
 
@@ -104,7 +119,7 @@ charmm-gui-cli jobs reconcile receptor-a --confirm-not-submitted
 
 核对成功后再 `jobs resume`。上传响应完全丢失源任务 ID 时，先在官网确认，再加 `--source-jobid ID`。无法判断时保留意图并显示官网链接；旧意图归档保留，不删除。
 
-预检位于 `charmm-gui-checks/<时间戳>/`。`check --open` 可打开 PNG 预览。
+命名预检和后续建模共用任务目录；不指定 `--name` 的独立预检保持原行为，默认位于 `charmm-gui-checks/<时间戳>/`，不能直接用 `--from-check` 接续。`check --open` 可打开 PNG 预览。
 
 ### 一个任务，一个目录
 

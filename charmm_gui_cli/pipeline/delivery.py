@@ -30,6 +30,9 @@ def export_run(directory, *, to=None):
     directory = Path(directory).expanduser().resolve()
     if metadata(directory)["running"]:
         raise ToolError(key="background.running", next_step="charmm-gui-cli jobs list")
+    from .checked_inputs import marked, build_command
+    if not (directory / 'results/validation.json').exists() and marked(directory, _task_store._read_json(directory / 'full-run.json')):
+        raise ToolError(key='check_task.no_final', next_step=build_command(directory))
     return _export(directory, to=to)
 
 

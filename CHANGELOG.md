@@ -2,9 +2,17 @@
 
 ## Unreleased
 
+## 0.8.11
+
+- Add explicit `check --name NAME` and `build --from-check NAME/PATH` in one owned task directory. Retain prepared inputs, local reports and PNG previews; expose named checks through jobs status/list/report, preview and recoverable cleanup without claiming final model acceptance. Legacy unnamed checks keep their previous behavior.
+- Seal local check inputs, retained source files and task identity separately from the once-selected modeling request. Resume without restaging chemistry, reject changed/missing evidence before authentication and modeling submission, preserve uncertain-POST priority and include the check/request identity in final-validation caching. The first build attempt, including dry-run, fixes model settings; YAML/batch/sweep check references are not introduced.
 - Localize all exception construction in build, preparation, managed acceptance and API-run recovery, including interruption and uncertain-submission wrappers. Preserve legacy JSON messages/categories and POST protection, retain explicit preparation blockers and use concrete task/file commands for inspection and recovery.
 - Replace unresolved NAME placeholders in reconciliation with the actual task name or quoted path, including confirmation and manual-review routes. Reconciliation remains GET-only; unknown pages do not authorize a replay.
 - Verify relocation of a real completed membrane model through bilingual public status/report, explicit relink, in-place export and offline foreground resume with GROMACS compilation. The task is restored afterwards; critical archive/model/input/submission evidence remains unchanged and no second model/archive copy or provider request is created. This Linux verification does not claim real macOS provider acceptance.
+
+### Validation scope
+
+Named-check regressions cover single-/multi-component inputs, record selection, sealed handoff, interrupted local commits, relocation, authentication failures, prepared-input previews, unknown submissions and actual workflow intent writing over mocked HTTP. Public CLI preparation of the real three-fragment input, model-option selection and three PNGs were also verified offline against existing successful source artifacts and form fields without new provider requests. The ongoing real fragment membrane model still awaits final archive/GROMACS acceptance. Default chain-break rejection, official force-field conversion and no uncertain-POST replay remain unchanged.
 
 ## 0.8.10
 

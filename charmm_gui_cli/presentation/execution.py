@@ -61,6 +61,10 @@ def describe_execution(value, *, target=None, legacy_error=None):
             next_step = shlex.join(['ls', '-ld', evidence['records'][0]['path']])
         if error.get('cause_category') in ('authentication', 'auth_required', 'access_denied'):
             next_step = 'charmm-gui-cli login; ' + next_step
+    elif value.get('precheck_only') and not running and (not current_error or value.get('input_check_status') != 'passed'):
+        outcome = 'ready' if value.get('input_check_status') == 'passed' else 'failed_local'
+        reason = 'local_inputs' if outcome == 'ready' else 'recorded_local_failure'
+        next_step = value.get('input_check', {}).get('next_step') or value.get('next_step') or local_status
     elif value.get('state') == 'validated' and value.get('passed') is True and not value.get('validation_status'):
         outcome, reason = 'passed', 'verified_report'
         next_step = shlex.join([*base, 'report', str(target)]) if target is not None else local_status

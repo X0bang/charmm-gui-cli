@@ -14,6 +14,21 @@ def execute(args):
     if args.format == "html" and args.out is None:
         raise ToolError(key="cli.html_out")
     directory = _task_store.resolve_run(args.target)
+    from ..pipeline.checked_inputs import write_report
+    checked = write_report(directory, format=args.format, full=args.full)
+    if checked is not None:
+        from ..pipeline.checked_inputs import verify
+        passed = verify(directory)[0]['passed']
+        if args.out:
+            from ..presentation.reporting import write_new
+            content = json.dumps(checked, indent=2, ensure_ascii=False) + '\n' if args.format == 'json' else checked
+            destination = write_new(args.out, content)
+            emit({'report': destination, 'passed': passed, 'format': args.format, 'scope': 'local_input_check'})
+        elif args.format == 'json':
+            emit(checked, command='check', full=args.full)
+        else:
+            print(checked, end='')
+        return 0 if passed else 2
     result = managed.inspect_run(directory)
     if result.get("validation_status") == "stale_or_unreadable":
         import shlex

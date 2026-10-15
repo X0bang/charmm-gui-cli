@@ -89,6 +89,8 @@ def inspect_run(target, *, remote_check=False, token_file=None):
     delivery = directory / "delivery.json"
     if delivery.is_file():
         result["delivery"] = _task_store._read_json(delivery)
+    from .checked_inputs import status_fields
+    result.update(status_fields(directory, manifest))
     from ..presentation.execution import describe_execution
     from ..store.execution_evidence import submission_evidence
     result['submission_evidence'] = submission_evidence(directory)
@@ -108,6 +110,9 @@ def list_runs():
         record.update(_task_store._recovery_summary(directory))
         from charmm_gui_cli.store.workers import metadata
         record["background"] = metadata(directory)
+        from .checked_inputs import status_fields
+        checked = status_fields(directory)
+        record.update(checked)
         from ..presentation.execution import describe_execution
         from ..store.execution_evidence import submission_evidence
         record['submission_evidence'] = submission_evidence(directory)
@@ -350,8 +355,16 @@ def _evidence(manifest, archive, grompp, gmx, *, create_receipt=False):
         raise failure()
     from .fragments import validation_request
     internal = archive.parent / ".charmm-gui"
-    fragment_request = validation_request(internal if (internal / "full-run.json").is_file() else archive.parent.parent, manifest)
+    evidence_directory = internal if (internal / "full-run.json").is_file() else archive.parent.parent
+    fragment_request = validation_request(evidence_directory, manifest)
+    from .checked_inputs import marked, require_requested, verify
+    checked_binding = None
+    if marked(evidence_directory, manifest):
+        require_requested(evidence_directory, manifest)
+        _, checked_seal, checked_request = verify(evidence_directory, manifest)
+        checked_binding = {'check_fingerprint': checked_seal['fingerprint'], 'request_fingerprint': checked_request['fingerprint']}
     return {"tool_version": __version__, "archive_sha256": binding["archive_provenance"]["archive_sha256"],
+            **({'input_check_binding': checked_binding} if checked_binding else {}),
             **({"fragment_revision": 1, "fragment_request_sha256": _canonical_hash(fragment_request)} if fragment_request else {}),
             **({"protein_state_revision": 1, "protein_state_request_sha256": _canonical_hash({"intent": state_intent,
                 "mapping": manifest.get("protein_state_mapping")})} if state_intent else {}),
@@ -456,8 +469,10 @@ def _final_summary(directory):
         else:
             key = ("validation.model_changed" if error.key == "delivery.model_changed" else
                    "validation.model_path" if error.key == "preview.invalid_model_path" else
+                   "validation.input_check_changed" if error.key and error.key.startswith('check_task.') else
                    "validation.lineage_changed" if error.category == "archive_provenance" or error.key == "api.invalid_jobid" else "validation.metadata_unreadable")
-            issues.append({"key": key, "params": {"path": str(task_root(directory) / "model" if key.startswith("validation.model") else checked)}})
+            issues.append({"key": key, "params": {"path": str(task_root(directory) / "model" if key.startswith("validation.model") else
+                                                              directory / 'input-check/seal.json' if key == 'validation.input_check_changed' else checked)}})
     except (OSError, KeyError, TypeError, ValueError, AttributeError):
         issues.append({"key": "validation.metadata_unreadable", "params": {"path": str(checked)}})
     return {"validation_status": "stale_or_unreadable", "report_file": str(path),

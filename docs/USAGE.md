@@ -190,7 +190,32 @@ charmm-gui-cli jobs watch receptor-a
 
 ## 6. 本地预检与恢复
 
-主链断裂默认阻断。明确接受独立片段时，给 `check` 和后续 `build` 都加 `--split-chain-breaks`；配置文件用 `input_options.split_chain_breaks: true`。先查看生成的链标识，再设置逐片段末端；这不会补齐缺失片段。详见[片段设置](ADVANCED.md#显式分离主链断裂)。
+推荐给预检命名，然后继续同一任务：
+
+```bash
+# 无需登录；默认创建 ./receptor-a/，也可加 --out DIR 指定任务目录
+charmm-gui-cli check --name receptor-a \
+  --protein protein.pdb --ligand bound-ligand.sdf
+charmm-gui-cli jobs status receptor-a
+charmm-gui-cli jobs report receptor-a
+charmm-gui-cli preview receptor-a
+
+charmm-gui-cli login
+charmm-gui-cli build --from-check receptor-a \
+  --upper POPC:POPE=7:3 --lower POPC=1 \
+  --salt KCl --salt-concentration 0.10
+charmm-gui-cli jobs watch receptor-a
+```
+
+`inputs/` 保留实际准备的上传文件，`check.json` 和 `previews/` 可直接查看，日志位于 `run.log`，检查及请求证据位于隐藏的 `.charmm-gui/`。预检成功后不再依赖原始文件的位置；`build --from-check NAME` 或 `--from-check /path/to/task` 不重新转换化学结构或添加氢，也不会复制出另一套输入。移动时保留整个任务目录，再用 `jobs relink` 关联新位置。
+
+输入选择、配体姿势、氢处理及断链策略在预检时固定。接续时仅传建模参数，不混用 YAML、原始结构、`--hydrogens` 或输入处理选项；不能改任务名或输出目录。第一次 `build --from-check`（即使加了 `--dry-run`，或随后登录检查失败）就会固定膜、离子和末端等设置。相同设置可以重试；不同设置需要新任务。若直接 `jobs resume NAME`，会固定默认设置；需要自定义时先用 `build --from-check`。
+
+预检失败或中断会保留命名任务及诊断，不静默重做或覆盖。修正原文件后使用新的任务名/目录重新预检；不要直接编辑封存的 `inputs/` 或隐藏证据。`jobs clean/restore` 可以可恢复地整理这类任务，但不会把失败预检变成可提交任务。建模前的 `jobs report` 只报告本地检查，预览也是输入结构，不是最终模型；取得最终模型后才可 `jobs export`。
+
+不指定 `check --name` 时，仍使用独立预检目录（默认 `charmm-gui-checks/<时间戳>/`）；这种旧式预检不能用 `--from-check` 接续。YAML、batch、sweep 仍走各自已有的准备/恢复流程，暂不支持把独立预检作为输入引用。
+
+主链断裂默认阻断。明确接受独立片段时，给命名 `check` 加 `--split-chain-breaks`，后续 `build --from-check` 自动继承，不重复传该选项。若分别运行独立的 `check` 和直接 `build`，则两者都需显式声明；配置文件用 `input_options.split_chain_breaks: true`。先查看生成的链标识，再设置逐片段末端；这不会补齐缺失片段。详见[片段设置](ADVANCED.md#显式分离主链断裂)。
 
 ```bash
 charmm-gui-cli build \
