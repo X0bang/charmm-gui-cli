@@ -1,11 +1,21 @@
 # Changelog
 
-## Unreleased
+## 0.8.10
+
+### Fixes and improvements
 
 - Bind internal explicit-fragment preparation to sealed actual upload files, exact successful selection/parameterization records and same-source PDB/PSF/protein-RTF GETs. Verify cap sites and separation before cloning; interrupted artifact GETs resume without replaying modeling POSTs, while changed evidence is not resealed.
 - Carry fragment source proofs into preparation identities and reuse certificates, independently verify both source and final-assembly archive files and require exact downloaded source hashes. Retain child acceptance after a source-task move and make cached validation depend on the fragment request/proof identity. Preserve the legacy identity and JSON shape for inputs without fragments.
-- Show original-chain versus generated-fragment terminal settings correctly in semantic summaries and reports. Keep uncertain intents ahead of input diagnostics even when a response file exists. Public fragment CLI/YAML/batch/sweep input selection and fresh remote fragment acceptance remain pending; ordinary chain-break rejection is unchanged.
+- Show original-chain versus generated-fragment terminal settings correctly in semantic summaries and reports. Keep uncertain intents ahead of input diagnostics even when a response file exists. Fresh final remote fragment acceptance remains pending; default chain-break rejection is unchanged.
 - Verify the standard PDB ILE CD1 → CHARMM CD alias against the same-source RTF, actual types/charges/native masses/elements and full CD/CG1 neighborhoods. Record actual atom-name changes and the terminal OXT removal implied only by explicitly requested CT2/CT3 amide profiles; do not invent a DELETE directive, accept ambiguous aliases or lose declared cross-links. Retained atom mapping must be one-to-one.
+### Experimental input option
+
+- Add experimental explicit `--split-chain-breaks` / YAML `input_options.split_chain_breaks` across check, direct/config builds, component staging, batches and sweeps. Validate `fragment:CHAIN` selectors only with opt-in and resolve outer original-chain versus newly exposed ends locally. Preserve default/no-op behavior, original coordinates, source snapshots and state intent; never introduce a general break-validation bypass.
+- Seal completed opted-in local inputs before handing off to workers. Interrupted queues adopt only matching sealed files/policies/modeling settings, including moved tasks; changed snapshots/chemistry/metadata or missing seals cannot trigger silent re-preparation or resealing. Keep the same guard before authentication/upload, with uncertain POSTs taking priority even for a no-op split policy.
+
+### Validation scope
+
+English and Chinese regressions cover public CLI/configuration staging, background handoff, batch/sweep inheritance, sealed local-cache adoption, authenticated source evidence, final-archive checks and refusal of changed evidence. A fresh real three-fragment source passed NTER/PROP/GLYP, CTER/CT2 and HSE topology verification before a single membrane submission. Public check/build preparation was also compared offline against that actual upload and its saved successful form fields. The real final membrane archive and GROMACS acceptance are still pending; the experimental option is not a claim of fresh end-to-end acceptance. Default chain-break rejection, uncertain-POST protection and official force-field conversion are unchanged.
 
 ## 0.8.9
 
