@@ -110,6 +110,7 @@ charmm-gui-cli jobs reconcile receptor-a --confirm-not-submitted
 receptor-a/
   charmm-gui.tgz       官网原始压缩包
   model/              解压模型和模拟输入
+  previews/           自动生成的 PNG 预览，不再复制一份模型坐标
   report.txt          验收结论
   inputs/             实际上传的结构；system-config.json 区分 requested/applied
   run.log             完整日志，可以 tail -f

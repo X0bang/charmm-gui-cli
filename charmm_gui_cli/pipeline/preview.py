@@ -5,7 +5,7 @@ import charmm_gui_cli.chem.preview as _coordinate_views
 import hashlib
 from pathlib import Path
 from charmm_gui_cli.store.auth import ToolError, atomic_json
-from charmm_gui_cli.store.layout import full_archive_path
+from charmm_gui_cli.store.layout import full_archive_path, previews_path
 
 
 def preview_run(directory, *, report=None, out=None, width=1400, views=("side", "top", "ligand")):
@@ -72,8 +72,10 @@ def preview_run(directory, *, report=None, out=None, width=1400, views=("side", 
                     raise ToolError("Extracted preview topology differs from the verified archive.")
         manifest = _read_json(directory / "full-run.json")
         names = manifest["config"].get("component_resnames") or [manifest["config"].get("ligand_resname", "LIG")]
-        identity = {"source_sha256": source_hash, "renderer_revision": 3, "width": width, "views": list(views),
+        copy_model = not modern(directory) or out is not None
+        identity = {"source_sha256": source_hash, "renderer_revision": 4 if modern(directory) else 3, "width": width, "views": list(views),
                     "scope": scope, "tool_version": __version__, "validation_fingerprint": stored["fingerprint"]}
+        preview_root = previews_path(directory)
         cache = directory / "results" / "preview.json"
         if out is None and cache.is_file():
             try:
@@ -81,15 +83,22 @@ def preview_run(directory, *, report=None, out=None, width=1400, views=("side", 
             except ToolError:
                 previous = {}
             if previous.get("identity") == identity:
-                artifacts = [(previous.get("model"), source_hash)] + [(item.get("file"), item.get("sha256")) for item in previous.get("images", [])]
+                artifacts = [(item.get("file"), item.get("sha256")) for item in previous.get("images", [])]
                 try:
-                    if len(artifacts) > 1 and all(Path(p).resolve().is_relative_to(directory / "results" / "previews") and
-                            _coordinate_views._digest(p) == sha for p, sha in artifacts):
+                    model = Path(previous["model"])
+                    model_valid = (model.resolve().is_relative_to(preview_root) if copy_model else model.resolve() == pdb.resolve())
+                    if (artifacts and model_valid and not model.is_symlink() and _coordinate_views._digest(model) == source_hash
+                            and all(not Path(p).is_symlink() and Path(p).resolve().is_relative_to(preview_root) and
+                                    _coordinate_views._digest(p) == sha for p, sha in artifacts)):
                         return previous
-                except (TypeError, OSError):
+                except (KeyError, TypeError, OSError):
                     pass
-        destination = Path(out) if out is not None else directory / "results" / "previews" / uuid.uuid4().hex
-        rendered = _coordinate_views.render_model(pdb, destination, ligand_resnames=names, width=width, views=views, scope=scope)
+        if out is None and (preview_root.is_symlink() or not preview_root.resolve().is_relative_to(task_root(directory))):
+            raise ToolError(key="preview.public_path_invalid", params={"path": str(preview_root)},
+                            next_step="charmm-gui-cli jobs status " + str(task_root(directory)))
+        destination = Path(out) if out is not None else preview_root / uuid.uuid4().hex[:12]
+        rendered = _coordinate_views.render_model(pdb, destination, ligand_resnames=names, width=width, views=views,
+                                                   scope=scope, copy_model=copy_model)
         rendered["identity"] = identity
         from charmm_gui_cli.presentation.progress import official_links
         rendered["official_links"] = official_links(

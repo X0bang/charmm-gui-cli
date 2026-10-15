@@ -290,7 +290,9 @@ def _render(scene, output, view, width):
             "sha256": _digest(output), "primitives": len(primitives)}
 
 
-def render_model(pdb, out, *, ligand_resnames=("LIG",), width=1400, views=("side", "top", "ligand"), scope="coordinate_file"):
+def render_model(pdb, out, *, ligand_resnames=("LIG",), width=1400, views=("side", "top", "ligand"), scope="coordinate_file", copy_model=True):
+    if type(copy_model) is not bool:
+        raise ToolError(key="preview.copy_mode_invalid", next_step="charmm-gui-cli preview -h")
     if type(width) is not int or not 400 <= width <= 4096:
         raise ToolError("Preview width must be an integer from 400 to 4096 pixels.")
     if not views or len(set(views)) != len(views) or any(v not in ("side", "top", "ligand") for v in views):
@@ -303,14 +305,16 @@ def render_model(pdb, out, *, ligand_resnames=("LIG",), width=1400, views=("side
         destination.mkdir(parents=True, mode=0o700, exist_ok=False)
     except FileExistsError:
         raise ToolError("Preview output already exists; choose a new directory. Nothing was overwritten.") from None
-    shutil.copyfile(scene["source"], destination / "model.pdb")
+    model = destination / "model.pdb" if copy_model else Path(scene["source"])
+    if copy_model:
+        shutil.copyfile(scene["source"], model)
     images = [_render(scene, destination / (view + ".png"), view, width) for view in views
               if view != "ligand" or scene["components"]]
     result = {"status": "rendered", "source": scene["source"], "source_sha256": scene["source_sha256"],
-              "model": str(destination / "model.pdb"), "images": images,
+              "model": str(model), "images": images, "model_copied": copy_model,
               "total_atoms": scene["total_atoms"], "hidden_atoms": scene["hidden"],
               "visible_components": dict(Counter(a["resname"] for a in scene["components"])),
-              "coordinate_transform": "camera projection only; model.pdb unchanged",
+              "coordinate_transform": "camera projection only; model.pdb unchanged" if copy_model else "camera projection only; source coordinates unchanged",
               "scope": scope,
               "scientific_correctness_verified": False}
     atomic_json(destination / "preview.json", result)

@@ -1,6 +1,6 @@
 """Offline, escaped result presentation; never submits or repairs a model."""
 
-from charmm_gui_cli.store.layout import full_archive_path, modern, task_root
+from charmm_gui_cli.store.layout import full_archive_path, modern, task_root, previews_path
 
 import base64
 import hashlib
@@ -36,10 +36,13 @@ def verified_images(directory, report):
             raise ValueError("stale preview")
         source = Path(saved["source"])
         model = Path(saved["model"])
-        roots = (task_root(directory) / "model" if modern(directory) else directory / "results/checks", directory / "results/previews")
+        model_root = task_root(directory) / "model" if modern(directory) else directory / "results/checks"
+        image_roots = (previews_path(directory), directory / "results/previews")
+        copied = saved.get("model_copied", True)
+        model_valid = (any(model.resolve().is_relative_to(root) for root in image_roots) if copied is True
+                       else copied is False and modern(directory) and model.resolve() == source.resolve())
         if (source.is_symlink() or model.is_symlink() or
-                not source.resolve().is_relative_to(roots[0]) or
-                not model.resolve().is_relative_to(roots[1])):
+                not source.resolve().is_relative_to(model_root) or not model_valid):
             raise ValueError("unrelated model")
         expected = saved["source_sha256"]
         if identity["source_sha256"] != expected or _hash(source) != expected or _hash(model) != expected:
@@ -63,7 +66,7 @@ def verified_images(directory, report):
         for entry in saved["images"]:
             path = Path(entry["file"])
             if (entry["view"] not in ("side", "top", "ligand") or path.is_symlink() or
-                    not path.resolve().is_relative_to(roots[1]) or path.stat().st_size > 20 * 1024 * 1024):
+                    not any(path.resolve().is_relative_to(root) for root in image_roots) or path.stat().st_size > 20 * 1024 * 1024):
                 raise ValueError("unsafe preview image")
             data = path.read_bytes()
             if not data.startswith(b"\x89PNG\r\n\x1a\n") or hashlib.sha256(data).hexdigest() != entry["sha256"]:

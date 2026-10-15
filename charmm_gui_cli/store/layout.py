@@ -28,6 +28,12 @@ def log_path(directory):
     return task_root(directory) / "run.log"
 
 
+def previews_path(directory):
+    """Visible images for single-directory tasks; preserve legacy run layout."""
+    directory = Path(directory).resolve()
+    return task_root(directory) / "previews" if modern(directory) else directory / "results" / "previews"
+
+
 def archive_path(directory):
     directory = Path(directory).resolve()
     if directory.name == "bilayer" and directory.parent.name == INTERNAL:
