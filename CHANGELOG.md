@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.8.7
+
+### Fixes and improvements
 
 - Add read-only execution diagnostics for legacy and current tasks, separating an active local lease from old provider stages. Classify explicit remote failures correctly, distinguish failed requests from model failures, expose uncertain/unreadable submissions without rewriting intents and keep all historical JSON state/category fields intact.
 - Label unqueried remote stages as last recorded, avoid treating missing workers or incomplete validation records as running/passed, preserve current versus timestamped prior-worker errors and distinguish time since a stale start from actual duration. New diagnostic fields and messages are bilingual with concrete task commands.
@@ -9,6 +11,10 @@
 - Add recoverable `jobs clean` / `jobs restore` with read-only default plans, whole-task non-replacing moves, retained index backups and pre-move identity receipts. No permanent deletion or copy/delete fallback is used; quarantine does not reclaim disk space.
 - Protect active/uncertain tasks, preparation dependents and unfinished batch members. Completed child rows and source certificates resolve retained locations by UUID and physical directory identity without changing proof bytes or repeating submissions. Restore conflicts support an explicit new path without name registration.
 - Allow explicitly re-registering an unindexed named local plan from its existing consistent identity, without modeling or bypassing damaged matching index backups. Clarify current paired renewal, adaptive archive polling and macOS installation documentation.
+
+### Validation scope
+
+English and Chinese regressions cover execution diagnostics, submission-evidence preservation, recoverable task quarantine/restoration and preparation reuse with tamper refusal. Source and wheel distributions are checked separately. Quarantine retains the task data and does not reclaim disk space; uncertain submissions are not retried. Local force-field conversion, production simulation and completion of ongoing scan acceptance are not claimed by this release.
 
 ## 0.8.6
 
