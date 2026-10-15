@@ -333,6 +333,12 @@ class PreparedPortableTests(unittest.TestCase):
         self.assertEqual(read_value(moved / "preparation/web-run.json")["state"], "submission_unknown")
 
     def test_bound_preparation_source_and_child_can_move_without_reupload_or_resealing(self):
+        self._bound_preparation_relocation()
+
+    def test_quarantined_bound_source_and_child_retain_real_seal_and_intent_checks(self):
+        self._bound_preparation_relocation(quarantine=True)
+
+    def _bound_preparation_relocation(self, *, quarantine=False):
         from charmm_gui_cli.remote.web import soup_for, form_data, modeling_target
         runs = {}
         for name in ("source", "child"):
@@ -364,9 +370,28 @@ class PreparedPortableTests(unittest.TestCase):
         self.assertIsNotNone(binding["certificate"]["source_task_id"])
         applied = read_value(child / "full-run.json")["applied_terminals"]
         self.assertEqual(applied["terminal[PROA][first]"], "NTER")
-        (self.base / "source").rename(self.base / "source-moved")
-        (self.base / "child").rename(self.base / "child-moved")
-        source, child = self.base / "source-moved/.charmm-gui", self.base / "child-moved/.charmm-gui"
+        if quarantine:
+            from charmm_gui_cli.pipeline.cleanup import clean
+            # The synthetic membrane job is terminal, while its verified
+            # preparation source remains reusable. Active builds stay guarded.
+            for path in (source / 'full-run.json', source / 'bilayer/run.json'):
+                saved = read_value(path)
+                saved['state'] = 'remote_error'
+                atomic_json(path, saved)
+            before = {name: {str(p.relative_to(run)): p.read_bytes() for p in run.rglob('*')
+                       if p.is_file() and p.name not in ('.lock', 'run.lock')} for name, run in runs.items()}
+            with patch('requests.Session.request', side_effect=AssertionError('No quarantine HTTP')):
+                moved_child = clean('child', yes=True)
+                moved_source = clean('source', yes=True)
+            source = Path(moved_source['directory']) / '.charmm-gui'
+            child = Path(moved_child['directory']) / '.charmm-gui'
+            for name, run in (('source', source), ('child', child)):
+                self.assertEqual(before[name], {str(p.relative_to(run)): p.read_bytes() for p in run.rglob('*')
+                                 if p.is_file() and p.name not in ('.lock', 'run.lock')})
+        else:
+            (self.base / "source").rename(self.base / "source-moved")
+            (self.base / "child").rename(self.base / "child-moved")
+            source, child = self.base / "source-moved/.charmm-gui", self.base / "child-moved/.charmm-gui"
         self.assertEqual(sweep.validate_reuse(child), "123")
         self.assertEqual(sweep.certify_source(source)["fingerprint"], original)
         self.assertEqual(sweep.reuse_api_config(child)["source_job_id"], "123")
