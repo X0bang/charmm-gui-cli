@@ -248,6 +248,15 @@ def require_protein_state_support(directory, manifest):
                    preparation.exists() and not (preparation / "upload-response.html").is_file() or
                    any((preparation / (step + ".intent.json")).exists() and not (preparation / (step + ".html")).is_file()
                        for step in ("selection", "parameterization")))
+        for step in ("selection", "parameterization"):
+            intent = preparation / (step + ".intent.json")
+            if intent.exists():
+                try:
+                    saved = read_value(intent)
+                    if not isinstance(saved, dict) or saved.get("state") in ("submission_unknown", "submitting"):
+                        unknown = True
+                except (OSError, ValueError):
+                    unknown = True
         bilayer = directory / "bilayer/run.json"
         if bilayer.is_file():
             try:
@@ -259,8 +268,8 @@ def require_protein_state_support(directory, manifest):
         if unknown:
             raise SubmissionUnknown("A previous modeling POST has an unresolved submission intent; inspect/recover it before continuing. No repeated POST was sent.")
     if fragment is not None:
-        from ..chem.fragment_inputs import require_remote_fragment_support
-        require_remote_fragment_support(manifest["inputs"])
+        from .fragments import validate_local
+        validate_local(directory, manifest)
     validate_intent(states)
 
 
@@ -299,6 +308,8 @@ def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, pro
                 seal_preparation(directory)
             from .protein_states import seal_request
             seal_request(directory, manifest, create=True)
+            from .fragments import seal_request as seal_fragments
+            seal_fragments(directory, manifest, create=True)
             manifest["state"] = "uploading"
             _save(directory, manifest)
             if progress:
@@ -319,11 +330,15 @@ def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, pro
         plan = intent_for(manifest["inputs"].get("manifest", {}))
         if plan and _source_id(selected) != identifier:
             raise snapshot_error(selected, "state.form_missing")
-        mapping = {}
+        mapping, fragment_mapping = {}, {}
+        from .fragments import request_kwargs
         fields = _preparation_fields(selected, config, groups, adjustments,
-            state_intent=plan, reference_pdb=manifest["inputs"]["files"]["complex.pdb"], state_mapping=mapping)
+            state_intent=plan, reference_pdb=manifest["inputs"]["files"]["complex.pdb"], state_mapping=mapping,
+            **request_kwargs(manifest, fragment_mapping))
         if plan:
             manifest["protein_state_mapping"] = mapping
+        if fragment_mapping:
+            manifest["fragment_mapping"] = fragment_mapping
         manifest["applied_terminals"] = {key: value for key, value in fields.items() if key.startswith("terminal[")}
         _save(directory, manifest)
         _submit(web, selected, parameterized, fields, uploads)
@@ -332,6 +347,11 @@ def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, pro
         _await_preparation(web, directory, manifest, parameterized, wait, interval, max_wait, progress)
         if manifest["state"] != "prepared":
             return manifest
+        if fragment_mapping:
+            from .fragments import ensure_prepared as ensure_fragments, source_binding
+            receipt = ensure_fragments(directory, manifest, web)
+            manifest["fragment_source_proof"] = source_binding(receipt)
+            _save(directory, manifest)
         if plan:
             from .protein_states import ensure_prepared
             receipt = ensure_prepared(directory, manifest, web)
@@ -350,6 +370,11 @@ def _start_prepared_bilayer(directory, manifest, api, prepared_config, wait, int
     normalization = manifest["inputs"].get("manifest", {}).get("input_normalization", {})
     if isinstance(normalization, dict) and "fragment_preparation" in normalization:
         require_protein_state_support(directory, manifest)
+        from .fragments import require_prepared
+        require_prepared(directory, manifest)
+        if prepared_config.get("source_job_id") != manifest.get("source_job_id"):
+            from .fragments import failure
+            raise failure(directory)
     if intent_for(manifest["inputs"].get("manifest", {})):
         if manifest.get("reused_preparation"):
             from .sweep import validate_reuse

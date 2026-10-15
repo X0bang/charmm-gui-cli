@@ -183,9 +183,12 @@ def preparation_identity(directory, manifest=None):
         if type(manifest.get("schema_version")) is not int or manifest["schema_version"] != 2:
             raise ValueError
         normalization = manifest.get("inputs", {}).get("manifest", {}).get("input_normalization", {})
+        fragment = None
         if isinstance(normalization, dict) and "fragment_preparation" in normalization:
             from .full_build import require_protein_state_support
             require_protein_state_support(directory, manifest)
+            from .fragments import record_for
+            fragment = record_for(manifest)
         config = manifest["config"]
         if (config.get("components_mode") or config.get("components") or config.get("chemistry_groups")
                 or manifest.get("components") or manifest.get("chemistry_groups")
@@ -193,7 +196,7 @@ def preparation_identity(directory, manifest=None):
             raise ToolError("Preparation reuse currently supports one ligand chemistry only; multi-component builds remain supported without sweep reuse.")
         mapping(config, ("version", "protein", "ligand", "ligand_resname", "ligand_hydrogens", "preparation", "membrane", "ions", "input_options"), "sealed preparation configuration")
         from .build_config import validate_preparation
-        preparation = validate_preparation(config["preparation"])
+        preparation = validate_preparation(config["preparation"], allow_fragments=fragment is not None)
         settings = {key: preparation[key] for key in ("orientation", "n_terminal", "c_terminal")}
         settings.update(ligand_resname=config["ligand_resname"], hydrogens=config["ligand_hydrogens"])
         settings = batch._options(settings, directory)
@@ -201,6 +204,9 @@ def preparation_identity(directory, manifest=None):
             settings["terminals"] = {chain: dict(sorted(patches.items()))
                                      for chain, patches in sorted(preparation["terminals"].items())}
         files = {name: _file(directory, manifest["inputs"]["files"][name], "inputs/" + name) for name in INPUT_FILES}
+        if fragment is not None:
+            name = fragment["source_file"]
+            files[name] = _file(directory, manifest["inputs"]["files"][name], "inputs/" + name)
         ligand = read_ligand(files["ligand.sdf"])
     except (ValueError, TypeError, KeyError, AttributeError):
         raise ToolError("Missing/unknown preparation identity; reuse requires fully prepared local inputs and explicit settings.") from None
@@ -212,6 +218,8 @@ def preparation_identity(directory, manifest=None):
     state_intent = validate_intent(intent_for(manifest.get("inputs", {}).get("manifest", {})))
     if state_intent:
         identity["protein_state_intent_sha256"] = batch._canonical(state_intent)
+    if fragment is not None:
+        identity["fragment_preparation_sha256"] = batch._canonical(fragment)
     return identity
 
 
@@ -297,10 +305,18 @@ def certify_source(directory):
     evidence.extend(_check_intent(directory, "upload-response.html", "selection.html", _chains(upload)))
     from ..chem.protein_states import intent_for
     plan = intent_for(manifest["inputs"].get("manifest", {}))
+    from .fragments import request_kwargs
     evidence.extend(_check_intent(directory, "selection.html", "parameterization.html",
         _preparation_fields(selected, manifest["config"], adjustments=list(manifest.get("terminal_adjustments", [])),
-                            state_intent=plan, reference_pdb=manifest["inputs"]["files"]["complex.pdb"]),
+                            state_intent=plan, reference_pdb=manifest["inputs"]["files"]["complex.pdb"], **request_kwargs(manifest)),
         (f"sdf_cgenff[{identity['settings']['ligand_resname']}]",)))
+    from .fragments import check_prepared as check_fragments, RECEIPT as FRAGMENT_RECEIPT, source_binding
+    fragment_proof = check_fragments(directory, manifest)
+    if fragment_proof is not None:
+        if manifest.get("fragment_source_proof") != source_binding(fragment_proof):
+            from .fragments import failure
+            raise failure(directory)
+        evidence.extend([directory / FRAGMENT_RECEIPT, *(directory / name for name in fragment_proof["evidence_sha256"])])
     if plan:
         from .protein_states import check_prepared, RECEIPT
         proof = check_prepared(directory, manifest)
@@ -310,6 +326,8 @@ def certify_source(directory):
         evidence.extend([directory / RECEIPT, *(directory / name for name in proof["evidence_sha256"])])
     certificate = {"version": 1, "source_directory": str(directory), "source_job_id": identifier,
                    "identity": identity, "evidence_sha256": {str(path.relative_to(directory)): _digest(path) for path in evidence}}
+    if fragment_proof is not None:
+        certificate["fragment_source_proof"] = source_binding(fragment_proof)
     if portable(root_for(directory / "full-run.json")):
         from ..store.discovery import task_id
         identifier = task_id(directory)
@@ -350,7 +368,7 @@ def bind_source(directory, source_directory):
             manifest["applied_terminals"] = dict(source_manifest["applied_terminals"])
         if isinstance(source_manifest.get("terminal_adjustments"), list):
             manifest["terminal_adjustments"] = list(source_manifest["terminal_adjustments"])
-        for key in ("protein_state_mapping", "protein_state_proof_fingerprint"):
+        for key in ("protein_state_mapping", "protein_state_proof_fingerprint", "fragment_mapping", "fragment_source_proof"):
             if key in source_manifest:
                 manifest[key] = source_manifest[key]
         atomic_json(directory / "full-run.json", manifest)

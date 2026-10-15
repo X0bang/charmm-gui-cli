@@ -69,9 +69,11 @@ def _request(directory, manifest):
     plan = validate_intent(intent_for(manifest["inputs"]["manifest"]))
     mapping = {}
     selected = Path(directory) / "preparation/selection.html"
+    from .fragments import request_kwargs
     fields = _preparation_fields(selected, manifest["config"], _remote_groups(manifest),
         list(manifest.get("terminal_adjustments", [])), state_intent=plan,
-        reference_pdb=manifest["inputs"]["files"]["complex.pdb"], state_mapping=mapping)
+        reference_pdb=manifest["inputs"]["files"]["complex.pdb"], state_mapping=mapping,
+        **request_kwargs(manifest))
     soup = soup_for(selected.read_text(encoding="utf-8"))
     forms = [form for form in soup.find_all("form") if form.select_one('input[name="jobid"]')]
     if len(forms) != 1 or forms[0].select_one('input[name="jobid"]').get("value") != job_id(manifest["source_job_id"]):

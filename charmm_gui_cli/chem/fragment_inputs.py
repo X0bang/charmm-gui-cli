@@ -224,10 +224,35 @@ def verify_prepared_fragments(prepared):
     return record
 
 
-def require_remote_fragment_support(prepared):
-    """Fail before upload/sealing until the authenticated proof path is wired."""
-    if verify_prepared_fragments(prepared) is not None:
-        raise ToolError(key="fragment.remote_pending", category="unsupported_feature", next_step=t("fragment.inspect_next"))
+def verify_input_archive(root, manifest, *, mapping=None, reference=None):
+    """File-bound library gate; authenticated source provenance is separate."""
+    from ..store.paths import read_value
+    manifest_path = Path(manifest) if not isinstance(manifest, dict) else None
+    manifest = read_value(manifest_path) if manifest_path is not None else manifest
+    normalization = manifest.get("input_normalization", {})
+    if isinstance(normalization, dict) and "fragment_preparation" not in normalization:
+        return None
+    try:
+        if reference is None:
+            if manifest_path is None:
+                raise ValueError
+            reference = manifest_path.parent / "complex.pdb"
+        folder = Path(reference).parent
+        files = {name: str(folder / name) for name in ("fragment-source.pdb", "complex.pdb", "protein.pdb")}
+        if Path(reference).absolute() != (folder / "complex.pdb").absolute():
+            raise ValueError
+        record = verify_prepared_fragments({"files": files, "manifest": manifest})
+        if not record or not isinstance(mapping, dict):
+            raise ValueError
+        from .fragment_proof import verify_fragment_archive
+        checks = verify_fragment_archive(root, mapping["requested_preparation"],
+            Path(files[record["source_file"]]).read_text(encoding="utf-8").splitlines(),
+            Path(files[record["prepared_file"]]).read_text(encoding="utf-8").splitlines(),
+            record["plan"], mapping, state_intent=record["source_state_intent"])
+        return {"required": True, **checks}
+    except (OSError, UnicodeError, ValueError, KeyError, TypeError, AttributeError):
+        from .terminal_topology import failure as topology_failure
+        raise topology_failure() from None
 
 
 def attach_fragment_states(prepared, source_intent):

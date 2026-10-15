@@ -148,12 +148,41 @@ def _terminals(directory, manifest, preparation):
         if key in values and values[key] != value:
             conflicts.add(key)
         values[key] = value
+    fragment_rows = None
+    inputs = _dict(manifest.get('inputs'))
+    normalization = _dict(_dict(inputs.get('manifest')).get('input_normalization'))
+    if 'fragment_preparation' in normalization:
+        fragment_rows = {}
+        try:
+            from ..chem.fragment_inputs import verify_prepared_fragments
+            from ..chem.fragment_proof import _binding
+            record = verify_prepared_fragments(inputs)
+            files = inputs['files']
+            source_lines = Path(files[record['source_file']]).read_text(encoding='utf-8').splitlines()
+            prepared_lines = Path(files[record['prepared_file']]).read_text(encoding='utf-8').splitlines()
+            bindings = _binding(preparation, source_lines, prepared_lines, record['plan'], manifest['fragment_mapping'])
+            for binding in bindings:
+                chain = binding['server_chain']
+                fragment_rows[chain] = binding
+                for end, entry in binding['terminals'].items():
+                    if values.get((chain, end)) != entry['form_value']:
+                        invalid = True
+            if set(fragment_rows) != {chain for chain, _ in values}:
+                invalid = True
+        except (OSError, UnicodeError, ValueError, KeyError, TypeError, AttributeError, ToolError):
+            fragment_rows, invalid = {}, True
     rows = []
     for chain in sorted({chain for chain, _ in values}):
         row = {'chain': chain}
+        fragment = fragment_rows.get(chain) if fragment_rows is not None else None
         for end in ('n_terminal', 'c_terminal'):
             row[end] = None if (chain, end) in conflicts else values.get((chain, end))
-            row['requested_' + end] = _requested(preparation, chain, end)
+            row['requested_' + end] = (fragment['terminals'][end]['value'] if fragment is not None else
+                                       None if fragment_rows is not None else _requested(preparation, chain, end))
+        if fragment is not None:
+            row.update(fragment_index=fragment['fragment_index'], prepared_chain=fragment['prepared_chain'],
+                       source_chain=fragment['source_chain'],
+                       requested_origins={end: fragment['terminals'][end]['origin'] for end in ('n_terminal', 'c_terminal')})
         rows.append(row)
     return {'status': 'conflicting_record' if conflicts else 'invalid_record' if invalid else status,
             'source': source, 'chains': rows, 'conflict_count': len(conflicts)}
@@ -197,7 +226,7 @@ def parameter_summary(manifest, directory=None):
     requested['terminals'] = {'defaults': {end: _patch(preparation.get(end), end) for end in ('n_terminal', 'c_terminal')},
         'chains': [{'chain': chain, **{end: _patch(_dict(values).get(end, preparation.get(end)), end) for end in ('n_terminal', 'c_terminal')}}
                    for chain, values in sorted((key, value) for key, value in _dict(preparation.get('terminals')).items()
-                                              if isinstance(key, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,8}', key))]}
+                                              if isinstance(key, str) and re.fullmatch(r'(?:[A-Za-z0-9_-]{1,8}|fragment:[A-Za-z0-9])', key))]}
     directory = Path(directory) if directory is not None else None
     return {'schema_version': 1, 'requested': requested,
             'submission': {'preparation': _terminals(directory, manifest, preparation), 'membrane': _membrane(directory, manifest)}}

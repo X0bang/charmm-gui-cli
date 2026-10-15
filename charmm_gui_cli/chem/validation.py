@@ -430,7 +430,8 @@ def element_from_natural_mass(mass):
 
 def validate_system(system_dir, manifest, *, topology=None, coordinates=None, mdp=None,
                     ligand_resname=None, run_grompp=False, gmx=None, index=None,
-                    output_parent=None, atom_name_map=None, protein_state_mapping=None, protein_state_reference=None):
+                    output_parent=None, atom_name_map=None, protein_state_mapping=None, protein_state_reference=None,
+                    fragment_mapping=None, fragment_reference=None):
     """Return readable checks; a passing result is never scientific certification.
 
     manifest is the prepare_inputs return's manifest, or its JSON file path.
@@ -450,6 +451,10 @@ def validate_system(system_dir, manifest, *, topology=None, coordinates=None, md
                               "CGenFF parameter penalties and missing chemistry require separate review."],
               "checks": checks, "errors": errors, "expected_ligand_resname": resname}
     try:
+        from .fragment_inputs import verify_input_archive
+        fragments = verify_input_archive(root, manifest_path or manifest, mapping=fragment_mapping, reference=fragment_reference)
+        if fragments is not None:
+            checks["protein_fragments"] = fragments
         from .protein_states import intent_for
         if intent_for(manifest):
             from .protein_state_proof import verify_archive_states

@@ -263,12 +263,12 @@ class FragmentInputTests(unittest.TestCase):
         manifest={"schema_version":2,"state":"inputs_ready","inputs":prepared,"config":{}}
         return directory,manifest
 
-    def test_fragment_upload_sealing_and_direct_clone_remain_gated(self):
+    def test_invalid_fragment_configuration_cannot_upload_seal_or_clone(self):
         directory,manifest=self.workflow()
         api=Mock()
-        self.refused("fragment.remote_pending",lambda:full_build.require_protein_state_support(directory,manifest))
-        self.refused("fragment.remote_pending",lambda:sweep.preparation_identity(directory,manifest))
-        self.refused("fragment.remote_pending",lambda:full_build._start_prepared_bilayer(directory,manifest,api,{},False,30,60,None))
+        self.refused("fragment.proof_invalid",lambda:full_build.require_protein_state_support(directory,manifest))
+        self.refused("fragment.proof_invalid",lambda:sweep.preparation_identity(directory,manifest))
+        self.refused("fragment.proof_invalid",lambda:full_build._start_prepared_bilayer(directory,manifest,api,{},False,30,60,None))
         api.assert_not_called()
         self.assertEqual(api.method_calls,[])
         self.assertFalse((directory/"api-config.json").exists())
@@ -282,12 +282,12 @@ class FragmentInputTests(unittest.TestCase):
                        lambda:sweep.preparation_identity(directory,manifest)):
             with self.assertRaises(SubmissionUnknown):action()
 
-    def test_public_advance_never_uploads_a_manually_registered_fragment_manifest(self):
+    def test_advance_never_uploads_an_invalid_manually_registered_fragment_manifest(self):
         directory,manifest=self.workflow()
         from charmm_gui_cli.store.auth import atomic_json
         atomic_json(directory/"full-run.json",manifest)
         web,api=Mock(),Mock()
-        self.refused("fragment.remote_pending",lambda:full_build.advance(directory,web,api))
+        self.refused("fragment.proof_invalid",lambda:full_build.advance(directory,web,api))
         self.assertEqual(web.method_calls,[])
         self.assertEqual(api.method_calls,[])
 

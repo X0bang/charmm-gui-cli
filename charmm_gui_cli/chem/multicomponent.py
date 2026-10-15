@@ -322,7 +322,7 @@ def prepare_multicomponent(*, complex_pdb, components, out, water_policy, ion_po
 
 
 def validate_components(system_dir, input_manifest, reference_pdb, run_grompp=False, gmx=None, output_parent=None,
-                        *, archive_path=None):
+                        *, archive_path=None, fragment_mapping=None):
     """Aggregate exact-copy topology and common-protein-frame pose checks.
 
     Distinct residue names with one copy each are supported. Repeated copies and
@@ -337,6 +337,10 @@ def validate_components(system_dir, input_manifest, reference_pdb, run_grompp=Fa
     try:
         from ..store.paths import read_value
         manifest = input_manifest if isinstance(input_manifest, dict) else read_value(input_manifest)
+        from .fragment_inputs import verify_input_archive
+        fragments = verify_input_archive(system_dir, manifest, mapping=fragment_mapping, reference=reference_pdb)
+        if fragments is not None:
+            report["checks"]["protein_fragments"] = fragments
         groups, instances = manifest["chemistry_groups"], manifest["components"]
         by_id = {entry["id"]: entry for entry in instances}
         if not groups or len(by_id) != len(instances):

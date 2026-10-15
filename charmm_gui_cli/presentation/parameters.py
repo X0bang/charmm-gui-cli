@@ -55,7 +55,12 @@ def parameter_lines(summary):
              'invalid_record': 'invalid', 'conflicting_record': 'invalid'}.get(status, 'invalid')
     lines.append(t('settings.terminals.' + label))
     for row in rows[:20]:
-        lines.append(t('settings.submitted_chain', chain=row['chain'],
+        chain = row['chain']
+        if 'prepared_chain' in row:
+            source = row['source_chain']
+            chain = t('fragment.chain_label', chain=chain, fragment=row['prepared_chain'],
+                      source=source.get('segment') or source.get('chain') or str(source['polymer_block']))
+        lines.append(t('settings.submitted_chain', chain=chain,
             n=_change(row.get('requested_n_terminal'), row.get('n_terminal')),
             c=_change(row.get('requested_c_terminal'), row.get('c_terminal'))))
     if len(rows) > 20:

@@ -138,6 +138,10 @@ def format_build(value, **context):
         lines.append(t("state.verified", count=len(state_proof["assembly"].get("residues", []))))
     elif value.get("protein_state_intent", {}).get("residues"):
         lines.append(t("state.local_review", count=len(value["protein_state_intent"]["residues"])))
+    fragments = value.get('fragment_validation') or (validation.get('fragment_validation', {}) if isinstance(validation, dict) else {})
+    assembly = fragments.get('checks', {}).get('assembly', {})
+    if fragments.get('passed') and fragments.get('server_origin_verified') and assembly.get('passed'):
+        lines.append(t('fragment.verified', count=assembly['fragment_count']))
     for warning in value.get("chemistry_warnings", []):
         lines.append("• " + t(warning["key"], **warning["params"]))
     execution = value.get("execution_state")

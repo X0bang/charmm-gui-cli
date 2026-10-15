@@ -99,6 +99,7 @@ def display_result(summary, context, manifest, report):
             "residue_counts": report.get("coordinate_residue_counts"),
             "warnings": report.get("review_warnings", []),
             **({"protein_state_validation": report["protein_state_validation"]} if "protein_state_validation" in report else {}),
+            **({"fragment_validation": report["fragment_validation"]} if "fragment_validation" in report else {}),
             "archive": context.get("archive"),
             "official_links": official_links(source_job_id=source, build_job_id=build),
             "simulation_note": "结构验收和 GROMACS 输入编译不代表已执行平衡或生产 MD，也不证明充分最小化。"}
@@ -165,6 +166,10 @@ def render_text(result):
     state_proof = result.get("protein_state_validation", {})
     if state_proof.get("passed") and state_proof.get("assembly", {}).get("passed"):
         lines.extend(["", t("state.verified", count=len(state_proof["assembly"].get("residues", [])))])
+    fragments = result.get('fragment_validation', {})
+    assembly = fragments.get('checks', {}).get('assembly', {})
+    if fragments.get('passed') and fragments.get('server_origin_verified') and assembly.get('passed'):
+        lines.extend(['', t('fragment.verified', count=assembly['fragment_count'])])
     lines.extend(["", t("report.warnings")])
     warnings = result.get("warnings", [])
     lines.extend("- " + _value(item) for item in warnings)

@@ -233,9 +233,10 @@ def _component_penalties(system_dir, resnames):
     return reports
 
 
-def _component_final_report(extracted, input_manifest, reference, *, grompp, gmx, work, membrane, archive_path=None):
+def _component_final_report(extracted, input_manifest, reference, *, grompp, gmx, work, membrane, archive_path=None,
+                            fragment_mapping=None):
     aggregate = validate_components(extracted, input_manifest, reference, run_grompp=grompp, gmx=gmx, output_parent=work,
-                                    archive_path=archive_path)
+                                    archive_path=archive_path, **({"fragment_mapping": fragment_mapping} if fragment_mapping is not None else {}))
     topologies = [entry["topology_validation"] for entry in aggregate.get("components", {}).values()]
     compiled = [entry["checks"]["grompp"] for entry in topologies if "grompp" in entry.get("checks", {})]
     report = {"passed": aggregate["passed"], "scientific_correctness_verified": False,
@@ -334,7 +335,11 @@ def _evidence(manifest, archive, grompp, gmx, *, create_receipt=False):
     if state_intent and not isinstance(manifest.get("protein_state_mapping"), dict):
         from ..chem.protein_state_proof import failure
         raise failure()
+    from .fragments import validation_request
+    internal = archive.parent / ".charmm-gui"
+    fragment_request = validation_request(internal if (internal / "full-run.json").is_file() else archive.parent.parent, manifest)
     return {"tool_version": __version__, "archive_sha256": binding["archive_provenance"]["archive_sha256"],
+            **({"fragment_revision": 1, "fragment_request_sha256": _canonical_hash(fragment_request)} if fragment_request else {}),
             **({"protein_state_revision": 1, "protein_state_request_sha256": _canonical_hash({"intent": state_intent,
                 "mapping": manifest.get("protein_state_mapping")})} if state_intent else {}),
             **({"component_validation_revision": 2} if manifest.get("config", {}).get("components_mode") else {}),
@@ -363,6 +368,11 @@ def _cache_reusable(report, evidence):
         return False
     if evidence.get("protein_state_revision") and report.get("protein_state_validation", {}).get("passed") is not True:
         return False
+    if evidence.get("fragment_revision"):
+        fragments = report.get("fragment_validation", {})
+        if (fragments.get("passed") is not True or fragments.get("server_origin_verified") is not True
+                or fragments.get("request_sha256") != evidence.get("fragment_request_sha256")):
+            return False
     if evidence["grompp"]:
         if not evidence["gmx_identity"]["available"]:
             return False
@@ -407,6 +417,7 @@ def _final_summary(directory):
                     "gromacs_compiled": report.get("checks", {}).get("grompp", {}).get("passed") is True,
                     "compilation_status": ("passed" if _grompp_artifacts(report) else "failed") if stored["grompp"] else "not_run",
                     **({"protein_state_validation": report["protein_state_validation"]} if "protein_state_validation" in report else {}),
+                    **({"fragment_validation": report["fragment_validation"]} if "fragment_validation" in report else {}),
                     "archive": str(archive), "report_file": str(path)}
         if report.get("fingerprint") != _canonical_hash(stored) or report.get("validation_complete") is not True:
             issues.append({"key": "validation.record_changed", "params": {"path": str(path)}})
@@ -504,17 +515,23 @@ def finalize_managed_build(directory, *, grompp=False, gmx="gmx"):
         from ..chem.protein_state_proof import verify_archive_states
         states = verify_archive_states(extracted, _task_store._read_json(input_manifest), reference=reference,
                                        mapping=manifest.get("protein_state_mapping"))
+        from .fragments import verify_archive as verify_fragment_archive
+        fragments = verify_fragment_archive(directory, manifest, extracted)
         if config.get("components_mode"):
             report, pose, acceptance = _component_final_report(extracted, input_manifest, reference,
-                                                               grompp=grompp, gmx=gmx, work=work, membrane=config["membrane"], archive_path=archive)
+                grompp=grompp, gmx=gmx, work=work, membrane=config["membrane"], archive_path=archive,
+                **({"fragment_mapping": manifest["fragment_mapping"]} if fragments else {}))
         else:
             report = validate_system(extracted, input_manifest, run_grompp=grompp, gmx=gmx, output_parent=work,
+                **({"fragment_mapping": manifest["fragment_mapping"]} if fragments else {}),
                 **({"protein_state_mapping": manifest.get("protein_state_mapping"), "protein_state_reference": reference}
                    if states["required"] else {}))
             pose = validate_bound_pose(extracted, input_manifest, reference)
             acceptance = assess_acceptance(extracted, membrane=config["membrane"], ligand_resname=config.get("ligand_resname", "LIG"))
         if states["required"]:
             report["protein_state_validation"] = states
+        if fragments:
+            report["fragment_validation"] = fragments
         compiled = report.get("checks", {}).get("grompp", {})
         if "log" in compiled and "output_dir" in compiled:
             paths = {"log": Path(compiled["log"]), "tpr": Path(compiled["output_dir"]) / "system.tpr"}
