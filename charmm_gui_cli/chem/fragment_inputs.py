@@ -1,6 +1,6 @@
-"""Actual input serialization for explicitly requested internal fragment staging.
+"""Actual input serialization for explicitly requested fragment staging.
 
-No public modeling bypass: remote proof/receipt integration is still required.
+No general geometry bypass: source/final topology and receipts stay mandatory.
 Plans bind the final FULL upload complex, including reserved component chain IDs
 and final serial numbers, not an earlier protein-only normalization hash.
 """
@@ -24,6 +24,33 @@ def failure():
 def validate_fragment_option(value):
     if type(value) is not bool:
         raise ToolError(key="fragment.option_invalid", next_step=t("fragment.inspect_next"))
+
+
+def resolve_fragment_option(value, options):
+    """The public policy and older explicit internal keyword must not conflict."""
+    validate_fragment_option(value)
+    requested = options.get('split_chain_breaks')
+    if requested is not None:
+        validate_fragment_option(requested)
+    if value and requested is False:
+        raise ToolError(key='fragment.option_conflict', next_step='charmm-gui-cli check -h')
+    return value or requested is True
+
+
+def validate_prepared_terminals(prepared, preparation):
+    local = prepared.get('manifest', {})
+    normalization = local.get('input_normalization', {}) if isinstance(local, dict) else None
+    if isinstance(normalization, dict) and 'fragment_preparation' not in normalization:
+        return False
+    record = verify_prepared_fragments(prepared)
+    if record is None:
+        raise failure()
+    from .fragment_terminals import resolve_fragment_terminals
+    files = prepared['files']
+    resolve_fragment_terminals(preparation,
+        Path(files[record['source_file']]).read_text(encoding='utf-8').splitlines(),
+        Path(files[record['prepared_file']]).read_text(encoding='utf-8').splitlines(), record['plan'])
+    return True
 
 
 def validate_fragment_source(path, atoms, *, options, role, **context):

@@ -307,8 +307,8 @@ def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_res
     stage = "options"
     try:
         options = validate_input_options(input_options)
-        from .fragment_inputs import validate_fragment_option
-        validate_fragment_option(fragment_preparation)
+        from .fragment_inputs import resolve_fragment_option
+        fragment_preparation = resolve_fragment_option(fragment_preparation, options)
         fragment_options = {"fragment_preparation": True} if fragment_preparation else {}
         report["input_options"] = options
         if hydrogens not in ("preserve", "add_missing"):

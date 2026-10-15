@@ -104,6 +104,8 @@ def parser():
     inputs.add_argument("--out", type=Path, required=True)
     inputs.add_argument("--ligand-resname", default="LIG")
     inputs.add_argument("--hydrogens", choices=("preserve", "add_missing"), default="preserve")
+    inputs.add_argument('--split-chain-breaks', action=argparse.BooleanOptionalAction, default=None,
+                        help=t('help.input_split_breaks'))
     split = commands.add_parser("split", help=t('help.text.22'))
     split.add_argument("pdb", type=Path)
     split.add_argument("--ligand", default="LIG", help=t('help.text.23'))
@@ -182,6 +184,8 @@ def parser():
         command.add_argument("--drop-additives", action="store_true", default=None, help=t("help.input_additives"))
         command.add_argument("--model", type=int, help=t("help.input_model"))
         command.add_argument("--ligand-pose", type=int, help=t("help.ligand_pose"))
+        command.add_argument("--split-chain-breaks", action=argparse.BooleanOptionalAction, default=None,
+                             help=t("help.input_split_breaks"))
     add_input_selection(structures)
     model = build.add_argument_group(t("help.model_group"))
     model.add_argument("--upper", help=t('help.text.46'))

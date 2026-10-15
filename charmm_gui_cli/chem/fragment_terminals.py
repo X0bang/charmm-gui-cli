@@ -1,6 +1,6 @@
 """Resolve original-chain ends separately from explicit prepared-fragment ends.
 
-Internal groundwork: no public split permission, cap generation or remote proof.
+Request resolution only: no local cap generation or remote topology proof.
 Inputs must be normalized preparation settings; rederive the fragment plan from
 the actual staged source/prepared lines before resolving any end requests.
 """

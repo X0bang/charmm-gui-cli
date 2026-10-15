@@ -60,6 +60,8 @@ charmm-gui-cli build --complex complex.pdb \
 
 末端补丁支持按链设置，例如 `--n-terminal A=GLYP,B=NTER`，也可用 `PROA` 等 segment 名；YAML 使用 `preparation.terminals: {A: {n_terminal: GLYP}, B: {n_terminal: NTER}}`。未指定的链使用统一默认值。
 
+主链几何断裂默认拒绝。明确接受分离片段时，可给 `check` / `build` 加 `--split-chain-breaks`，或设置 `input_options: {split_chain_breaks: true}`。坐标和拆分前快照保留，不补缺失片段；先用 `check` 确认生成的链，再用 `fragment:B=ACE` 这类选择器指定新断端。原链设置只作用于首/末片段的外侧末端；每个末端须通过源拓扑和最终归档核验。该入口为实验性，详见[片段设置](docs/ADVANCED.md#显式分离主链断裂)。
+
 终端和报告分别展示请求设置与提交记录；例如 NTER 自动回退为 GLYP 时显示 `NTER → GLYP`。提交结果未知或只有历史记录时会明确标注，不把请求值当作已应用值。`inputs/system-config.json` 保留原始 requested/applied 字段，并新增按链整理的 `parameter_summary`。
 
 `check` 显示失败原因、自动修复和结构审阅项，`check --full` 显示完整证据；`--json`、`--lang`、`--foreground` 可放在子命令前后。新任务本地准备失败不会占住任务名，修正输入后可以重试。

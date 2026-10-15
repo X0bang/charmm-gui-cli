@@ -498,8 +498,8 @@ def _prepare_inputs(protein_pdb, ligand_sdf, output_dir, *, ligand_resname="LIG"
     from .residues import validate_input_options
     from .input_safety import validate_cgenff, validate_contact, validate_ligand_name, validate_link_records
     options = validate_input_options(input_options)
-    from .fragment_inputs import validate_fragment_option, validate_fragment_source, apply_fragment_preparation
-    validate_fragment_option(fragment_preparation)
+    from .fragment_inputs import resolve_fragment_option, validate_fragment_source, apply_fragment_preparation
+    fragment_preparation = resolve_fragment_option(fragment_preparation, options)
     validate_ligand_name(ligand_resname)
     protein, protein_bonds = _pdb(protein_pdb, report=normalization, input_options=options, role="protein")
     if fragment_preparation:

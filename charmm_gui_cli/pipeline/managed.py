@@ -130,11 +130,13 @@ def create_managed_build(*, protein=None, ligand=None, complex_pdb=None, ligand_
     from charmm_gui_cli.chem.input_sources import prepare_sources
     from charmm_gui_cli.pipeline.build_config import validate_model_options
     from charmm_gui_cli.store.local_build import local_initialization
+    from ..chem.residues import validate_input_options
+    options = validate_input_options(input_options)
     model = validate_model_options(
         membrane if membrane is not None else {"upper": "POPC=1", "lower": "POPC=1", "margin_A": 20, "water_padding_A": 22.5},
         ions if ions is not None else {"type": "NaCl", "concentration_M": 0.15},
         preparation if preparation is not None else {"orientation": "ppm", "n_terminal": "NTER", "c_terminal": "CTER"},
-        ligand_resname=ligand_resname, hydrogens=hydrogens)
+        ligand_resname=ligand_resname, hydrogens=hydrogens, allow_fragments=options.get('split_chain_breaks', False))
     if output is None:
         directory = _task_store.new_run_path()
     else:
@@ -167,11 +169,13 @@ def create_component_build(*, components_config, complex_pdb, output=None, membr
     from charmm_gui_cli.store.locking import now
 
     directory = _task_store.new_run_path() if output is None else Path(output).expanduser().resolve()
+    from ..chem.residues import validate_input_options
+    options = validate_input_options(input_options)
     model = validate_model_options(
         membrane if membrane is not None else {"upper": "POPC=1", "lower": "POPC=1", "margin_A": 20, "water_padding_A": 22.5},
         ions if ions is not None else {"type": "NaCl", "concentration_M": 0.15},
         preparation if preparation is not None else {"orientation": "ppm", "n_terminal": "NTER", "c_terminal": "CTER"},
-        hydrogens=hydrogens)
+        hydrogens=hydrogens, allow_fragments=options.get('split_chain_breaks', False))
     from charmm_gui_cli.store.local_build import local_initialization
     with local_initialization(directory):
         inputs = prepare_build_components(components_config=components_config, complex_pdb=complex_pdb,
@@ -183,18 +187,24 @@ def create_component_build(*, components_config, complex_pdb, output=None, membr
         raw = {"version": 2, "protein": inputs["files"]["protein.pdb"], "ligand": first["sdf"],
                "ligand_resname": first["resname"], "ligand_hydrogens": hydrogens,
                "membrane": model["membrane"], "ions": model["ions"], "preparation": model["preparation"]}
+        if 'split_chain_breaks' in options:
+            raw['input_options'] = {'split_chain_breaks': options['split_chain_breaks']}
         config_path = directory / "component-build-config.json"
         _task_store._new_json(config_path, raw)
         config = load_build_config(config_path)
         from charmm_gui_cli.pipeline.build_config import validate_terminal_residues
         from charmm_gui_cli.chem.pdb_normalization import normalize_lines, terminal_predictions
-        validate_terminal_residues(config["preparation"], terminal_predictions(normalize_lines(inputs["files"]["protein.pdb"])))
+        from ..chem.fragment_inputs import validate_prepared_terminals
+        if not validate_prepared_terminals(inputs, config['preparation']):
+            validate_terminal_residues(config["preparation"], terminal_predictions(normalize_lines(inputs["files"]["protein.pdb"])))
         config.update(components_mode=True, component_resnames=[group["resname"] for group in component_manifest["chemistry_groups"]],
                       components_config=str(Path(components_config).resolve()),
                       component_manifest=inputs["files"]["input-manifest.json"])
         from charmm_gui_cli.store.result_files import creation_context
         manifest = {"schema_version": 2, "created_at": now(), "updated_at": now(), "state": "inputs_ready", "config": config, "inputs": inputs,
                     "delivery_context": creation_context()}
+        from .fragments import seal_local_inputs
+        seal_local_inputs(directory, manifest, create=True)
         _task_store._new_json(directory / "full-run.json", manifest)
         _task_store._new_json(directory / "managed.json", {"version": 1, "components_mode": True,
                                                 "sources_directory": str(inputs_path(directory) / "sources"),

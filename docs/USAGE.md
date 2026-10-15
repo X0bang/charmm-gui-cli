@@ -190,6 +190,8 @@ charmm-gui-cli jobs watch receptor-a
 
 ## 6. 本地预检与恢复
 
+主链断裂默认阻断。明确接受独立片段时，给 `check` 和后续 `build` 都加 `--split-chain-breaks`；配置文件用 `input_options.split_chain_breaks: true`。先查看生成的链标识，再设置逐片段末端；这不会补齐缺失片段。详见[片段设置](ADVANCED.md#显式分离主链断裂)。
+
 ```bash
 charmm-gui-cli build \
   --complex bound-complex.pdb --accept-conect-bond-orders --dry-run

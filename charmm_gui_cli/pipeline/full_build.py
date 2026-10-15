@@ -44,13 +44,20 @@ def initialize(config_path, directory, *, _reserved=False, _source_report=None):
                               ligand_resname=config["ligand_resname"],
                               hydrogen_policy=config["ligand_hydrogens"],
                               **({"ligand_smiles": config["ligand_smiles"]} if "ligand_smiles" in config else {}),
-                              input_options={} if _source_report is not None else config.get("input_options"))
+                              input_options=({key: value for key, value in config.get("input_options", {}).items()
+                                              if key == 'split_chain_breaks'} if _source_report is not None else config.get("input_options")),
+                              **({'fragment_preparation': True} if _source_report is not None
+                                 and _source_report.get('fragment_preparation_requested') else {}))
     if _source_report is not None:
         from ..chem.pdb_normalization import attach_source_normalization
         attach_source_normalization(prepared, _source_report)
     from charmm_gui_cli.pipeline.build_config import validate_terminal_residues
-    validate_terminal_residues(config["preparation"], prepared.get("manifest", {}).get("input_normalization", {}).get("terminal_predictions", []))
+    from ..chem.fragment_inputs import validate_prepared_terminals
+    if not validate_prepared_terminals(prepared, config['preparation']):
+        validate_terminal_residues(config["preparation"], prepared.get("manifest", {}).get("input_normalization", {}).get("terminal_predictions", []))
     manifest.update(state="inputs_ready", inputs=prepared)
+    from .fragments import seal_local_inputs
+    seal_local_inputs(directory, manifest, create=True)
     _save(directory, manifest)
     return manifest
 
@@ -242,7 +249,10 @@ def require_protein_state_support(directory, manifest):
     local = manifest.get("inputs", {}).get("manifest", {})
     states = intent_for(local)
     fragment = local.get("input_normalization", {}).get("fragment_preparation")
-    if states or fragment is not None:
+    from .fragments import LOCAL_RECEIPT
+    local_seal = (directory / LOCAL_RECEIPT).exists() or (directory / LOCAL_RECEIPT).is_symlink()
+    split_requested = manifest.get('config', {}).get('input_options', {}).get('split_chain_breaks', False)
+    if states or fragment is not None or split_requested or local_seal:
         preparation = directory / "preparation"
         unknown = (manifest.get("state") == "submission_unknown" or
                    preparation.exists() and not (preparation / "upload-response.html").is_file() or
@@ -270,6 +280,9 @@ def require_protein_state_support(directory, manifest):
     if fragment is not None:
         from .fragments import validate_local
         validate_local(directory, manifest)
+    if split_requested or local_seal:
+        from .fragments import seal_local_inputs
+        seal_local_inputs(directory, manifest)
     validate_intent(states)
 
 

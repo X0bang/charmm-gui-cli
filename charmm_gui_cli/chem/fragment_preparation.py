@@ -1,8 +1,8 @@
 """Coordinate-preserving fragment primitives; not a submission permission gate.
 
-The public CLI does not expose splitting until terminal controls and actual
-source/final PSF separation are verified. These functions operate on already
-normalized, single-model PDB text and never read/write files or infer new bonds.
+Callers must separately verify terminal controls and actual source/final PSF
+separation. These functions operate on already normalized, single-model PDB
+text and never read/write files or infer new bonds.
 """
 
 from collections import defaultdict

@@ -27,6 +27,8 @@ axes:
 
 当前扫描/复用接口只支持单一配体化学定义；多组件或多个化学组的建模仍走独立 build 流程，不能只拿首组配体的指纹复用整套前处理。检测到多组件元数据时明确拒绝复用，而不是忽略其他组。
 
+明确接受主链分离时，在 `inputs` 写 `split_chain_breaks: true`；逐片段补丁可写 `n_terminal: "fragment:B=GLYP"` 或 terminals 映射，链名先通过 `check --split-chain-breaks` 查看。拆分策略、实际片段计划、拆分前文件及末端请求都是固定输入，不是扫描轴；复用还须绑定同源 PDB/PSF/RTF 和提交证据。未启用时仍拒绝断链。
+
 ## CLI 工作流
 
 ```bash

@@ -181,8 +181,8 @@ def _prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand
     from .residues import validate_input_options
     from .input_safety import validate_cgenff, validate_ligand_name, validate_link_records
     options = validate_input_options(input_options)
-    from .fragment_inputs import validate_fragment_option, validate_fragment_source, address_mapping, rebase_state_intent
-    validate_fragment_option(fragment_preparation)
+    from .fragment_inputs import resolve_fragment_option, validate_fragment_source, address_mapping, rebase_state_intent
+    fragment_preparation = resolve_fragment_option(fragment_preparation, options)
     validate_ligand_name(ligand_resname)
     if destination.exists():
         raise ToolError("prepare_sources out must be a new directory; existing outputs are never overwritten.",

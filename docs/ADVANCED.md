@@ -90,7 +90,37 @@ input_options:
   model: 1             # 仅需选择多模型文件时填写，从 1 开始
 ```
 
-上述选项也可直接放入 batch 的 `defaults`/成员，以及 sweep 的 `inputs`。结晶水默认移除，原始文件不改，实际输入和修复记录在任务的 `inputs/` 中。预检遇到金属或辅因子时，检查目录中的 `retained-components/components.yaml` 标出待补全的化学定义；它不是可直接运行的参数文件。金属配位和修饰残基补丁仍需要专用流程，不能仅把草稿的 `trusted` 改为 `true`。
+上述选项在 batch v2 中放入 `defaults.input_options` 或成员的 `input_options`；旧 v1 可直接放入 defaults/成员。sweep 使用 `inputs`。结晶水默认移除，原始文件不改，实际输入和修复记录在任务的 `inputs/` 中。预检遇到金属或辅因子时，检查目录中的 `retained-components/components.yaml` 标出待补全的化学定义；它不是可直接运行的参数文件。金属配位和修饰残基补丁仍需要专用流程，不能仅把草稿的 `trusted` 改为 `true`。
+
+### 显式分离主链断裂
+
+默认拒绝相邻残基 C–N 距离超过 2.0 Å 的主链断裂，即使残基编号连续。若确实要把这些位置当作独立片段，可明确选择实验性入口：
+
+```bash
+charmm-gui-cli check --protein protein.pdb --ligand bound-ligand.sdf --split-chain-breaks
+charmm-gui-cli build --protein protein.pdb --ligand bound-ligand.sdf --split-chain-breaks --name fragments-a
+```
+
+YAML 写法如下；不要同时传直接输入开关和 build 配置文件：
+
+```yaml
+input_options:
+  split_chain_breaks: true
+preparation:
+  n_terminal: NTER
+  c_terminal: CTER
+  terminals:
+    A: {n_terminal: ACE}             # 原链 A 的最外侧 N 端
+    "fragment:B": {c_terminal: CT2} # 生成片段 B 的 C 端；链名先看 check
+```
+
+原链/segment 选择器只设置该原链首、末片段的外侧 N/C 端。新断端继承全局设置，`fragment:链名` 可逐端覆盖；生成的链 ID 取决于已有蛋白/组分链占用，不保证一定是 B。没有实际片段、选择器不唯一或 GLYP/PROP 与首残基不符时本地拒绝。`--no-split-chain-breaks` 明确保留默认拒绝行为。
+
+程序不会填补缺失结构、连接相距很远的断端或在本地生成化学补丁。`inputs/fragment-source.pdb` 保留最终编号下的拆分前复合物，`complex.pdb` 是实际上传内容；原子身份、坐标、保留的显式连接和状态映射参与封存。它不会放过未知残基、金属、LINK 共价/配位或冲突的显式肽键。拆分改变端点化学，需要研究者审核末端和结构合理性。
+
+建膜前先核对成功提交的末端字段及同一源任务的实际 PDB/PSF/蛋白 RTF；下载后再次核验源与最终组装。报告分别记录原链请求、逐片段提交及实际验证。ILE `CD1→CD` 只在对应 CHARMM 模板、原子类型/电荷/质量和完整连接均吻合时映射；CT2/CT3 明确请求的末端氧替换也单独记录，不把任意缺失重原子当作可接受修复。
+
+批量/扫描使用同一开关和身份：batch v2 为 `defaults.input_options.split_chain_breaks: true`，旧 v1 和 sweep 的 inputs 为 `split_chain_breaks: true`。本地准备完成时保存隐藏的 `local-input-seal.json`；中断后只接续输入、快照和参数均匹配的完整结果，不重新准备或事后重建封存。更改或损坏的缓存会原样保留，并提示重新检查原始输入；需要重新准备时使用新任务目录。`--retry-failed-local` 仍仅用于未留下部分任务目录的本地失败，不自动覆盖这些缓存。新的真实三片段源拓扑已通过检查，最终远端片段体系验收仍在进行，不将源阶段通过称为完整建模通过。
 
 蛋白 PDB 已经夹带配体、又传入独立 SDF/mol2 时，程序会检查重原子是否在原坐标系中一一对应（RMSD < 0.5 Å，不做拟合）。这只是可能重复的结合姿势，不证明化学身份、键级或电荷一致；不会自动删除。确认使用独立配体定义后，可显式使用 `--drop-hetero LIG`。若同名残基还有其他不吻合的结合位点，提示会说明批量删除的范围，不再建议按名字直接删除。比对有计算上限，达到上限仍保留原来的组分拒绝，不把未判定组分视为安全。
 

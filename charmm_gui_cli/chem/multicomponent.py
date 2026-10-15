@@ -149,8 +149,8 @@ def prepare_multicomponent(*, complex_pdb, components, out, water_policy, ion_po
     source = _file(complex_pdb, "Complex PDB")
     original_atom_count = sum(line.startswith(("ATOM  ", "HETATM")) for line in source.read_text().splitlines())
     options = validate_input_options(input_options)
-    from .fragment_inputs import validate_fragment_option, validate_fragment_source, address_mapping, rebase_state_intent
-    validate_fragment_option(fragment_preparation)
+    from .fragment_inputs import resolve_fragment_option, validate_fragment_source, address_mapping, rebase_state_intent
+    fragment_preparation = resolve_fragment_option(fragment_preparation, options)
     role = "components" if water_policy == "retain" or input_options is None else "complex"
     normalization = {}
     atoms, bonds = _pdb(source, report=normalization, input_options=options, role=role)
@@ -481,8 +481,9 @@ def _prepare_build_components(*, components_config, complex_pdb, out, hydrogens=
     """
     if hydrogens not in ("preserve", "add_missing"):
         raise ToolError("hydrogens must be preserve or add_missing; no pH state is selected.")
-    from .fragment_inputs import validate_fragment_option, apply_fragment_preparation
-    validate_fragment_option(fragment_preparation)
+    from .fragment_inputs import resolve_fragment_option, apply_fragment_preparation
+    options = validate_input_options(input_options)
+    fragment_preparation = resolve_fragment_option(fragment_preparation, options)
     destination = Path(out).resolve()
     if destination.exists():
         raise ToolError("Build preparation out must be a new directory.")

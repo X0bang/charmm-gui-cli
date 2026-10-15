@@ -27,7 +27,7 @@ def check_command(*, protein=None, ligand=None, complex_pdb=None, ligand_resname
     for key, value in (input_options or {}).items():
         if key not in INPUT_FIELDS:
             continue
-        if key in ("keep_mse", "drop_additives"):
+        if key in ("keep_mse", "drop_additives", "split_chain_breaks"):
             if value:
                 args.append("--" + key.replace("_", "-"))
         elif value:

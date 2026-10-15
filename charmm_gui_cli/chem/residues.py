@@ -19,7 +19,7 @@ ADDITIVES = frozenset(("GOL", "EDO", "SO4", "PO4", "ACT", "PEG", "PG4", "MPD", "
 DETERGENTS = frozenset(("OLC", "OLA", "LDA", "BOG", "LMT", "DMU", "PLM", "CLR"))
 METALS = frozenset(("Li", "Na", "K", "Rb", "Cs", "Mg", "Ca", "Sr", "Ba", "Mn", "Fe", "Co", "Ni", "Cu", "Zn", "Cd", "Hg", "Al", "Cr"))
 CGENFF_ELEMENTS = frozenset(("H", "C", "N", "O", "S", "P", "F", "Cl", "Br", "I"))
-INPUT_FIELDS = ("altloc", "drop_hetero", "keep_mse", "drop_additives", "model", "ligand_pose")
+INPUT_FIELDS = ("altloc", "drop_hetero", "keep_mse", "drop_additives", "model", "ligand_pose", "split_chain_breaks")
 
 
 def options_from_args(args):
@@ -55,6 +55,8 @@ def validate_input_options(raw=None):
     result["drop_hetero"] = sorted(set(names))
     if "ligand_pose" in result and (type(result["ligand_pose"]) is not int or result["ligand_pose"] < 1):
         raise ToolError(key="input.ligand_pose_option", next_step="charmm-gui-cli check -h")
-    if any(type(result[key]) is not bool for key in ("keep_mse", "drop_additives")) or ("model" in result and (type(result["model"]) is not int or result["model"] < 1)):
+    if (any(type(result[key]) is not bool for key in ("keep_mse", "drop_additives"))
+            or "split_chain_breaks" in result and type(result["split_chain_breaks"]) is not bool
+            or "model" in result and (type(result["model"]) is not int or result["model"] < 1)):
         raise ToolError(key="input.options_invalid", next_step="charmm-gui-cli check -h")
     return result

@@ -14,6 +14,8 @@ ligand_resname: LIG
 # 多记录配体必须明确选择，从 1 开始；取消以下注释并按需修改：
 # input_options:
 #   ligand_pose: 2
+#   split_chain_breaks: false  # 实验性：明确分离几何断裂时才设为 true，不补缺失片段
+# 两个选项独立按需填写；只有一个配体记录时不要填写 ligand_pose: 2。
 # mol2 的部分电荷不是形式电荷，需审核转换报告。
 # add_missing：按已有化学定义补氢，不预测 pH 或质子化状态。
 # preserve：保留输入氢，不补氢。

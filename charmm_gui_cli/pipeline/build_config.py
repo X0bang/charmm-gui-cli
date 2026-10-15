@@ -55,12 +55,12 @@ def validate_preparation(raw, *, allow_fragments=False):
     return result
 
 
-def validate_model_options(membrane, ions, preparation, *, ligand_resname="LIG", hydrogens="add_missing"):
+def validate_model_options(membrane, ions, preparation, *, ligand_resname="LIG", hydrogens="add_missing", allow_fragments=False):
     """Validate options before creating task directories or preparing structures."""
     if hydrogens not in ("preserve", "add_missing") or not re.fullmatch(r"[A-Z][A-Z0-9]{0,2}", str(ligand_resname)):
         raise ToolError(key="build.input_options_invalid", next_step="charmm-gui-cli build -h")
     config = {"ligand_resname": ligand_resname, "membrane": membrane, "ions": ions,
-              "preparation": validate_preparation(preparation)}
+              "preparation": validate_preparation(preparation, allow_fragments=allow_fragments)}
     normalized = api_config(config, None)
     config.update(membrane=normalized["membrane"], ions=normalized["ions"])
     return config
@@ -143,7 +143,8 @@ def _load_build_config(path):
     result["ligand_hydrogens"] = raw.get("ligand_hydrogens", "preserve")
     if not isinstance(result["ligand_hydrogens"], str) or result["ligand_hydrogens"] not in ("preserve", "add_missing"):
         raise ToolError(key="config.ligand_hydrogens")
-    result["preparation"] = validate_preparation(raw.get("preparation", {}))
+    result["preparation"] = validate_preparation(raw.get("preparation", {}),
+        allow_fragments=result.get("input_options", {}).get("split_chain_breaks", False))
     # Reuse the tested membrane/ion validators without treating a dummy job as
     # evidence of remote preparation. A real ID is supplied only after step 3.
     normalized = api_config(result, None)

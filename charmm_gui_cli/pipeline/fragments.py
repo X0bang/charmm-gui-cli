@@ -3,7 +3,8 @@
 The chemistry checker deliberately does not assert server provenance. This
 layer supplies the separate request/download chain. Rechecking is read-only;
 interrupted GETs may resume, but a changed receipt is never refreshed and no
-modeling POST occurs here. Public opt-in requires final/reuse integration too.
+modeling POST occurs here. Final archive and reuse verification use this same
+request/source identity, independently of the explicit public input opt-in.
 """
 
 import hashlib
@@ -27,6 +28,7 @@ from ..store.paths import read_value
 
 REQUEST = "fragment-request.json"
 RECEIPT = "preparation/fragment-proof.json"
+LOCAL_RECEIPT = 'local-input-seal.json'
 _ORIGINS = {"charmm-gui.org", "www.charmm-gui.org", "charmm-gui.org:443", "www.charmm-gui.org:443"}
 _ARTIFACTS = {"pdb": "step1_pdbreader.pdb", "psf": "step1_pdbreader.psf", "topology": "top_all36_prot.rtf"}
 
@@ -159,6 +161,83 @@ def seal_request(directory, manifest, *, create=False):
         return body
     except (OSError, UnicodeError, ValueError, KeyError, TypeError, AttributeError):
         raise failure(directory) from None
+
+
+def seal_local_inputs(directory, manifest, *, create=False):
+    """Keep a prepared split/no-op task adoptable without repeating chemistry.
+
+    This is local preparation evidence, not a successful upload/source proof.
+    Existing seals are checked, never regenerated from changed cached inputs.
+    Old tasks without the new policy/marker keep their previous behavior.
+    """
+    local = manifest.get('inputs', {}).get('manifest', {})
+    requested = manifest.get('config', {}).get('input_options', {}).get('split_chain_breaks', False)
+    fragment = local.get('input_normalization', {}).get('fragment_preparation')
+    path = Path(directory) / LOCAL_RECEIPT
+    if not requested and fragment is None and not path.exists() and not path.is_symlink():
+        return None
+    directory = _directory(directory)
+    try:
+        from ..store.layout import inputs_path
+        from ..store.paths import identity
+        root = inputs_path(directory)
+        if root.is_symlink():
+            raise ValueError
+        files = manifest['inputs']['files']
+        for name, value in files.items():
+            if not isinstance(name, str) or Path(name).name != name or '\\' in name or _path(root, value) != root / name:
+                raise ValueError
+        record_for(manifest)
+        body = {'schema_version': 1, 'config_sha256': canonical(identity(manifest['config'], directory)),
+                'input_manifest_sha256': canonical(identity(local, directory)),
+                'files_sha256': {name: _digest(value) for name, value in files.items()}}
+        expected = {**body, 'fingerprint': canonical(body)}
+        path = directory / LOCAL_RECEIPT
+        if path.is_symlink():
+            raise ValueError
+        if path.exists():
+            if canonical(_json(path)) != canonical(expected):
+                raise ValueError
+        elif create and manifest.get('state') == 'inputs_ready':
+            from ..store.local_build import _remote_evidence
+            if _remote_evidence(directory):
+                raise ValueError
+            from ..store.tasks import _new_json
+            _new_json(path, expected)
+        else:
+            raise ValueError
+        return expected
+    except (OSError, UnicodeError, ValueError, KeyError, TypeError, AttributeError):
+        raise failure(directory) from None
+
+
+def check_local_adoption(directory, manifest, expected, *, next_step):
+    """Validate a queue's complete local child in place; never copy/reseal it."""
+    try:
+        local = manifest.get('inputs', {}).get('manifest', {})
+        embedded = local.get('input_normalization', {})
+        path = manifest.get('inputs', {}).get('files', {}).get('input-manifest.json')
+        actual = {}
+        try:
+            actual = _json(path)
+        except (OSError, UnicodeError, ValueError, TypeError):
+            pass  # Historical non-fragment queue fixtures may lack this JSON.
+        marked = (isinstance(embedded, dict) and 'fragment_preparation' in embedded
+                  or isinstance(actual.get('input_normalization'), dict) and 'fragment_preparation' in actual['input_normalization'])
+        wants_split = expected.get('input_options', {}).get('split_chain_breaks', False)
+        configured = manifest.get('config', {}).get('input_options', {}).get('split_chain_breaks', False)
+        if not (marked or wants_split or configured or (Path(directory) / LOCAL_RECEIPT).exists()):
+            return  # Preserve legacy/default adoption semantics.
+        if wants_split is not True or configured is not True:
+            raise ValueError
+        seal_local_inputs(directory, manifest)
+        if any(canonical(manifest['config'].get(key)) != canonical(value) for key, value in expected.items()):
+            raise ValueError
+        if canonical(actual.get('input_normalization', {}).get('fragment_preparation')) != canonical(embedded.get('fragment_preparation')):
+            raise ValueError
+        validate_local(directory, manifest)
+    except (OSError, UnicodeError, ValueError, KeyError, TypeError, AttributeError, ToolError):
+        raise ToolError(key='fragment.adoption_invalid', category='input_evidence_changed', next_step=next_step) from None
 
 
 def _artifact_url(url, expected):

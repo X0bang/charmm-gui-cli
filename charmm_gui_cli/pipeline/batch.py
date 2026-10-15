@@ -61,7 +61,7 @@ def _named_job(directory, name):
     return kind + "-" + _hash(str(directory).encode())[:12] + "-" + name
 
 
-def _options(raw, base):
+def _options(raw, base, *, partial=False):
     result = dict(raw)
     selected = {key: value for key, value in raw.items() if key in INPUT_SELECTION}
     validate_input_options(selected)
@@ -88,7 +88,8 @@ def _options(raw, base):
         if key in result and result[key] not in allowed:
             raise ToolError(f"Unsupported batch {key}.")
     from charmm_gui_cli.pipeline.build_config import validate_preparation
-    validate_preparation({key: result[key] for key in ("n_terminal", "c_terminal", "terminals") if key in result})
+    validate_preparation({key: result[key] for key in ("n_terminal", "c_terminal", "terminals") if key in result},
+                         allow_fragments=partial or result.get('split_chain_breaks', False))
     if "ligand_resname" in result and not re.fullmatch(r"[A-Z][A-Z0-9]{0,2}", result["ligand_resname"]):
         raise ToolError("ligand_resname must be 1-3 uppercase letters/digits beginning with a letter.")
     return result
@@ -116,7 +117,7 @@ def _v2_options(raw, base):
         if section in raw:
             selected = checked(raw[section], fields, section)
             result.update({aliases.get(k, k): v for k, v in selected.items()})
-    return _options(result, base)
+    return _options(result, base, partial=True)
 
 
 def load_batch(path):
@@ -134,7 +135,7 @@ def load_batch(path):
     if "name" in raw:
         from charmm_gui_cli.store.tasks import validate_name
         validate_name(raw["name"])
-    adapter = _v2_options if raw["version"] == 2 else lambda value, base: _options(mapping(value, FIELDS, "batch defaults"), base)
+    adapter = _v2_options if raw["version"] == 2 else lambda value, base: _options(mapping(value, FIELDS, "batch defaults"), base, partial=True)
     defaults = adapter(raw.get("defaults", {}), path.parent)
     if not isinstance(raw.get("jobs"), list) or not raw["jobs"]:
         raise ToolError("Batch jobs must be a nonempty list.")
@@ -154,6 +155,7 @@ def load_batch(path):
         if "terminals" in defaults and "terminals" in override:
             options["terminals"] = {chain: {**defaults["terminals"].get(chain, {}), **override["terminals"].get(chain, {})}
                                     for chain in defaults["terminals"].keys() | override["terminals"].keys()}
+        options = _options(options, path.parent)
         if not options.get("complex") and not (options.get("protein") and options.get("ligand")):
             raise ToolError("Each batch job needs protein + ligand, or complex.")
         jobs.append({"name": name, "options": options})
@@ -305,6 +307,18 @@ def _prepare_entries(directory, manifest, *, progress=None):
                                or Path(files[key]).resolve() != (inputs_path(output) / key).resolve()
                                or not Path(files[key]).is_file() for key in required)):
                     raise ValueError
+                from .fragments import check_local_adoption
+                from ..chem.input_diagnostics import check_command
+                requested = specification.get('options', {})
+                command = check_command(protein=requested.get('protein'), ligand=requested.get('ligand'),
+                    complex_pdb=requested.get('complex'), ligand_resname=requested.get('ligand_resname', 'LIG'),
+                    ligand_smiles=requested.get('ligand_smiles'),
+                    input_options={key: value for key, value in requested.items() if key in INPUT_SELECTION})
+                if requested.get('accept_conect_bond_orders'):
+                    command += ' --accept-conect-bond-orders'
+                command += ' --hydrogens ' + shlex.quote(requested.get('hydrogens', 'preserve'))
+                check_local_adoption(output, complete, _prepared_options(requested),
+                    next_step=t('fragment.adoption_next', command=command))
                 _task_store.assign_name(output, _named_job(directory, job["name"]))
                 job["state"] = "inputs_ready"
                 if manifest["config"].get("reuse_preparation"):
@@ -315,6 +329,9 @@ def _prepare_entries(directory, manifest, *, progress=None):
                     _local_wait(job, error)
                 else:
                     job.update(state="local_failed", error="Local preparation was interrupted; retained partial files require inspection. No task was recreated.")
+                    if isinstance(error, ToolError) and error.key == 'fragment.adoption_invalid':
+                        job.update(error=str(error), error_detail=error.as_dict(), error_category=error.category,
+                                   local_failure_phase='preparation')
             else:
                 for key in ("error", "error_detail", "error_category", "next_retry_unix"):
                     job.pop(key, None)
@@ -351,6 +368,20 @@ def _prepare_entries(directory, manifest, *, progress=None):
     if manifest["state"] != "running":
         manifest["state"] = "ready"
     _save(directory, manifest)
+
+
+def _prepared_options(options):
+    """The same normalized modeling/policy values requested by this queue row."""
+    from .build_config import validate_model_options
+    selected = validate_input_options({key: value for key, value in options.items() if key in INPUT_SELECTION})
+    values = {**DEFAULTS, **options}
+    model = validate_model_options(
+        {'upper': values['upper'], 'lower': values['lower'], 'margin_A': values['margin'], 'water_padding_A': values['water_padding'],
+         **({'allow_unknown_lipids': True} if values.get('allow_unknown_lipids') else {})},
+        {'type': values['salt'], 'concentration_M': values['salt_concentration']},
+        {key: values[key] for key in ('orientation', 'n_terminal', 'c_terminal', 'terminals') if key in values},
+        ligand_resname=values['ligand_resname'], hydrogens=values['hydrogens'], allow_fragments=selected.get('split_chain_breaks', False))
+    return {**model, 'ligand_hydrogens': values['hydrogens'], 'input_options': selected}
 
 
 def _local_wait(job, error, *, state="preparing_local"):
