@@ -6,7 +6,6 @@ import charmm_gui_cli.store.workers as _worker_store
 from charmm_gui_cli.store.layout import modern, task_root, inputs_path, log_path, full_archive_path
 
 import argparse
-import contextlib
 from datetime import datetime, timezone
 import fcntl
 import json
@@ -78,15 +77,25 @@ def launch(args):
             if isinstance(value, Path):
                 options[key] = str(value.resolve())
         atomic_json(directory / "worker-options.json", options)
-        initial = {"pid": os.getpid(), "started_at": datetime.now(timezone.utc).isoformat()}
+        initial = {"started_at": datetime.now(timezone.utc).isoformat()}
         _worker_store.write_lock(fd, initial)
         env = dict(os.environ)
         env["PYTHONPATH"] = str(Path(__file__).resolve().parents[2]) + os.pathsep + env.get("PYTHONPATH", "")
-        with open(log_path(directory), "a", encoding="utf-8") as log:
-            os.chmod(log_path(directory), 0o600)
-            process = subprocess.Popen([sys.executable, "-m", "charmm_gui_cli.pipeline.background", str(directory), str(fd)],
-                stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True, pass_fds=(fd,), env=env)
-        initial["pid"] = process.pid
+        # Hold the worker at an inherited pipe until its PID is published.
+        # Only the parent writes during this handoff; otherwise a fast child
+        # could finish before a late parent write and lose its terminal record.
+        gate_read, gate_write = os.pipe()
+        try:
+            with open(log_path(directory), "a", encoding="utf-8") as log:
+                os.chmod(log_path(directory), 0o600)
+                process = subprocess.Popen([sys.executable, "-m", "charmm_gui_cli.pipeline.background", str(directory), str(fd), str(gate_read)],
+                    stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True,
+                    pass_fds=(fd, gate_read), env=env)
+            initial["pid"] = process.pid
+            _worker_store.write_lock(fd, initial)
+        finally:
+            os.close(gate_read)
+            os.close(gate_write)  # EOF releases the child, including on parent exit.
         if sys.platform == "darwin":
             try:
                 subprocess.Popen(["caffeinate", "-i", "-w", str(process.pid)], stdin=subprocess.DEVNULL,
@@ -144,9 +153,14 @@ def watch(directory, *, interval=1):
         return 130  # Never send a signal to the worker.
 
 
-def worker(directory, fd):
+def worker(directory, fd, *, startup_fd=None):
     from charmm_gui_cli.pipeline.build_command import execute
     from charmm_gui_cli.presentation.terminal_output import format_build
+    if startup_fd is not None:
+        try:
+            os.read(startup_fd, 1)
+        finally:
+            os.close(startup_fd)
     directory = Path(directory)
     values = read_value(directory / "worker-options.json")
     for key in ("directory", "token_file", "cookies", "out", "config"):
@@ -176,16 +190,13 @@ def worker(directory, fd):
         record.update(finished_at=datetime.now(timezone.utc).isoformat(), exit_code=code)
         _worker_store.write_lock(fd, record)
         os.close(fd)
-        if sys.platform == "darwin":
-            with contextlib.suppress(OSError, subprocess.SubprocessError):
-                notification = t("background.notification_ok" if code == 0 else "background.notification_failed")
-                subprocess.run(["osascript", "-e", 'on run argv\ndisplay notification (item 1 of argv) with title "charmm-gui-cli"\nend run', notification],
-                               timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        from charmm_gui_cli.presentation.notifications import notify_completion
+        notify_completion(code)
     return code
 
 
 if __name__ == "__main__":
-    sys.exit(worker(sys.argv[1], int(sys.argv[2])))
+    sys.exit(worker(sys.argv[1], int(sys.argv[2]), startup_fd=int(sys.argv[3]) if len(sys.argv) > 3 else None))
 
 
 # Backward-compatible function exports; internal code uses the owner module.

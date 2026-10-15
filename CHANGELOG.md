@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Distinguish remote pending queue states from unprepared batch/sweep rows. Submitted children retain their active slot and existing inputs; matching durable job records recover the specific historical staging misclassification without retrying uploads or uncertain POSTs.
+- Publish the detached worker PID under an inherited startup gate before returning, preventing launcher/worker PID mismatches and late parent writes over fast-worker completion records. Preserve inherited locks and historical worker entry points.
+- Add bounded best-effort Linux desktop notifications via optional notify-send, keeping macOS notifications and headless operation independent of modeling results.
+- Show the user task root instead of .charmm-gui in terminal build/dry-run summaries, correct singular residue wording and clarify report-edit backups versus protected model/configuration/export files.
+
 ## 0.8.5
 
 ### Fixes and improvements

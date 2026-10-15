@@ -221,6 +221,10 @@ def _read(directory, verify=True):
             if "error_detail" in job and (not isinstance(job["error_detail"], dict)
                     or "message_params" in job["error_detail"] and not isinstance(job["error_detail"]["message_params"], dict)):
                 raise ValueError
+            if "scheduling_recoveries" in job and (not isinstance(job["scheduling_recoveries"], list)
+                    or any(not isinstance(item, dict) or not isinstance(item.get("params"), dict)
+                           for item in job["scheduling_recoveries"])):
+                raise ValueError
             if "next_retry_unix" in job:
                 number(job["next_retry_unix"], "saved next retry timestamp")
             expected = directory / "jobs" / job["name"]
@@ -266,6 +270,13 @@ def _prepare_entries(directory, manifest, *, progress=None):
         if time.time() < job.get("next_retry_unix", 0):
             continue
         output = Path(job["directory"])
+        from ..store.local_build import _remote_evidence
+        if (job.get("started") or job.get("source_job_id") or job.get("build_job_id")
+                or _remote_evidence(output)):
+            # "pending" is also the provider's queue state. Submitted children
+            # must resume their existing task, never enter fresh input staging.
+            _local(job)
+            continue
         # A process may have stopped inside chemistry conversion. Never re-run
         # that conversion over existing files or infer that partial inputs passed.
         if job["state"] == "preparing_local" and (output.exists() or (output.parent / ("." + output.name + ".sources")).exists()):
@@ -362,6 +373,8 @@ def _local(job):
         if job.get("error_category") == "lock_busy" or job.get("error") == "Another process is operating on this run.":
             job["state"] = "waiting_lock"
             job["error_category"] = "lock_busy"
+        elif _recover_queued_child(job):
+            pass
         else:
             return
     unknown = job.get("error_category") == "submission_unknown"
@@ -438,10 +451,47 @@ def _local(job):
         job["state"] = "paused_network"
 
 
+def _recover_queued_child(job):
+    """Repair the known scheduler misclassification, never retry failed inputs.
+
+    Require matching persisted build IDs and a received remote response. Any
+    ambiguous intent, unrelated failure or inconsistent record remains stopped.
+    The caller only updates row metadata; no task evidence is rewritten.
+    """
+    if (job.get("local_failure_phase") != "preparation"
+            or job.get("error") != "Input staging for this build already exists; inspect it before starting a new run."
+            or job.get("error_category") == "submission_unknown"
+            or job.get("error_detail", {}).get("category") == "submission_unknown"):
+        return False
+    from ..store.paths import read_value
+    directory = Path(job["directory"])
+    try:
+        full = read_value(directory / "full-run.json")
+        remote = read_value(directory / "bilayer/run.json")
+        identifier = remote.get("job_id")
+        if (not isinstance(identifier, str) or not re.fullmatch(r"[0-9]{1,32}", identifier)
+                or job.get("build_job_id") != identifier or full.get("build_job_id") != identifier
+                or remote.get("state") not in ("submitted", "pending", "running", "done", "archive_preparing",
+                                               "downloading", "downloaded_unverified", "ligands_present")
+                or full.get("state") in ("submission_unknown", "submitting", "remote_error", "preparation_failed", "validation_failed")):
+            return False
+        for path in [directory / "preparation/web-run.json", *directory.rglob("*.intent.json")]:
+            if path.is_file() and read_value(path).get("state") in ("submitting", "submission_unknown", "upload_submitting"):
+                return False
+    except (OSError, ValueError, TypeError, AttributeError):
+        return False
+    job.setdefault("scheduling_recoveries", []).append({"at": now(), "key": "batch.queued_recovered",
+        "params": {"jobid": identifier}, "previous_error": job["error"], "previous_error_detail": job.get("error_detail")})
+    job.update(state=remote["state"], started=True)
+    for key in ("error", "error_detail", "error_category", "cause_category", "next_step", "next_retry_unix", "local_failure_phase"):
+        job.pop(key, None)
+    return True
+
+
 def _summary(directory, manifest):
     jobs = [{key: job[key] for key in ("name", "directory", "state", "error", "error_category", "cause_category", "next_retry_unix", "next_step",
                                       "source_job_id", "build_job_id", "remote", "gromacs_compiled", "compilation_status",
-                                      "gromacs_note", "review_required", "report", "archive", "validation", "error_detail", "local_failure_phase", "preparation_reused") if key in job}
+                                      "gromacs_note", "review_required", "report", "archive", "validation", "error_detail", "local_failure_phase", "preparation_reused", "scheduling_recoveries") if key in job}
             for job in manifest["jobs"]]
     counts = {}
     for job in jobs:

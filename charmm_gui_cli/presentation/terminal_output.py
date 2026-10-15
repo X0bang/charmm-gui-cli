@@ -154,7 +154,11 @@ def format_build(value, **context):
         lines.append(t("output.delivery", path=_text(os.path.relpath(Path(delivery["directory"]).expanduser().resolve(), Path.cwd()))))
     for field, key in (() if delivery.get("directory") else (("directory", "output.directory"), ("archive", "output.archive"), ("report", "output.report"))):
         if isinstance(value.get(field), str):
-            lines.append(t(key, path=_path(value[field])))
+            path = value[field]
+            if field == "directory":
+                from charmm_gui_cli.store.layout import task_root
+                path = task_root(path)
+            lines.append(t(key, path=_path(path)))
     if not delivery.get("directory") and not value.get("report") and isinstance(value.get("report_file"), str):
         lines.append(t("output.report", path=_path(value["report_file"])))
     passed = value.get("passed")
@@ -376,6 +380,10 @@ def format_batch(value, **context):
         if row.get("error"):
             error = row.get("error_detail") or {"message": row["error"]}
             lines.append("  " + _error_text(error))
+        for recovery in row.get("scheduling_recoveries", [])[-1:]:
+            if (isinstance(recovery, dict) and recovery.get("key") == "batch.queued_recovered"
+                    and valid(recovery.get("params", {}).get("jobid")) != "—"):
+                lines.append("  " + t("batch.queued_recovered", jobid=recovery["params"]["jobid"]))
     reports = queue.get("reports", {})
     if reports.get("json") and reports.get("csv"):
         lines.append(t("batch.reports", json=_path(reports["json"]), csv=_path(reports["csv"])))

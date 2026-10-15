@@ -161,8 +161,8 @@ class AuditFixTests(unittest.TestCase):
                  "protein": {"residues": None, "residues_missing_heavy_atoms": 2, "numbering_gaps": 1}, "review_required": True}
         text = format_check(value)
         self.assertIn("Incorrect bound pose", text)
-        self.assertIn("2 residues", text)
-        self.assertIn("1 numbering gaps", text)
+        self.assertIn("residues missing heavy atoms: 2", text)
+        self.assertIn("numbering gaps: 1", text)
         self.assertNotIn("None", text)
         self.assertIn("Review items", text)
         self.assertIn('"error"', format_check(value, full=True))

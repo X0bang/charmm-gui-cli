@@ -168,6 +168,8 @@ charmm-gui-cli build-resume  # 继续最近任务
 
 主要输出为任务目录内的 `charmm-gui.tgz`、`model/` 和 `report.txt`；完整 JSON 验收证据在 `.charmm-gui/results/validation.json`。检测到 GROMACS 时自动执行输入编译检查，不运行 MD。
 
+后台进程结束时，macOS 尝试系统通知，Linux 桌面在可用时使用 `notify-send`。通知不发送账户或结构内容；缺少通知服务、无桌面的服务器或发送失败均不影响任务结果。服务器上可用 `jobs watch NAME` 或 `tail -f NAME/run.log` 查看进度；暂不发送邮件或 webhook。
+
 批量建模使用 [清单示例](examples/batch.yaml)：
 
 ```bash

@@ -2,6 +2,7 @@ import contextlib
 import io
 import json
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from charmm_gui_cli import cli
@@ -94,3 +95,21 @@ class TerminalOutputTests(unittest.TestCase):
         self.assertIn("old pass is not valid", output)
         self.assertNotIn("State: passed", output)
         self.assertIn("Validation report:", output)
+
+    def test_dry_run_tty_shows_task_root_without_changing_json(self):
+        value={'state':'inputs_ready','name':'receptor-a', 'directory':str(Path.cwd()/'receptor-a/.charmm-gui')}
+        for language in ('zh','en'):
+            i18n.set_language(language)
+            output=self.capture(value,'build',tty=True)
+            self.assertIn('receptor-a',output)
+            self.assertNotIn('.charmm-gui',output)
+            self.assertEqual(self.capture(value,'build',tty=False),json.dumps(value,indent=2,ensure_ascii=False)+'\n')
+
+    def test_structure_review_count_labels_do_not_use_incorrect_singulars(self):
+        i18n.set_language('en')
+        for missing in (0,1,2):
+            value={'passed':True,'protein':{'residues':3,'residues_missing_heavy_atoms':missing,'numbering_gaps':1}}
+            output=self.capture(value,'check',tty=True)
+            self.assertNotIn('1 residues',output)
+            self.assertNotIn('1 numbering gaps',output)
+            self.assertIn('numbering gaps: 1',output)
