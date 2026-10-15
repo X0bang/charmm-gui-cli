@@ -129,7 +129,7 @@ def _topology(spec, molecule, resname):
             "limitation": "User-trusted standalone CHARMM files; atom identity, connectivity and charge sum checked, not force-field completeness or physical accuracy."}
 
 
-def prepare_multicomponent(*, complex_pdb, components, out, water_policy, ion_policy, input_options=None):
+def prepare_multicomponent(*, complex_pdb, components, out, water_policy, ion_policy, input_options=None, fragment_preparation=False):
     """Prepare explicit noncovalent component instances, retaining all input atoms.
 
     ``components`` is a nonempty list of selector dictionaries. Each specifies
@@ -149,6 +149,8 @@ def prepare_multicomponent(*, complex_pdb, components, out, water_policy, ion_po
     source = _file(complex_pdb, "Complex PDB")
     original_atom_count = sum(line.startswith(("ATOM  ", "HETATM")) for line in source.read_text().splitlines())
     options = validate_input_options(input_options)
+    from .fragment_inputs import validate_fragment_option, validate_fragment_source, address_mapping, rebase_state_intent
+    validate_fragment_option(fragment_preparation)
     role = "components" if water_policy == "retain" or input_options is None else "complex"
     normalization = {}
     atoms, bonds = _pdb(source, report=normalization, input_options=options, role=role)
@@ -200,7 +202,10 @@ def prepare_multicomponent(*, complex_pdb, components, out, water_policy, ion_po
         else:
             raise ToolError(f"Unexplained nonprotein residue {key}: declare every ligand/cofactor instance; unknown metals and nonstandard residues need a specialized workflow.")
         ownership.update((a.serial, owner) for a in residue)
-    _validate_protein(protein)
+    if fragment_preparation:
+        validate_fragment_source(source, protein, options=options, role=role)
+    else:
+        _validate_protein(protein)
     for a, b in bonds:
         if ownership[a] != ownership[b]:
             raise ToolError("CONECT crosses components/protein/solvent: covalent attachments or metal coordination require a specialized workflow.")
@@ -283,6 +288,11 @@ def prepare_multicomponent(*, complex_pdb, components, out, water_policy, ion_po
     protein_serials = {a.serial for a in protein}
     metadata = _protein_metadata(source, input_options=options, role=role)
     files["protein.pdb"] = "\n".join(metadata + _protein_pdb_lines(source, protein, input_options=options, role=role)) + "\n" + _conect({edge: order for edge, order in bonds.items() if set(edge) <= protein_serials}) + "END\n"
+    if normalization.get("protein_state_intent"):
+        from .inputs import _pdb_lines
+        staged, _ = _pdb_lines(files["protein.pdb"].splitlines())
+        normalization["protein_state_intent"] = rebase_state_intent(normalization["protein_state_intent"],
+            address_mapping(protein, staged, {atom.serial: atom.serial for atom in protein}))
     report = {"schema_version": 1, "source": _evidence(source), "complex": str(destination / "complex.pdb"),
               "protein": str(destination / "protein.pdb"), "components": reports, "chemistry_groups": list(groups.values()),
               "policies": {"water": water_policy, "ions": ion_policy}, "retained_waters": retained_waters, "retained_ions": retained_ions,
@@ -296,6 +306,8 @@ def prepare_multicomponent(*, complex_pdb, components, out, water_policy, ion_po
                               "Retained waters/ions still require explicit downstream server options and final identity checks.",
                               "Metal coordination, cross-component covalent linkages and stereo-labelled coordinate transfer are unsupported.",
                               "Local preparation does not prove multi-component HTTP parameterization or force-field compatibility."]}
+    if fragment_preparation:
+        report["fragment_preparation_requested"] = True
     files["multicomponent-manifest.json"] = json.dumps(report, indent=2) + "\n"
     destination.mkdir(parents=True, exist_ok=False)
     # Preserve retained metadata/coordinates, including the shared normalization.
@@ -441,11 +453,13 @@ def load_components_config(path):
     return raw
 
 
-def prepare_build_components(*, components_config, complex_pdb, out, hydrogens="add_missing", allow_distant_pose=False, input_options=None):
+def prepare_build_components(*, components_config, complex_pdb, out, hydrogens="add_missing", allow_distant_pose=False, input_options=None,
+                             fragment_preparation=False):
     """Prepare components with concrete input-error recovery arguments."""
     try:
         return _prepare_build_components(components_config=components_config, complex_pdb=complex_pdb, out=out,
-            hydrogens=hydrogens, allow_distant_pose=allow_distant_pose, input_options=input_options)
+            hydrogens=hydrogens, allow_distant_pose=allow_distant_pose, input_options=input_options,
+            fragment_preparation=fragment_preparation)
     except ToolError as exc:
         if exc.key and exc.key.startswith(("input.", "state.")):
             from .input_diagnostics import bind_input_error
@@ -453,7 +467,8 @@ def prepare_build_components(*, components_config, complex_pdb, out, hydrogens="
         raise
 
 
-def _prepare_build_components(*, components_config, complex_pdb, out, hydrogens="add_missing", allow_distant_pose=False, input_options=None):
+def _prepare_build_components(*, components_config, complex_pdb, out, hydrogens="add_missing", allow_distant_pose=False, input_options=None,
+                              fragment_preparation=False):
     """Prepare the complete upload without losing any declared component.
 
     Returns the same ``files``/``manifest`` envelope as ``prepare_inputs``.
@@ -462,12 +477,15 @@ def _prepare_build_components(*, components_config, complex_pdb, out, hydrogens=
     """
     if hydrogens not in ("preserve", "add_missing"):
         raise ToolError("hydrogens must be preserve or add_missing; no pH state is selected.")
+    from .fragment_inputs import validate_fragment_option, apply_fragment_preparation
+    validate_fragment_option(fragment_preparation)
     destination = Path(out).resolve()
     if destination.exists():
         raise ToolError("Build preparation out must be a new directory.")
     config = load_components_config(components_config)
     prepared = prepare_multicomponent(complex_pdb=complex_pdb, components=config["components"], out=destination / "sources",
-                                     water_policy=config["water_policy"], ion_policy=config["ion_policy"], input_options=validate_input_options(input_options))
+                                     water_policy=config["water_policy"], ion_policy=config["ion_policy"], input_options=validate_input_options(input_options),
+                                     **({"fragment_preparation": True} if fragment_preparation else {}))
     manifest = prepared["report"]
     if not manifest["remote_validation_supported"]:
         raise ToolError("Remote builds currently require distinct component residue names with one copy each and no retained source waters/ions; local preparation is preserved under sources/.")
@@ -545,6 +563,8 @@ def _prepare_build_components(*, components_config, complex_pdb, out, hydrogens=
                      "hydrogen_policy": hydrogens, "components_config": _evidence(components_config),
                      "force_field_parameters_generated": False,
                      "preparation_warnings": ["Added valence hydrogens, not pH-dependent protonation or optimized hydrogen positions."] if hydrogens == "add_missing" else []})
+    if fragment_preparation:
+        apply_fragment_preparation(file_text, manifest, protein, protein_map)
     file_text["input-manifest.json"] = json.dumps(manifest, indent=2) + "\n"
     paths = {}
     for name, text in file_text.items():

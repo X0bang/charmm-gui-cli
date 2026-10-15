@@ -182,6 +182,10 @@ def preparation_identity(directory, manifest=None):
     try:
         if type(manifest.get("schema_version")) is not int or manifest["schema_version"] != 2:
             raise ValueError
+        normalization = manifest.get("inputs", {}).get("manifest", {}).get("input_normalization", {})
+        if isinstance(normalization, dict) and "fragment_preparation" in normalization:
+            from .full_build import require_protein_state_support
+            require_protein_state_support(directory, manifest)
         config = manifest["config"]
         if (config.get("components_mode") or config.get("components") or config.get("chemistry_groups")
                 or manifest.get("components") or manifest.get("chemistry_groups")

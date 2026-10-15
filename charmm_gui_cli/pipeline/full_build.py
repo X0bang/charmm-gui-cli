@@ -1,6 +1,7 @@
 """End-to-end input preparation, authenticated HTTP forms, and API building."""
 
 import json
+import hashlib
 from pathlib import Path
 import re
 import time
@@ -135,9 +136,30 @@ def _remote_groups(manifest, *, check_files=True):
     return resolved
 
 
-def _preparation_fields(snapshot, config, groups=None, adjustments=None, *, state_intent=None, reference_pdb=None, state_mapping=None):
-    soup = soup_for(Path(snapshot).read_text(encoding="utf-8"))
-    if groups is not None:
+def _preparation_fields(snapshot, config, groups=None, adjustments=None, *, state_intent=None, reference_pdb=None, state_mapping=None,
+                        fragment_plan=None, fragment_source_pdb=None, fragment_protein_pdb=None, fragment_mapping=None):
+    snapshot_content = Path(snapshot).read_bytes() if fragment_plan is not None else None
+    soup = soup_for(snapshot_content.decode("utf-8") if snapshot_content is not None
+                    else Path(snapshot).read_text(encoding="utf-8"))
+    fragment_receipt = None
+    if fragment_plan is not None:
+        from .build_config import validate_preparation
+        from ..remote.fragment_terminals import bind_fragment_terminals
+        if fragment_source_pdb is None or fragment_protein_pdb is None:
+            raise ToolError(key="fragment.evidence_changed", next_step=t("fragment.inspect_next"))
+        try:
+            source_lines = Path(fragment_source_pdb).read_text(encoding="utf-8").splitlines()
+            prepared_lines = Path(fragment_protein_pdb).read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeError):
+            raise ToolError(key="fragment.evidence_changed", next_step=t("fragment.inspect_next")) from None
+        preparation, fragment_receipt = bind_fragment_terminals(
+            snapshot, validate_preparation(config["preparation"], allow_fragments=True), source_lines, prepared_lines, fragment_plan)
+        if fragment_receipt["snapshot_sha256"] != hashlib.sha256(snapshot_content).hexdigest():
+            raise ToolError(key="fragment.evidence_changed", next_step=t("fragment.inspect_next"))
+        config = {**config, "preparation": preparation}
+    elif fragment_source_pdb is not None or fragment_protein_pdb is not None or fragment_mapping is not None:
+        raise ToolError(key="fragment.evidence_changed", next_step=t("fragment.inspect_next"))
+    if groups is not None or fragment_receipt is not None:
         forms = [form for form in soup.find_all("form") if form.select_one('input[name="jobid"]')]
         if len(forms) != 1:
             raise snapshot_error(snapshot, "web.no_form")
@@ -174,9 +196,15 @@ def _preparation_fields(snapshot, config, groups=None, adjustments=None, *, stat
             value = patches.get(chain_key, {}).get(key, preparation[key])
             if key in patches.get(chain_key, {}):
                 used_terminals.add((chain_key, key))
-            options = [option.get("value", "") for option in field.find_all("option") if not option.has_attr("disabled")]
+            options = [option.get("value", "") for option in field.find_all("option")
+                       if not option.has_attr("disabled") and not option.find_parent("optgroup", disabled=True)]
             if value not in options and value == "NTER" and end == "first":
-                replacement = next((patch for patch in ("GLYP", "PROP") if patch in options), None)
+                first_residue = None
+                if fragment_receipt:
+                    first_residue = next(row["n_terminus"]["source"]["resname"]
+                                         for row in fragment_receipt["fragments"] if row["server_chain"] == chain)
+                replacement = next((patch for patch in ("GLYP", "PROP") if patch in options
+                                    and (fragment_receipt is None or first_residue == {"GLYP": "GLY", "PROP": "PRO"}[patch])), None)
                 if replacement:
                     entry = finding("terminal.adjusted", chain=chain, residue="Gly" if replacement == "GLYP" else "Pro", patch=replacement)
                     if adjustments is None or entry not in adjustments:
@@ -198,6 +226,12 @@ def _preparation_fields(snapshot, config, groups=None, adjustments=None, *, stat
         overrides.update(extra)
         if state_mapping is not None:
             state_mapping.update(mapping)
+    if fragment_receipt is not None:
+        for row in fragment_receipt["fragments"]:
+            for entry in row["terminals"].values():
+                entry["form_value"] = overrides[entry["field"]]
+        if fragment_mapping is not None:
+            fragment_mapping.update(fragment_receipt)
     return overrides
 
 
@@ -205,7 +239,10 @@ def require_protein_state_support(directory, manifest):
     """Shared foreground/worker gate; preserve uncertain-POST priority."""
     from ..chem.protein_states import intent_for, validate_intent
     directory = Path(directory)
-    if intent_for(manifest.get("inputs", {}).get("manifest", {})):
+    local = manifest.get("inputs", {}).get("manifest", {})
+    states = intent_for(local)
+    fragment = local.get("input_normalization", {}).get("fragment_preparation")
+    if states or fragment is not None:
         preparation = directory / "preparation"
         unknown = (manifest.get("state") == "submission_unknown" or
                    preparation.exists() and not (preparation / "upload-response.html").is_file() or
@@ -221,7 +258,10 @@ def require_protein_state_support(directory, manifest):
                 unknown = True
         if unknown:
             raise SubmissionUnknown("A previous modeling POST has an unresolved submission intent; inspect/recover it before continuing. No repeated POST was sent.")
-    validate_intent(intent_for(manifest.get("inputs", {}).get("manifest", {})))
+    if fragment is not None:
+        from ..chem.fragment_inputs import require_remote_fragment_support
+        require_remote_fragment_support(manifest["inputs"])
+    validate_intent(states)
 
 
 def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, progress=None):
@@ -231,6 +271,9 @@ def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, pro
     directory = Path(directory).resolve()
     with tracked_run(directory, _read, _save) as manifest:
         build_directory = directory / "bilayer"
+        normalization = manifest.get("inputs", {}).get("manifest", {}).get("input_normalization", {})
+        if isinstance(normalization, dict) and "fragment_preparation" in normalization:
+            require_protein_state_support(directory, manifest)
         if (build_directory / "run.json").is_file():
             # Once an API build exists, website cookies and old preparation
             # snapshots are irrelevant. Ambiguous API jobs are also handed to
@@ -304,6 +347,9 @@ def advance(directory, web, api, *, wait=False, interval=30, max_wait=21600, pro
 def _start_prepared_bilayer(directory, manifest, api, prepared_config, wait, interval, max_wait, progress):
     """Common API clone path for original and evidence-verified reused sources."""
     from ..chem.protein_states import intent_for
+    normalization = manifest["inputs"].get("manifest", {}).get("input_normalization", {})
+    if isinstance(normalization, dict) and "fragment_preparation" in normalization:
+        require_protein_state_support(directory, manifest)
     if intent_for(manifest["inputs"].get("manifest", {})):
         if manifest.get("reused_preparation"):
             from .sweep import validate_reuse

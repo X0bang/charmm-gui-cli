@@ -33,6 +33,17 @@ jobs:
           source="charmm-gui-cli-${version}.tar.gz"
           wheel="charmm_gui_cli-${version}-py3-none-any.whl"
           python -c 'import sys; from scripts.build_release import metadata; sys.exit(metadata(__import__("pathlib").Path("."))["version"] != sys.argv[1])' "$version"
+          python - "$version" <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+          version = sys.argv[1]
+          text = Path("CHANGELOG.md").read_text(encoding="utf-8")
+          section = re.search(r"^## " + re.escape(version) + r"\s*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+          if section is None or not section.group(1).strip():
+              raise SystemExit("Missing release notes for the tagged version")
+          Path("release-notes.md").write_text(section.group(1).strip() + "\n", encoding="utf-8")
+          PY
           python scripts/build_release.py --out release-assets
           cd release-assets
           sha256sum --ignore-missing --check SHA256SUMS
@@ -50,7 +61,7 @@ jobs:
             fi
           else
             gh release create "$GITHUB_REF_NAME" --verify-tag --draft \
-              --title "charmm-gui-cli ${version}" --notes-file ../CHANGELOG.md
+              --title "charmm-gui-cli ${version}" --notes-file ../release-notes.md
           fi
           # A retry can repair an incomplete private draft without creating it again.
           gh release upload "$GITHUB_REF_NAME" "$source" "$wheel" SHA256SUMS --clobber

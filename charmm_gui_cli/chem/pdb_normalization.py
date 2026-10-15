@@ -180,15 +180,32 @@ def attach_source_normalization(prepared, source_report):
     manifest = prepared["manifest"]
     normalization = manifest.setdefault("input_normalization", {})
     source = source_report.get("input_normalization", {})
+    fragment = normalization.get("fragment_preparation")
+    if source_report.get("fragment_preparation_requested") and not fragment:
+        from .fragment_preparation import prepare_fragmented_lines
+        _, required = prepare_fragmented_lines(Path(prepared["files"]["complex.pdb"]).read_text(encoding="utf-8").splitlines(), accept_breaks=True)
+        if required:
+            from .fragment_inputs import failure
+            raise failure()
+    if source.get("fragment_preparation") and source["fragment_preparation"] != fragment:
+        # A new preparation cannot silently erase an already-owned split plan
+        # or refer to its pre-split snapshot without actually carrying the file.
+        from .fragment_inputs import failure
+        raise failure()
+    if fragment and source.get("protein_state_intent"):
+        from .fragment_inputs import attach_fragment_states
+        attach_fragment_states(prepared, source["protein_state_intent"])
     entries = list(source.get("repairs", []))
     for entry in normalization.get("repairs", []):
         if entry not in entries:
             entries.append(entry)
     normalization.update(repairs=entries, automatic_repairs=entries,
                          warnings=[entry["message"] for entry in entries])
-    if source.get("structure_inventory"):
+    if fragment and source.get("structure_inventory"):
+        normalization["source_structure_inventory"] = source["structure_inventory"]
+    elif source.get("structure_inventory"):
         normalization["structure_inventory"] = source["structure_inventory"]
-    if source.get("protein_state_intent"):
+    if source.get("protein_state_intent") and not fragment:
         normalization["protein_state_intent"] = source["protein_state_intent"]
     manifest["automatic_repairs"] = entries
     manifest["source_inputs"] = source_report.get("source_inputs", {})
@@ -201,6 +218,9 @@ def attach_source_normalization(prepared, source_report):
         if conversion.get("review_required"):
             warning = {"key": "input.mol2_review", "params": {"partial": f"{conversion['partial_charge_sum']:.4f}", "formal": conversion["net_formal_charge"]}}
             manifest["ligand"].setdefault("chemistry_warnings", []).append(warning)
+    if fragment:
+        from .fragment_inputs import verify_prepared_fragments
+        verify_prepared_fragments(prepared)
     atomic_json(prepared["files"]["input-manifest.json"], manifest)
 
 

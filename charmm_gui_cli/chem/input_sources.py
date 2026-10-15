@@ -56,9 +56,13 @@ def _protein_identity(atoms):
     return {key: atom.xyz for key, atom in zip(keys, atoms)}
 
 
-def _check_protein(protein, complex_atoms, input_options=None):
+def _check_protein(protein, complex_atoms, input_options=None, *, fragment_preparation=False):
     supplied, _ = _pdb(protein, input_options=input_options, role="protein")
-    _validate_protein(supplied)
+    if fragment_preparation:
+        from .fragment_inputs import validate_fragment_source
+        validate_fragment_source(protein, supplied, options=input_options, role="protein")
+    else:
+        _validate_protein(supplied)
     a, b = _protein_identity(supplied), _protein_identity(complex_atoms)
     if a.keys() != b.keys() or any(max(abs(x - y) for x, y in zip(a[key], b[key])) > 0.0001 for key in a):
         raise ToolError("Supplied protein does not match the complex protein atom identities and coordinates; provide matching structures in the same coordinate frame.")
@@ -150,11 +154,12 @@ def _chemical_sdf_in_complex(path, atoms, bonds, *, pose=None, selection_report=
 
 
 def prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand_resname="LIG",
-                    ligand_smiles=None, accept_conect_bond_orders=False, input_options=None):
+                    ligand_smiles=None, accept_conect_bond_orders=False, input_options=None, fragment_preparation=False):
     try:
         return _prepare_sources(out=out, protein=protein, ligand=ligand, complex_pdb=complex_pdb,
                                 ligand_resname=ligand_resname, ligand_smiles=ligand_smiles,
-                                accept_conect_bond_orders=accept_conect_bond_orders, input_options=input_options)
+                                accept_conect_bond_orders=accept_conect_bond_orders, input_options=input_options,
+                                fragment_preparation=fragment_preparation)
     except ToolError as exc:
         if exc.key and exc.key.startswith(("input.", "state.")) and not exc.key.startswith("input.pdbqt_"):
             from .input_diagnostics import bind_input_error
@@ -164,7 +169,7 @@ def prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand_
 
 
 def _prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand_resname="LIG",
-                    ligand_smiles=None, accept_conect_bond_orders=False, input_options=None):
+                    ligand_smiles=None, accept_conect_bond_orders=False, input_options=None, fragment_preparation=False):
     """Materialize PDB/SDF sources without asking users to manage intermediates.
 
     PDB+SMILES requires encoded connectivity and a unique heavy graph mapping.
@@ -176,6 +181,8 @@ def _prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand
     from .residues import validate_input_options
     from .input_safety import validate_cgenff, validate_ligand_name, validate_link_records
     options = validate_input_options(input_options)
+    from .fragment_inputs import validate_fragment_option, validate_fragment_source, address_mapping, rebase_state_intent
+    validate_fragment_option(fragment_preparation)
     validate_ligand_name(ligand_resname)
     if destination.exists():
         raise ToolError("prepare_sources out must be a new directory; existing outputs are never overwritten.",
@@ -220,12 +227,15 @@ def _prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand
         selected = _one_ligand(all_atoms, resname=ligand_resname)
         selected_ids = {a.serial for a in selected}
         protein_atoms = [a for a in all_atoms if a.serial not in selected_ids]
-        _validate_protein(protein_atoms, protein=protein, ligand=ligand, complex_pdb=complex_pdb,
-                          ligand_resname=ligand_resname, input_options=options)
+        context = dict(protein=protein, ligand=ligand, complex_pdb=complex_pdb, ligand_resname=ligand_resname, input_options=options)
+        if fragment_preparation:
+            validate_fragment_source(complex_pdb, protein_atoms, options=options, role="complex", **context)
+        else:
+            _validate_protein(protein_atoms, **context)
         validate_link_records(complex_pdb)
         bonds = _internal(selected, all_bonds)
         if protein:
-            _check_protein(protein, protein_atoms, options)
+            _check_protein(protein, protein_atoms, options, fragment_preparation=fragment_preparation)
             report["supplied_protein_checked_against_complex"] = True
         protein_ids = {a.serial for a in protein_atoms}
         metadata = _protein_metadata(complex_pdb, input_options=options, role="complex")
@@ -260,7 +270,11 @@ def _prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand
                 "Complex contains no CONECT graph; connectivity comes from the supplied named ligand PDB."
     else:
         protein_atoms, protein_bonds = _pdb(protein, report=report["input_normalization"], input_options=options, role="protein")
-        _validate_protein(protein_atoms, protein=protein, ligand=ligand, ligand_resname=ligand_resname, input_options=options)
+        if fragment_preparation:
+            validate_fragment_source(protein, protein_atoms, options=options, role="protein",
+                protein=protein, ligand=ligand, ligand_resname=ligand_resname, input_options=options)
+        else:
+            _validate_protein(protein_atoms, protein=protein, ligand=ligand, ligand_resname=ligand_resname, input_options=options)
         validate_link_records(protein)
         if report["input_normalization"]["repairs"]:
             metadata = _protein_metadata(protein, input_options=options)
@@ -304,6 +318,14 @@ def _prepare_sources(*, out, protein=None, ligand=None, complex_pdb=None, ligand
         report["coordinate_source"] = str(coordinate_source)
     report["limitations"] = ["No docking, distance-based bond guessing, pH-state assignment or energy minimization.",
                               "PDB CONECT chemistry is trusted only after explicit acknowledgement; stereochemistry is not invented."]
+    if "protein.pdb" in generated and report["input_normalization"].get("protein_state_intent"):
+        from .inputs import _pdb_lines
+        staged, _ = _pdb_lines(generated["protein.pdb"].splitlines())
+        intent = report["input_normalization"]["protein_state_intent"]
+        report["input_normalization"]["protein_state_intent"] = rebase_state_intent(
+            intent, address_mapping(protein_atoms, staged, {atom.serial: atom.serial for atom in protein_atoms}))
+    if fragment_preparation:
+        report["fragment_preparation_requested"] = True
     destination.mkdir(parents=True)
     for name, contents in generated.items():
         with (destination / name).open("x") as handle:

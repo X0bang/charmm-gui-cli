@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.9
+
+### Fixes and improvements
+
+- Connect internal explicit fragment staging to final single-/multi-component upload serialization and local prechecks. Bind plans to the fully renumbered complex, retain a single pre-split snapshot, preserve component chain IDs and rebase explicit state recipes through TER normalization. Keep original files and default blocking behavior; refuse missing/stale handoffs rather than dropping fragment evidence. Canonical plan comparison also rejects scalar-type substitutions. Upload, preparation sealing and direct cloning remain gated pending authenticated proof/reuse integration, with uncertain POSTs taking priority; no public modeling bypass is exposed.
+- Independently verify both completed 0.10/0.20 M mixed-lipid scan members, their archive and GROMACS evidence, HSE state, ligand pose, exact leaflet counts and shared source-file hashes. Revalidate the reuse certificate offline with no new upload; water-count concentration estimates are not box-volume measurements or production-MD acceptance.
+- Add internal actual-PDB/PSF fragment checks using bounded, data-only CHARMM terminal topology projections: distinct segments, retained heavy identities, peptide order, terminal types/charges/native masses/bonds, explicit cross-links/disulfide states and consistent source/final archive hashes. Cover all supported terminal options and reject conflicting single-residue patch edits. These checks do not yet enable public split submission or certify server provenance without the pending workflow/receipt integration.
+- Resolve verified internal fragment terminal requests by original-chain outer ends, with explicit fragment overrides and preserved request provenance. Bind every fragment and both end controls to an exact literal saved-form residue catalogue, record fallback form values separately from requested values, and refuse ambiguous/missing mappings before generating fields. Public splitting remains gated pending actual source/final PSF cap/separation evidence and full workflow integration.
+
+### Validation scope
+
+English and Chinese regressions cover shared input staging, terminal-form identity binding and actual topology checks, including independent synthetic fixtures and mutation refusal. Source and wheel distributions are verified separately. The two completed mixed-lipid scan members were independently accepted with verified preparation reuse. Public fragment submission, authenticated fragment proof/reuse integration and local force-field conversion remain unavailable; this release does not change default chain-break rejection or uncertain-POST recovery.
+
 ## 0.8.8
 
 ### Fixes and improvements

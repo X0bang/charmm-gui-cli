@@ -229,7 +229,7 @@ def format_check(value, **context):
         lines.append(t("cli.error", message=_error_text(error)))
     protein = value.get("protein", {})
     inventory = value.get("protein_inventory", {})
-    lines.extend(_chain_lines(value.get("structure_inventory", inventory.get("structure_inventory", {}))))
+    lines.extend(_chain_lines(value.get("prepared_structure_inventory", value.get("structure_inventory", inventory.get("structure_inventory", {})))))
     missing = protein.get("residues_missing_heavy_atoms", len(inventory.get("missing_heavy_atoms", [])))
     gaps = protein.get("numbering_gaps", len(inventory.get("numbering_gaps", [])))
     if missing or gaps:
@@ -243,7 +243,7 @@ def format_check(value, **context):
     if value.get("chemistry"):
         lines.append(t("structure.charge_review"))
     lines.extend(_repair_lines(value.get("automatic_repairs", [])))
-    for prediction in value.get("terminal_predictions", []):
+    for prediction in value.get("prepared_terminal_predictions", value.get("terminal_predictions", [])):
         lines.append(t("check.terminal", chain=prediction["chain"], residue=prediction["first_resname"], patch=prediction["suggested_n_terminal"]))
     states = value.get("input_normalization", {}).get("protein_state_intent", {}).get("residues", [])
     if states:

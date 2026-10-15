@@ -302,7 +302,11 @@ def prepare_fragmented_lines(lines, *, accept_breaks=False):
 def verify_fragment_preparation(source_lines, prepared_lines, plan):
     """Re-derive the plan, rather than trusting an editable hash or label alone."""
     expected_lines, expected = prepare_fragmented_lines(source_lines, accept_breaks=True)
-    if not expected or prepared_lines != expected_lines or plan != expected:
+    try:
+        exact = isinstance(plan, dict) and _fingerprint(plan) == _fingerprint(expected)
+    except (TypeError, ValueError):
+        exact = False
+    if not expected or prepared_lines != expected_lines or not exact:
         raise _failure("fragment.evidence_changed")
     return {"passed": True, "schema_version": 1, "fragment_count": len(plan["fragments"]),
             "break_count": len(plan["breaks"]), "fingerprint": plan["fingerprint"],

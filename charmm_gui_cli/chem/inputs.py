@@ -85,6 +85,11 @@ def _xyz(values):
 
 def _pdb(path, *, report=None, input_options=None, role="generic"):
     lines = normalize_lines(path, report, options=input_options, role=role)
+    return _pdb_lines(lines)
+
+
+def _pdb_lines(lines):
+    """Shared parser for actual normalized/staged text, without temporary files."""
     atoms, bonds, directed = [], {}, {}
     block = 0
     for line in lines:
@@ -461,11 +466,13 @@ def _conect(bonds):
 
 
 def prepare_inputs(protein_pdb, ligand_sdf, output_dir, *, ligand_resname="LIG", ligand_chain=None,
-                   ligand_resid=1, allow_distant_pose=False, hydrogen_policy="preserve", input_options=None, ligand_smiles=None):
+                   ligand_resid=1, allow_distant_pose=False, hydrogen_policy="preserve", input_options=None, ligand_smiles=None,
+                   fragment_preparation=False):
     try:
         return _prepare_inputs(protein_pdb, ligand_sdf, output_dir, ligand_resname=ligand_resname,
                                ligand_chain=ligand_chain, ligand_resid=ligand_resid, allow_distant_pose=allow_distant_pose,
-                               hydrogen_policy=hydrogen_policy, input_options=input_options, ligand_smiles=ligand_smiles)
+                               hydrogen_policy=hydrogen_policy, input_options=input_options, ligand_smiles=ligand_smiles,
+                               fragment_preparation=fragment_preparation)
     except ToolError as exc:
         if exc.key and exc.key.startswith(("input.", "state.")):
             from .input_diagnostics import bind_input_error
@@ -475,7 +482,8 @@ def prepare_inputs(protein_pdb, ligand_sdf, output_dir, *, ligand_resname="LIG",
 
 
 def _prepare_inputs(protein_pdb, ligand_sdf, output_dir, *, ligand_resname="LIG", ligand_chain=None,
-                    ligand_resid=1, allow_distant_pose=False, hydrogen_policy="preserve", input_options=None, ligand_smiles=None):
+                    ligand_resid=1, allow_distant_pose=False, hydrogen_policy="preserve", input_options=None, ligand_smiles=None,
+                    fragment_preparation=False):
     """Merge a protein PDB and chemically defined ligand SDF in their current frame.
 
     Outputs include a mapping between SDF atom index, ligand PDB names and complex
@@ -490,9 +498,15 @@ def _prepare_inputs(protein_pdb, ligand_sdf, output_dir, *, ligand_resname="LIG"
     from .residues import validate_input_options
     from .input_safety import validate_cgenff, validate_contact, validate_ligand_name, validate_link_records
     options = validate_input_options(input_options)
+    from .fragment_inputs import validate_fragment_option, validate_fragment_source, apply_fragment_preparation
+    validate_fragment_option(fragment_preparation)
     validate_ligand_name(ligand_resname)
     protein, protein_bonds = _pdb(protein_pdb, report=normalization, input_options=options, role="protein")
-    _validate_protein(protein, protein=protein_pdb, ligand=ligand_sdf, ligand_resname=ligand_resname, input_options=options)
+    if fragment_preparation:
+        validate_fragment_source(protein_pdb, protein, options=options, role="protein",
+            protein=protein_pdb, ligand=ligand_sdf, ligand_resname=ligand_resname, input_options=options)
+    else:
+        _validate_protein(protein, protein=protein_pdb, ligand=ligand_sdf, ligand_resname=ligand_resname, input_options=options)
     validate_link_records(protein_pdb)
     ligand_normalization = {}
     ligand = _apply_hydrogen_policy(read_ligand(ligand_sdf, pose=options.get("ligand_pose"), report=ligand_normalization, smiles=ligand_smiles), hydrogen_policy)
@@ -558,6 +572,8 @@ def _prepare_inputs(protein_pdb, ligand_sdf, output_dir, *, ligand_resname="LIG"
              "ligand.pdb": "\n".join(ligand_lines) + "\n" + _conect(mapped_ligand) + "END\n",
              "ligand.sdf": ligand.sdf,
              "complex.pdb": "\n".join(protein_lines + ([] if protein_lines[-1] == "TER" else ["TER"])) + "\n" + "\n".join(ligand_lines) + "\n"
-                            + _conect({**mapped_protein, **mapped_ligand}) + "END\n",
-             "input-manifest.json": json.dumps(manifest, indent=2) + "\n"}
+                            + _conect({**mapped_protein, **mapped_ligand}) + "END\n"}
+    if fragment_preparation:
+        apply_fragment_preparation(files, manifest, protein, protein_map)
+    files["input-manifest.json"] = json.dumps(manifest, indent=2) + "\n"
     return {"files": _write_outputs(output_dir, files), "manifest": manifest}

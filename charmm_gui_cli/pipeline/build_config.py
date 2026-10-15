@@ -1,6 +1,7 @@
 """Input-oriented configuration for the HTTP preparation + API build workflow."""
 
 from pathlib import Path
+from copy import deepcopy
 import re
 import shlex
 
@@ -12,19 +13,22 @@ from charmm_gui_cli.store.configuration import mapping, validate_config, bind_co
 from charmm_gui_cli.chem.pdb_normalization import N_TERMINALS, C_TERMINALS
 
 
-def validate_preparation(raw):
+def validate_preparation(raw, *, allow_fragments=False):
     prep = mapping(raw, ["n_terminal", "c_terminal", "orientation", "terminals"], "preparation")
     result = {"n_terminal": prep.get("n_terminal", "NTER"),
               "c_terminal": prep.get("c_terminal", "CTER"), "orientation": prep.get("orientation", "ppm")}
-    chains = dict(prep.get("terminals", {})) if isinstance(prep.get("terminals", {}), dict) else None
+    chains = deepcopy(prep.get("terminals", {})) if isinstance(prep.get("terminals", {}), dict) else None
     if chains is None:
         raise ToolError(key="terminal.mapping_invalid", next_step="charmm-gui-cli build -h")
+    def valid_selector(value):
+        return isinstance(value, str) and bool(re.fullmatch(
+            r"(?:[A-Za-z0-9_]{1,4}|fragment:[A-Za-z0-9])" if allow_fragments else r"[A-Za-z0-9_]{1,4}", value))
     for end, choices in (("n_terminal", N_TERMINALS), ("c_terminal", C_TERMINALS)):
         value = result[end]
         if isinstance(value, str) and "=" in value:
             for item in value.split(","):
                 pair = item.split("=")
-                if len(pair) != 2 or not re.fullmatch(r"[A-Za-z0-9_]{1,4}", pair[0]):
+                if len(pair) != 2 or not valid_selector(pair[0]):
                     raise ToolError(key="terminal.mapping_invalid", next_step="charmm-gui-cli build -h")
                 if pair[1] not in choices:
                     raise ToolError(key="terminal.patch_invalid", params={"end": "N" if end == "n_terminal" else "C",
@@ -38,7 +42,7 @@ def validate_preparation(raw):
             raise ToolError(key="terminal.patch_invalid", params={"end": "N" if end == "n_terminal" else "C",
                             "choices": ", ".join(choices)}, next_step="charmm-gui-cli build -h")
     for chain, patches in chains.items():
-        if (not isinstance(chain, str) or not re.fullmatch(r"[A-Za-z0-9_]{1,4}", chain)
+        if (not valid_selector(chain)
                 or not isinstance(patches, dict) or not patches or set(patches) - {"n_terminal", "c_terminal"}):
             raise ToolError(key="terminal.mapping_invalid", next_step="charmm-gui-cli build -h")
         for end, value in patches.items():

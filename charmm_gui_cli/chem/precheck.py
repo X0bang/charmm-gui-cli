@@ -279,7 +279,8 @@ def _record_spatial_review(report, review):
 
 
 def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_resname="LIG",
-                 ligand_smiles=None, accept_conect_bond_orders=False, hydrogens="add_missing", components=None, input_options=None):
+                 ligand_smiles=None, accept_conect_bond_orders=False, hydrogens="add_missing", components=None, input_options=None,
+                 fragment_preparation=False):
     """Prepare and inspect in a new directory; persist failures as check.json.
 
     Existing output directories are rejected without any write. ``components``
@@ -306,6 +307,9 @@ def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_res
     stage = "options"
     try:
         options = validate_input_options(input_options)
+        from .fragment_inputs import validate_fragment_option
+        validate_fragment_option(fragment_preparation)
+        fragment_options = {"fragment_preparation": True} if fragment_preparation else {}
         report["input_options"] = options
         if hydrogens not in ("preserve", "add_missing"):
             raise ToolError("hydrogens must be preserve or add_missing.")
@@ -358,7 +362,7 @@ def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_res
         if components is None:
             sources = prepare_sources(out=directory / "sources", protein=protein, ligand=ligand,
                                       complex_pdb=complex_pdb, ligand_resname=ligand_resname,
-                                      ligand_smiles=ligand_smiles, accept_conect_bond_orders=accept_conect_bond_orders, input_options=options)
+                                      ligand_smiles=ligand_smiles, accept_conect_bond_orders=accept_conect_bond_orders, input_options=options, **fragment_options)
             report["sources"] = sources["report"]
             report["checks"][stage] = {"passed": True}
             protein_atoms, _ = _pdb(sources["protein"])
@@ -367,7 +371,7 @@ def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_res
                 {"id": "ligand", "resname": ligand_resname, "atoms": molecule.atoms}]))
             stage = "input_preparation"
             prepared = prepare_inputs(sources["protein"], sources["ligand"], directory / "prepared",
-                                      ligand_resname=ligand_resname, hydrogen_policy=hydrogens)
+                                      ligand_resname=ligand_resname, hydrogen_policy=hydrogens, **fragment_options)
             from .pdb_normalization import attach_source_normalization
             attach_source_normalization(prepared, sources["report"])
             report["input_normalization"] = prepared["manifest"]["input_normalization"]
@@ -388,7 +392,9 @@ def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_res
             _record_spatial_review(report, _complex_spatial_review(complex_pdb, component_config["components"], input_options=options, role=role))
             from charmm_gui_cli.chem.multicomponent import prepare_build_components
             prepared = prepare_build_components(complex_pdb=complex_pdb, components_config=components,
-                                                out=directory / "prepared", hydrogens=hydrogens, input_options=options)
+                                                out=directory / "prepared", hydrogens=hydrogens, input_options=options, **fragment_options)
+            if fragment_preparation:
+                report["input_normalization"] = prepared["manifest"]["input_normalization"]
             report.update(prepared_complex=prepared["files"]["complex.pdb"], prepared_files=prepared["files"],
                           component_preparation=prepared["manifest"],
                           component_resnames=sorted({item["resname"] for item in prepared["manifest"]["components"]}))
@@ -400,6 +406,10 @@ def check_inputs(*, out, protein=None, ligand=None, complex_pdb=None, ligand_res
         report["checks"][stage] = {"passed": True}
         if report.get("input_normalization", {}).get("protein_state_intent", {}).get("residues"):
             report["review_required"] = True
+        if report.get("input_normalization", {}).get("fragment_preparation"):
+            report["review_required"] = True
+            report["prepared_terminal_predictions"] = report["input_normalization"]["terminal_predictions"]
+            report["prepared_structure_inventory"] = report["input_normalization"]["structure_inventory"]
         if any(not item["rdkit_sanitized"] for item in report["chemistry"]):
             report["review_required"] = True
         report.update(passed=True, hydrogen_policy=hydrogens,
