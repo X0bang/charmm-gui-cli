@@ -1,10 +1,16 @@
 # Changelog
 
-## Unreleased
+## 0.8.8
+
+### Fixes and improvements
 
 - Share endpoint-aware backbone-break diagnostics with internal, explicitly accepted fragment-preparation primitives. Preserve coordinates/serials, assign distinct chains/TER boundaries, remap unambiguous SSBOND and explicit-state identities, retain sidechain bonds and refuse conflicting peptide CONECT or changed plans. Public splitting remains gated pending terminal-control and actual source/final PSF integration; the default CLI still blocks breaks.
 - Add an offline, bounded full-precision CMAP comparison gate with ordered-cell, malformed-input and mutation regressions; it does not enable local force-field conversion. Document the second-system ordering counterexample, corrected atomic/compiled-parameter checks, limited-template restrained single-point results and remaining provider/production gates.
 - Consolidate historical installation/testing records here and describe only current formats, task recovery, platform coverage and remaining live/scientific gates in the guides.
+
+### Validation scope
+
+English and Chinese regressions cover identity-bound fragment preparation, annotated TER handling, explicit-state remapping and ordered CMAP comparisons. Source and wheel distributions are checked separately. These internal checks do not enable a public chain-break bypass, automatic fragment capping or local force-field conversion; existing default submission and recovery behavior is unchanged.
 
 ## 0.8.7
 
