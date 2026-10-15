@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Verify internal mapped-SMILES stereo on map-neutral copies, preserving index correspondence and explicit E/Z representation. Prevent transport atom labels from changing R/S or E/Z comparisons while still rejecting true inversions, invalid mappings and map-only pseudo-stereo; retain actual molecule metadata/coordinates unchanged.
+
 - Shorten default help to common workflows and add --help-all for complete advanced/compatibility command discovery. Document polling units/budgets, queue foreground behavior and correct N/C terminal examples; keep legacy wait flags and namespaces compatible.
 - Diagnose recognizable option typos and invalid option values with command-specific help routes, without printing argv values or raw argparse messages. Cover flag-shaped credential values, inline values, abbreviations and literal -- separators.
 

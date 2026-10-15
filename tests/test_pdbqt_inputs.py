@@ -134,10 +134,12 @@ class PdbqtInputTests(unittest.TestCase):
         from rdkit import Chem
         from rdkit.Chem import AllChem
         from meeko import MoleculePreparation, PDBQTWriterLegacy
-        for index, smiles in enumerate(('F[C@H](Cl)Br', 'F/C=C/Cl', 'F/C=C\\Cl', 'c1ccccc1', 'C[NH3+]')):
+        cases = [(smiles, merge) for smiles in ('F[C@H](Cl)Br', 'F/C=C/Cl', 'F/C=C\\Cl', 'c1ccccc1', 'C[NH3+]',
+                                               'CC[C@H](F)C', 'CC/C=C(/CC)C') for merge in (('H',), ())]
+        for index, (smiles, merge) in enumerate(cases):
             original = Chem.AddHs(Chem.MolFromSmiles(smiles))
             self.assertEqual(AllChem.EmbedMolecule(original, randomSeed=7), 0)
-            block, ok, _ = PDBQTWriterLegacy.write_string(MoleculePreparation().prepare(original)[0])
+            block, ok, _ = PDBQTWriterLegacy.write_string(MoleculePreparation(merge_these_atom_types=merge).prepare(original)[0])
             self.assertTrue(ok)
             self.path.write_text(block)
             ligand = read_ligand(self.path)

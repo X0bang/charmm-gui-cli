@@ -23,6 +23,8 @@ charmm-gui-cli build --protein protein.pdb --ligand docked.pdbqt --ligand-pose 2
 
 若显式手性中心的坐标镜像、E/Z 与声明相反，或移除非极性氢后剩余几何接近平面、无法可靠核验，会拒绝转换。手性错误会指出原始 PDBQT serial；应核对原始结构及化学定义，不能仅改标签来让检查通过。
 
+内部 SDF 的原子映射编号仅用于对应关系，不是化学优先级。[RDKit 的旧式立体判定会考虑映射编号](https://github.com/rdkit/rdkit/issues/1368)，因此本程序在去映射的副本上核对 R/S、E/Z，再按原编号对应回实际原子；原图、坐标和映射不改。真实的立体反转和只靠编号造成的伪立体声明仍被拒绝。若已有坐标氢对核验必不可少，可从可信源导出保留这些氢的 PDBQT，或直接使用可靠的结合姿势 SDF；不通过补造坐标或删除立体声明来放宽检查。
+
 版本 2 YAML 可写 `ligand: docked.pdbqt` 和 `ligand_smiles: '实际带映射的SMILES'`，姿势选择仍放在 `input_options: {ligand_pose: 2}`；batch/sweep 也使用同一套规则。配体多组分、柔性受体、金属/伪原子、错误映射或不兼容的显式立体声明会被拒绝。化学定义与坐标不符时不会转换成另一种微观状态继续。
 
 标准安装器会安装化学依赖（含 Meeko 0.8、gemmi、scipy）；手工最小安装若缺少依赖，会显示针对当前程序 Python 环境的安装命令。转换证据记录后端版本、部分电荷、原子 serial/名字映射、原文件/所选姿势哈希及坐标舍入。
