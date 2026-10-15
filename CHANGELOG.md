@@ -2,12 +2,20 @@
 
 ## Unreleased
 
+## 0.8.6
+
+### Fixes and improvements
+
 - Add explicit local jobs forget plans and --yes index archival without deleting task data or touching remote jobs. Retain hashed index backups for identity-checked jobs relink restoration; refuse active or uncertain submissions and coordinate concurrent index writers.
 - Place automatic single-directory task PNG previews under visible previews/ and reference the verified model in place instead of copying another large PDB. Preserve old task/cache and explicit standalone-copy behavior; reports still verify archive, coordinate and image hashes.
 - Distinguish remote pending queue states from unprepared batch/sweep rows. Submitted children retain their active slot and existing inputs; matching durable job records recover the specific historical staging misclassification without retrying uploads or uncertain POSTs.
 - Publish the detached worker PID under an inherited startup gate before returning, preventing launcher/worker PID mismatches and late parent writes over fast-worker completion records. Preserve inherited locks and historical worker entry points.
 - Add bounded best-effort Linux desktop notifications via optional notify-send, keeping macOS notifications and headless operation independent of modeling results.
 - Show the user task root instead of .charmm-gui in terminal build/dry-run summaries, correct singular residue wording and clarify report-edit backups versus protected model/configuration/export files.
+
+### Validation scope
+
+English and Chinese local regression suites cover queue recovery, detached-worker startup, visible previews, notifications and recoverable index archival. Source and wheel distributions are checked separately. Repeated live observation confirmed that queued scan children retain their original job IDs and preparation reuse without repeated uploads; final modeling, archive acceptance and GROMACS compilation of these ongoing runs remain pending. Index archival does not remove model files or reclaim their disk space, and directory quarantine is not included in this release.
 
 ## 0.8.5
 
