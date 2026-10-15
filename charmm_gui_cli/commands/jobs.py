@@ -9,6 +9,8 @@ def execute(args):
         'relink': 'jobs_relink',
         'forget': 'jobs_forget',
         'remember': 'jobs_remember',
+        'clean': 'jobs_clean',
+        'restore': 'jobs_restore',
         'watch': 'jobs_watch',
         'reconcile': 'jobs_reconcile',
         'status': 'jobs_status',

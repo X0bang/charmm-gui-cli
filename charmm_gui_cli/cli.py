@@ -120,6 +120,19 @@ def parser():
     confirmation.add_argument("--dry-run", action="store_true", help=t("cleanup.dry_run_help"))
     job_remember = job_commands.add_parser("remember", help=t("cleanup.remember_help"))
     job_remember.add_argument("path", type=Path, help=t("help.relink_path"))
+    job_clean = job_commands.add_parser('clean', help=t('quarantine.clean_help'))
+    job_clean.add_argument('target', help=t('help.text.27'))
+    job_clean.add_argument('--trash-dir', type=Path, help=t('quarantine.trash_help'))
+    confirm_clean = job_clean.add_mutually_exclusive_group()
+    confirm_clean.add_argument('--yes', action='store_true', help=t('quarantine.yes_help'))
+    confirm_clean.add_argument('--dry-run', action='store_true', help=t('cleanup.dry_run_help'))
+    job_restore = job_commands.add_parser('restore', help=t('quarantine.restore_help'))
+    job_restore.add_argument('operation', help=t('quarantine.operation_help'))
+    job_restore.add_argument('--to', type=Path, help=t('quarantine.to_help'))
+    job_restore.add_argument('--no-register', action='store_true', help=t('quarantine.no_register_help'))
+    confirm_restore = job_restore.add_mutually_exclusive_group()
+    confirm_restore.add_argument('--yes', action='store_true', help=t('quarantine.yes_help'))
+    confirm_restore.add_argument('--dry-run', action='store_true', help=t('cleanup.dry_run_help'))
     job_relink = job_commands.add_parser("relink", help=t("help.relink"))
     job_relink.add_argument("target", help=t("help.relink_name"))
     job_relink.add_argument("path", type=Path, help=t("help.relink_path"))
@@ -347,8 +360,15 @@ def main(argv=None):
         else:
             print(t("cli.interrupted"), file=sys.stderr)
         return 130
-    except KeyboardInterrupt:
+    except KeyboardInterrupt as interrupted:
         from charmm_gui_cli.store.auth import recovery_guidance
+        if args.command == 'jobs' and getattr(args, 'jobs_command', None) in ('clean', 'restore'):
+            import shlex
+            operation = getattr(interrupted, 'cleanup_operation', None) or getattr(args, 'operation', None)
+            action = shlex.join(['charmm-gui-cli', 'jobs', 'restore', str(operation), '--dry-run']) if operation else 'charmm-gui-cli jobs restore -h'
+            print(t('quarantine.interrupted'), file=sys.stderr)
+            print(t('cli.next', action=action), file=sys.stderr)
+            return 130
         if args.command == 'jobs' and getattr(args, 'jobs_command', None) == 'forget':
             import shlex
             print(t('cleanup.interrupted', command=shlex.join(['charmm-gui-cli','jobs','forget',args.target,

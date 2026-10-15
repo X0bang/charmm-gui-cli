@@ -407,7 +407,7 @@ def bind_ready_sources(batch_directory, manifest):
     # no untouched follower needs a new binding.
     candidates = []
     for row in manifest["jobs"]:
-        directory = Path(row["directory"])
+        directory = batch._task_directory(row)
         if row["state"] in batch.TERMINAL:
             continue
         current = _json(directory / "full-run.json")
@@ -422,7 +422,7 @@ def bind_ready_sources(batch_directory, manifest):
     for row in manifest["jobs"]:
         if row["state"] == "local_failed":
             continue
-        directory = Path(row["directory"]).resolve()
+        directory = batch._task_directory(row).resolve()
         identity = preparation_identity(directory)
         groups.setdefault(batch._canonical(identity), []).append(row)
     bound = waiting = 0
@@ -433,20 +433,20 @@ def bind_ready_sources(batch_directory, manifest):
             continue
         source = None
         for row in rows:
-            current = _json(Path(row["directory"]) / "full-run.json")
+            current = _json(batch._task_directory(row) / "full-run.json")
             if current.get("reused_preparation"):
-                validate_reuse(row["directory"], current)
+                validate_reuse(batch._task_directory(row), current)
                 from ..store.discovery import source_directory
                 source = str(source_directory(current["reused_preparation"]["certificate"]))
                 break
             if current.get("source_job_id") and current.get("preparation_page_state") == "ready":
-                certify_source(row["directory"])
-                source = row["directory"]
+                certify_source(batch._task_directory(row))
+                source = str(batch._task_directory(row))
                 break
         leader = next((row for row in rows if row["state"] not in batch.TERMINAL), None)
         for row in rows:
             row["reuse_waiting"] = False
-            directory = Path(row["directory"])
+            directory = batch._task_directory(row)
             current = _json(directory / "full-run.json")
             if (row["state"] in batch.TERMINAL or current.get("reused_preparation")
                     or current.get("source_job_id") or (directory / "preparation").exists()

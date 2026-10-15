@@ -425,3 +425,13 @@ FORMATTERS = {"jobs.remember": format_remember, "jobs.forget": format_forget, "d
               "check": format_check, "jobs.list": format_jobs, "jobs.relink": format_relink}
 FORMATTERS.update({name: format_batch for name in ("batch", "batch-status", "batch-resume", "sweep", "sweep-status", "sweep-resume")})
 FORMATTERS["preview"] = format_preview
+
+
+def format_cleanup(value, **context):
+    return '\n'.join([t('quarantine.state.' + value['state']),
+                      t('quarantine.source', path=_path(value['directory'])),
+                      t('quarantine.destination', path=_path(value['destination'])),
+                      t('quarantine.retained'), t('cli.next', action=value['next_step'])])
+
+
+FORMATTERS.update({'jobs.clean': format_cleanup, 'jobs.restore': format_cleanup})

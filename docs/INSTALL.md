@@ -1,6 +1,6 @@
-# Ubuntu 22.04+ 用户级安装与发布
+# Ubuntu 22.04+ 与 macOS 用户级安装
 
-安装器支持 Python 3.10+，适用于 Ubuntu 22.04 及更新版本的常规 Python 环境。它不调用 sudo/apt，不改系统 Python，不要求 CHARMM-GUI 密码。首次安装通过 pip 下载 requests、PyYAML、BeautifulSoup、RDKit 及其依赖，需要网络和足够磁盘空间；安装包不是离线依赖全集。
+安装器支持 Python 3.10+，适用于 Ubuntu 22.04+ 和 macOS 的常规 Python/venv 环境。它不调用 sudo/apt，不改系统 Python，不要求 CHARMM-GUI 密码。首次安装通过 pip 下载项目依赖，需要网络和足够磁盘空间；安装包不是离线依赖全集。macOS 如有多个 Python，可通过下方 `--python` 指定可创建 venv 的解释器；不依赖系统自带 Python。
 
 ## 一键安装
 

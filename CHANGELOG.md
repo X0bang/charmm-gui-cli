@@ -3,7 +3,9 @@
 ## Unreleased
 
 - Add explicit index-only `jobs forget --missing` plans for uniquely identified unavailable directories, retaining hashed backups and refusing existing paths or ambiguous records. Missing-directory archival does not establish process or remote completion.
-- Add native non-replacing directory-move primitives for recoverable cleanup; refuse unsupported filesystems and occupied destinations without copy/delete fallback. Whole-task cleanup is not exposed by this foundation.
+- Add recoverable `jobs clean` / `jobs restore` with read-only default plans, whole-task non-replacing moves, retained index backups and pre-move identity receipts. No permanent deletion or copy/delete fallback is used; quarantine does not reclaim disk space.
+- Protect active/uncertain tasks, preparation dependents and unfinished batch members. Completed child rows and source certificates resolve retained locations by UUID and physical directory identity without changing proof bytes or repeating submissions. Restore conflicts support an explicit new path without name registration.
+- Allow explicitly re-registering an unindexed named local plan from its existing consistent identity, without modeling or bypassing damaged matching index backups. Clarify current paired renewal, adaptive archive polling and macOS installation documentation.
 
 ## 0.8.6
 

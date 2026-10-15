@@ -15,20 +15,20 @@ YAML 错误显示实际配置路径和修正后可执行的本地复查命令，
 | [chem/multicomponent.py](../charmm_gui_cli/chem/multicomponent.py) | 58 | 31, 51, 54, 56, 58, 60, 64, 82, 85, 100, 105, 107, 110, 114, 117, 122, 126, 144, 146, 148, 171, 173, 183, 185, 191, 193, 201, 206, 214, 218, 223, 228, 238, 241, 250, 259, 331, 333, 337, 340, 343, 349, 357, 421, 423, 425, 428, 431, 436, 439, 464, 467, 473, 475, 492, 494, 502, 506 |
 | [chem/pose_validation.py](../charmm_gui_cli/chem/pose_validation.py) | 25 | 23, 26, 34, 36, 46, 52, 55, 60, 66, 69, 81, 86, 92, 96, 103, 106, 114, 122, 148, 152, 154, 162, 165, 171, 175 |
 | [chem/precheck.py](../charmm_gui_cli/chem/precheck.py) | 10 | 205, 207, 211, 213, 257, 267, 311, 313, 315, 387 |
-| [chem/preview.py](../charmm_gui_cli/chem/preview.py) | 15 | 42, 56, 62, 67, 73, 101, 117, 127, 131, 141, 159, 236, 295, 297, 305 |
+| [chem/preview.py](../charmm_gui_cli/chem/preview.py) | 15 | 42, 56, 62, 67, 73, 101, 117, 127, 131, 141, 159, 236, 297, 299, 307 |
 | [chem/structure.py](../charmm_gui_cli/chem/structure.py) | 3 | 24, 38, 47 |
 | [chem/validation.py](../charmm_gui_cli/chem/validation.py) | 46 | 58, 123, 127, 132, 134, 137, 168, 170, 172, 189, 195, 198, 202, 209, 213, 236, 261, 272, 274, 277, 280, 289, 315, 319, 327, 329, 331, 350, 357, 358, 381, 384, 416, 427, 559, 644, 696, 702, 707, 714, 727, 729, 736, 744, 751, 759 |
 | [commands/preview.py](../charmm_gui_cli/commands/preview.py) | 1 | 17 |
 | [pipeline/acceptance.py](../charmm_gui_cli/pipeline/acceptance.py) | 15 | 38, 59, 66, 70, 83, 87, 91, 104, 110, 117, 120, 191, 195, 197, 230 |
 | [pipeline/artifacts.py](../charmm_gui_cli/pipeline/artifacts.py) | 4 | 19, 31, 38, 53 |
-| [pipeline/batch.py](../charmm_gui_cli/pipeline/batch.py) | 16 | 79, 89, 93, 128, 131, 140, 147, 149, 158, 209, 230, 241, 303, 556, 558, 561 |
+| [pipeline/batch.py](../charmm_gui_cli/pipeline/batch.py) | 16 | 79, 89, 93, 128, 131, 140, 147, 149, 158, 209, 236, 247, 329, 625, 627, 630 |
 | [pipeline/build_command.py](../charmm_gui_cli/pipeline/build_command.py) | 5 | 99, 156, 158, 170, 216 |
 | [pipeline/full_build.py](../charmm_gui_cli/pipeline/full_build.py) | 19 | 61, 63, 65, 81, 106, 110, 113, 116, 119, 121, 125, 129, 134, 223, 230, 253, 373, 377, 404 |
 | [pipeline/managed.py](../charmm_gui_cli/pipeline/managed.py) | 6 | 112, 134, 307, 310, 463, 472 |
-| [pipeline/preview.py](../charmm_gui_cli/pipeline/preview.py) | 9 | 23, 26, 35, 42, 46, 53, 59, 66, 72 |
+| [pipeline/preview.py](../charmm_gui_cli/pipeline/preview.py) | 9 | 24, 27, 36, 43, 47, 54, 60, 67, 73 |
 | [pipeline/sweep.py](../charmm_gui_cli/pipeline/sweep.py) | 38 | 35, 43, 45, 55, 58, 61, 65, 70, 73, 77, 83, 85, 99, 117, 141, 146, 154, 163, 169, 173, 189, 202, 226, 232, 247, 251, 262, 265, 268, 273, 282, 290, 322, 330, 335, 339, 379, 391 |
 | [pipeline/workflow.py](../charmm_gui_cli/pipeline/workflow.py) | 15 | 44, 73, 83, 86, 104, 113, 115, 129, 132, 136, 184, 189, 214, 230, 247 |
-| [presentation/reporting.py](../charmm_gui_cli/presentation/reporting.py) | 1 | 203 |
+| [presentation/reporting.py](../charmm_gui_cli/presentation/reporting.py) | 1 | 206 |
 | [remote/archive_transport.py](../charmm_gui_cli/remote/archive_transport.py) | 7 | 44, 57, 73, 81, 83, 85, 89 |
 | [remote/web.py](../charmm_gui_cli/remote/web.py) | 23 | 33, 42, 153, 158, 194, 239, 245, 247, 255, 265, 268, 275, 284, 289, 316, 334, 336, 338, 345, 368, 372, 382, 389 |
 | [store/locking.py](../charmm_gui_cli/store/locking.py) | 1 | 19 |

@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import stat
 import uuid
 
 from . import tasks
@@ -28,9 +29,17 @@ def _registries():
 
 
 def _record(path, *, limit=1024 * 1024):
-    if path.is_symlink() or path.stat().st_size > limit:
+    path = Path(path)
+    # Inspect the opened inode, not a prior pathname stat. NONBLOCK also keeps
+    # an unexpected FIFO/device in an index from hanging ordinary queries.
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0))
+    with os.fdopen(descriptor, 'rb') as handle:
+        info = os.fstat(handle.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_size > limit or path.is_symlink():
+            raise ValueError
+        raw = handle.read(limit + 1)
+    if len(raw) > limit:
         raise ValueError
-    raw = path.read_bytes()
     value = json.loads(raw)
     if not isinstance(value, dict):
         raise ValueError
@@ -182,7 +191,7 @@ def _borrowed_lease(directory, descriptor):
         raise _error('lease_invalid', directory) from None
 
 
-def forget(target, *, yes=False, missing=False, _lease=None):
+def forget(target, *, yes=False, missing=False, _lease=None, _aliases=()):
     """Default is a read-only plan; --yes moves only matching index records."""
     if missing:
         context = _missing_context(target)
@@ -201,7 +210,7 @@ def forget(target, *, yes=False, missing=False, _lease=None):
         embedded_name = tasks._job_metadata(directory).get('name')
         raw_directory = str(directory)
     name = embedded_name or str(task_root(directory))
-    entries = _entries(directory, identifier, name, additional_aliases=[raw_directory])
+    entries = _entries(directory, identifier, name, additional_aliases=[raw_directory, *_aliases])
     result = {'state': 'forget_plan', 'name': name, 'directory': str(task_root(directory)), 'task_id': identifier,
               'index_records': len(entries), 'index_bytes': sum(item['bytes'] for item in entries),
               'index_files': [str(item['path']) for item in entries],
@@ -230,7 +239,7 @@ def forget(target, *, yes=False, missing=False, _lease=None):
                 _safe_to_forget(directory, check_process=False)
                 if task_id(directory) != identifier:
                     raise _error('not_task', directory, path=str(task_root(directory)))
-            entries = _entries(directory, identifier, name, additional_aliases=[raw_directory])
+            entries = _entries(directory, identifier, name, additional_aliases=[raw_directory, *_aliases])
             receipts, moved = {}, []
             event = uuid.uuid4().hex
             current_path = directory
@@ -313,16 +322,28 @@ def forget(target, *, yes=False, missing=False, _lease=None):
     return result
 
 
-def remember(target):
+def remember(target, *, _lease=None):
     """Restore local discovery only, never resume a modeling pipeline."""
     path = Path(target).expanduser().resolve()
     directory = path / '.charmm-gui' if (path / '.charmm-gui/full-run.json').is_file() else path
-    if metadata(directory)['running']:
+    if _lease is not None:
+        _borrowed_lease(directory, _lease)
+    elif metadata(directory)['running']:
         raise _error('running', directory)
     name = tasks._job_metadata(directory).get('name')
     if name:
         from .discovery import relink
-        result = relink(name, directory)
+        binding = any((Path(registry) / 'names' / (name + '.json')).exists() for registry in tasks._registries())
+        if binding or forgotten_binding(name, directory) is not None:
+            result = relink(name, directory, _lease=_lease)
+        else:
+            # Explicit import of an unregistered named local plan. Require an
+            # existing, consistent UUID; do not invent task identity here.
+            if task_id(directory) is None:
+                raise _error('not_task', directory, path=str(task_root(directory)))
+            tasks.assign_name(directory, name)
+            result = {'name': name, 'directory': str(task_root(directory)), 'task_id': task_id(directory),
+                      'next_step': shlex.join(['charmm-gui-cli', 'jobs', 'status', name])}
     else:
         record = tasks.remember_run(directory)
         result = {'name': None, 'directory': str(task_root(directory)), 'task_id': record.get('task_id'),

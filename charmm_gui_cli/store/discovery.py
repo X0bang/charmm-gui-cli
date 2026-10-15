@@ -78,6 +78,10 @@ def discover(record):
 
 def locate(record):
     directory = Path(record["directory"]).expanduser().resolve()
+    from .quarantine import resolve_directory
+    retained = resolve_directory(directory, record.get('task_id'))
+    if retained is not None:
+        return retained
     if (directory / "full-run.json").is_file():
         if record.get("task_id") is not None and not matches(record, directory):
             raise ToolError(key="jobs.identity_invalid", params={"path": str(task_root(directory))}, next_step="charmm-gui-cli jobs list")
@@ -93,7 +97,7 @@ def locate(record):
     return discover(record)
 
 
-def relink(name, target):
+def relink(name, target, *, _lease=None):
     from charmm_gui_cli.store.workers import metadata
     from charmm_gui_cli.store.locking import run_lock
     if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", name):
@@ -115,7 +119,10 @@ def relink(name, target):
     names.mkdir(mode=0o700, parents=True, exist_ok=True)
     with run_lock(names), run_lock(directory):
         record = registration()
-        if metadata(directory)["running"]:
+        if _lease is not None:
+            from .lifecycle import _borrowed_lease
+            _borrowed_lease(directory, _lease)
+        elif metadata(directory)["running"]:
             raise ToolError(key="background.running", next_step="charmm-gui-cli jobs list")
         if not matches(record, directory):
             raise ToolError(key="jobs.relink_mismatch", params={"name": name, "path": str(task_root(directory))}, next_step="charmm-gui-cli jobs list")
@@ -136,6 +143,10 @@ def source_directory(certificate):
     """Resolve a bound source by its UUID; never substitute an unrelated run."""
     directory = Path(certificate["source_directory"])
     expected = certificate.get("source_task_id")
+    from .quarantine import resolve_directory
+    retained = resolve_directory(directory, expected)
+    if retained is not None:
+        return retained
     if (directory / "full-run.json").is_file():
         if expected is not None and task_id(directory) != expected:
             raise ToolError(key="jobs.identity_invalid", params={"path": str(task_root(directory))}, next_step="charmm-gui-cli jobs list")

@@ -218,6 +218,8 @@ def _read(directory, verify=True):
                 raise ValueError
             if any(key in job and type(job[key]) is not bool for key in ("indexed", "preparation_reused")):
                 raise ValueError
+            if 'task_id' in job and (not isinstance(job['task_id'], str) or not re.fullmatch(r'[0-9a-f]{32}', job['task_id'])):
+                raise ValueError
             if "error_detail" in job and (not isinstance(job["error_detail"], dict)
                     or "message_params" in job["error_detail"] and not isinstance(job["error_detail"]["message_params"], dict)):
                 raise ValueError
@@ -255,6 +257,19 @@ def initialize(config_path, directory, *, register=True, progress=None, name=Non
     return _summary(directory, manifest)
 
 
+def _task_directory(job):
+    """Retained completed children keep their original row path and UUID."""
+    from ..store.quarantine import resolve_directory
+    retained = resolve_directory(job['directory'], job.get('task_id'))
+    if retained is not None:
+        if retained != Path(job['directory']).resolve():
+            job['retained_directory'] = str(retained)
+        else:
+            job.pop('retained_directory', None)
+        return retained
+    return Path(job['directory'])
+
+
 def _prepare(directory, manifest, *, progress=None):
     from ..store.indexing import local_plan
     with nullcontext() if manifest.get("register_tasks", True) else local_plan():
@@ -269,7 +284,7 @@ def _prepare_entries(directory, manifest, *, progress=None):
             continue
         if time.time() < job.get("next_retry_unix", 0):
             continue
-        output = Path(job["directory"])
+        output = _task_directory(job)
         from ..store.local_build import _remote_evidence
         if (job.get("started") or job.get("source_job_id") or job.get("build_job_id")
                 or _remote_evidence(output)):
@@ -313,7 +328,11 @@ def _prepare_entries(directory, manifest, *, progress=None):
                 if code:
                     raise ToolError("Local preparation did not succeed.")
                 # Prefix names with stable batch identity to avoid cross-batch collisions.
-                _task_store.assign_name(Path(job["directory"]), _named_job(directory, job["name"]))
+                _task_store.assign_name(output, _named_job(directory, job["name"]))
+                from ..store.discovery import task_id
+                identifier = task_id(output)
+                if identifier is not None:
+                    job['task_id'] = identifier
                 job["state"] = result["state"]
                 if manifest["config"].get("reuse_preparation"):
                     from charmm_gui_cli.pipeline.sweep import seal_preparation
@@ -347,7 +366,7 @@ def _register_children(directory, manifest):
         if job["state"] in ("local_failed", "pending", "preparing_local") or job.get("indexed") or time.time() < job.get("next_retry_unix", 0):
             continue
         try:
-            assign_name(Path(job["directory"]), _named_job(directory, job["name"]))
+            assign_name(_task_directory(job), _named_job(directory, job["name"]))
         except ToolError as error:
             if error.category != "lock_busy":
                 raise
@@ -364,7 +383,7 @@ def _register_children(directory, manifest):
 
 def _local(job):
     from charmm_gui_cli.pipeline import managed
-    directory = Path(job["directory"])
+    directory = _task_directory(job)
     if job["state"] in ("preparing_local", "waiting_index") and job.get("error_category") == "lock_busy":
         return  # Local preparation/registration must finish before submission.
     if job["state"] == "local_failed":
@@ -464,7 +483,7 @@ def _recover_queued_child(job):
             or job.get("error_detail", {}).get("category") == "submission_unknown"):
         return False
     from ..store.paths import read_value
-    directory = Path(job["directory"])
+    directory = _task_directory(job)
     try:
         full = read_value(directory / "full-run.json")
         remote = read_value(directory / "bilayer/run.json")
@@ -491,7 +510,7 @@ def _recover_queued_child(job):
 def _summary(directory, manifest):
     jobs = [{key: job[key] for key in ("name", "directory", "state", "error", "error_category", "cause_category", "next_retry_unix", "next_step",
                                       "source_job_id", "build_job_id", "remote", "gromacs_compiled", "compilation_status",
-                                      "gromacs_note", "review_required", "report", "archive", "validation", "error_detail", "local_failure_phase", "preparation_reused", "scheduling_recoveries") if key in job}
+                                      "gromacs_note", "review_required", "report", "archive", "validation", "error_detail", "local_failure_phase", "preparation_reused", "scheduling_recoveries", "task_id", "retained_directory") if key in job}
             for job in manifest["jobs"]]
     counts = {}
     for job in jobs:
@@ -555,10 +574,10 @@ def _retry_local(directory, manifest):
     from ..store.local_build import _remote_evidence
     candidates = [j for j in manifest["jobs"] if j["state"] == "local_failed"]
     for job in candidates:
-        root = task_root(Path(job["directory"]))
+        root = task_root(_task_directory(job))
         command = "charmm-gui-cli batch-status " + shlex.quote(str(directory))
         if (job.get("started") or job.get("source_job_id") or job.get("build_job_id")
-                or job.get("error_category") == "submission_unknown" or _remote_evidence(Path(job["directory"]))):
+                or job.get("error_category") == "submission_unknown" or _remote_evidence(_task_directory(job))):
             raise ToolError(key="batch.retry_remote", params={"name": job["name"]}, next_step=command)
         if root.exists() or root.is_symlink():
             raise ToolError(key="batch.retry_partial", params={"name": job["name"], "path": str(root)}, next_step=command)
@@ -578,7 +597,7 @@ def _record_interruption(directory, manifest):
         for job in manifest["jobs"]:
             _local(job)
             uncertain = job["state"] in ("submission_unknown", "submitting", "upload_submitting")
-            preparation = Path(job["directory"]) / "preparation"
+            preparation = _task_directory(job) / "preparation"
             for path in [preparation / "web-run.json", *preparation.glob("*.intent.json")]:
                 if path.is_file():
                     try:
@@ -664,7 +683,7 @@ def advance(directory, *, max_active=1, submit_interval=30, wait=True, interval=
                 # Persist slot/intent before entering a potentially submitting operation.
                 _save(directory, manifest)
                 try:
-                    result, code = build_command.execute(_arguments(Path(job["directory"]), interval=interval,
+                    result, code = build_command.execute(_arguments(_task_directory(job), interval=interval,
                         max_wait=max_wait, token_file=token_file, cookies=cookies, grompp=grompp, no_grompp=no_grompp, gmx=gmx, no_preview=no_preview, post_timeout=post_timeout,
                         progress=progress.child(job) if progress else None))
                     job.update({k: result[k] for k in ("state", "source_job_id", "build_job_id", "gromacs_compiled",
