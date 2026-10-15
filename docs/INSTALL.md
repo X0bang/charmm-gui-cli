@@ -45,7 +45,7 @@ bash install.sh --offline --wheelhouse /path/to/wheels
 
 ## 升级与旧版本
 
-0.5.2 起支持：
+通过本项目安装器管理的安装支持：
 
 ```bash
 charmm-gui-cli update --check
@@ -65,7 +65,7 @@ charmm-gui-cli update --prefix /path/to/user-software/charmm-gui-cli \
 
 两个路径选项必须同时提供；不会覆盖无法识别的现有命令。更新下载 GitHub 源包，并根据原 pip 配置安装依赖，需要网络、venv/ensurepip 和足够磁盘。更新锁防止同一安装根的并发更新。校验、依赖安装或健康检查失败不切换入口；中断时可再次运行更新。临时下载保留在安装根 `updates/`，旧版本/失败安装保留在 `releases/`。不读取或改写登录会话、任务和模型，也不会自动重提任何建模任务。
 
-尚无 `update` 的旧版本先获取新版源码/源包，执行一次 `bash install.sh`。新版本源码/源包也仍可直接执行该安装命令。旧版本可通过其 `venv/bin/charmm-gui-cli` 直接运行。没有卸载或自动清理命令；如何处理旧目录由用户决定。
+尚无 `update` 的旧版本先获取新版源码/源包，执行一次 `bash install.sh`。新版本源码/源包也仍可直接执行该安装命令。旧版本可通过其 `venv/bin/charmm-gui-cli` 直接运行。安装器不提供旧安装版本的自动删除或卸载。`jobs clean` 仅用于可恢复地隔离任务，不用于清理安装目录，也不释放磁盘空间。
 
 ## 构建发布包
 
@@ -77,20 +77,10 @@ python3 scripts/build_release.py --out /path/to/new-release-directory
 
 不包含 token、Cookie、runs、.venv、build、上游克隆、用户 test-dataset 结构或任意递归目录内容。CrtW 示例需用户自行保留的测试结构；独立蛋白/SDF 使用者直接填写自己的路径。加入新的交付文档/示例时，需更新 `scripts/build_release.py` 的白名单。发布前应核对 `SHA256SUMS` 并检查文件清单。
 
-## 平台验证说明
+## 平台验证范围
 
-2026-10-11 的 0.5.1 发行代码已在宿主全新隔离依赖环境运行 546 项全部通过；Ubuntu 22.04 / Python 3.10.12 从公开源包以非 root 用户全新安装，运行 546 项，521 通过、25 因未分发私有结构等条件明确跳过。跨目录帮助、版本及 doctor 通过。源码白名单 88 文件、wheel 31 模块、RECORD 哈希和 GPL 元数据核对完成。真实双浓度扫描、多组分最终验收及 GROMACS 编译在宿主完成；容器无账户和 GROMACS，不把安装检查当作远端建模实测。
+GitHub CI 在 Ubuntu 22.04 和 macOS、Python 3.10 和 3.13 的四种组合上运行中英文回归，并验证发布打包。最近正式发布对应提交的四组测试已通过；具体历史记录见 [CHANGELOG](../CHANGELOG.md)。Python 3.14、所有 CPU 架构及每种系统 Python 安装方式并未逐一验收。
 
-2026-10-11 的 0.5.1 压缩恢复与 TER 边界修复候选，已在 Ubuntu 22.04 / Python 3.10.12 中从源码以非 root 用户全新隔离安装，doctor 通过；公开候选源包及新安装依赖环境各运行 529 项测试，504 通过、25 因未分发私有结构等条件明确跳过。宿主 Python 3.13 的新隔离安装环境运行 529 项全部通过。旧安装和失败源任务均保留。官网网络恢复后，原真实双浓度扫描也已通过最终模型及 GROMACS 验收；这与无凭据容器的安装测试是不同证据。
+公开源码包可以从新目录运行测试；私有结构不随包分发，依赖它们的测试会明确跳过。源码包的一键安装、跨目录版本/帮助/doctor，以及 wheel 的文件清单、RECORD 和 SHA256 都单独检查。详见 [测试与验收](TESTING.md)。
 
-2026-10-11 的 0.5.0 扩展版已重新在新建 Ubuntu 22.04 / Python 3.10.12 容器中以非 root 用户一键安装，RDKit 2026.9.1、NumPy 2.2.6、Pillow 12.3.0 及基础依赖成功安装；doctor 和报告帮助通过。公开源包全套 512 项测试，487 通过、25 明确跳过，退出码 0。宿主 Ubuntu 22.04.5 的 Python 3.13.13 新隔离安装也成功，512 项全部通过。用于下载依赖的可达镜像并不证明 CHARMM-GUI 连接可用；本轮官网/API 的 TLS 连接失败、真实扫描和多配体验收尚未完成。
-
-2026-10-02 已在本地 `nvidia/cuda:12.0.0-base-ubuntu22.04` 容器中验证：容器报告 Ubuntu 22.04.3 LTS；先验证缺少 Python 的明确提示，再仅在容器内安装 Python 3.10.12/venv，然后以非 root 用户运行发布源包中的 `bash install.sh`。安装到该用户的默认 `~/.local`，RDKit 2026.3.6 和其他依赖安装成功；`--version`、`--help`、`doctor` 通过。再次安装也通过，命令链接切换到新目录，原版本目录完整保留。此容器没有 GROMACS，doctor 正确将其报告为可选项。
-
-同一 Ubuntu 22.04 / Python 3.10 容器对不含用户测试结构的 0.4.0 代码源码包执行 `python -m unittest discover -s tests -q`：325 项测试，300 项通过、25 项按缺少私有结构等条件跳过，退出码 0。宿主完整 325 项全部通过，其中包含发布/安装器测试（wheel RECORD 哈希、源码白名单、pip 离线装本地 wheel、拒绝未知入口覆盖等）。
-
-0.4.0 以非 root 用户重新运行一键安装，`doctor`、全局帮助和批量帮助通过；未配置登录凭据时，从其他工作目录执行两项合成蛋白/SDF 的 `batch --dry-run`，结果均为 `inputs_ready`，生成 JSON/CSV 汇总。旧 0.3.0 安装保留。宿主已升级到 0.4.0，并从其他目录无 token 恢复两个真实归档的批次，返回两项 `validated` 和 GROMACS 编译通过。
-
-0.5.0 在同一 Ubuntu 22.04 / Python 3.10 容器完成公开源码包全套 485 项（460 通过、25 明确跳过）及非 root 一键升级。独立 `check`/PNG 与 `sweep --dry-run` 合成输入用例无需认证；doctor 验证 NumPy/Pillow/RDKit，扫描帮助通过。宿主全套 485 项通过，并检查源码白名单、wheel RECORD/许可证和安装后的 30 个模块内容一致。此前安装、候选包和失败产物不删除。
-
-这些结果验证 Ubuntu 22.04 用户级安装、CLI/依赖检查和离线自动化测试，不是容器内远端建模或 GROMACS 验收；科学建模结果见项目验收记录。发布后的新增改动应重新执行相同检查。
+CI 和本地安装检查不访问 CHARMM-GUI 建模服务，不替代真实账户、系统凭据库、桌面通知、远端建模或科学模型验收。GROMACS 是可选的外部程序；即使 doctor 找到了它，也不表示运行过模型编译或模拟。

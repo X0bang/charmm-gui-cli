@@ -6,7 +6,7 @@
 
 > 当前结果：第 9 节记录已通过的真实端到端验收。第 5–8 节中的“待验证/进行中”保留为开发阶段历史，不代表当前完成状态。
 
-> 本文中的 runs/、test-dataset/ 等证据路径仅在开发工作区存在。安装/发行包不携带用户结构、模型或会话文件；0.3.0 用户工作流和安装验收见 README.md 与 docs/TESTING.md。
+> 本文中的 runs/、test-dataset/ 等证据路径仅在开发工作区存在。安装/发行包不携带用户结构、模型或会话文件；当前用户工作流和验收方法见 README.md 与 docs/TESTING.md，版本历史见 CHANGELOG.md。
 
 可以按相同协议使用。[上游 client.py](https://github.com/junepark6/cgui_api/blob/30ed9b2efd64d5d4e21c84524bc9b552c0094fe7/python/charmmgui/client.py) 的 `login()` 发送邮箱/密码到 `/api/login`，从 JSON 取 `token`；`_headers()` 只构造 `Authorization: Bearer <token>`，没有客户端密钥、应用注册、SDK 签名或网页 Cookie。新客户端可发送同一 token。
 
