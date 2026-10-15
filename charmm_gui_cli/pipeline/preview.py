@@ -4,6 +4,7 @@ import charmm_gui_cli.chem.preview as _coordinate_views
 
 import hashlib
 from pathlib import Path
+import shlex
 from charmm_gui_cli.store.auth import ToolError, atomic_json
 from charmm_gui_cli.store.layout import full_archive_path, previews_path
 
@@ -95,7 +96,7 @@ def preview_run(directory, *, report=None, out=None, width=1400, views=("side", 
                     pass
         if out is None and (preview_root.is_symlink() or not preview_root.resolve().is_relative_to(task_root(directory))):
             raise ToolError(key="preview.public_path_invalid", params={"path": str(preview_root)},
-                            next_step="charmm-gui-cli jobs status " + str(task_root(directory)))
+                            next_step=shlex.join(["charmm-gui-cli", "jobs", "status", str(task_root(directory))]))
         destination = Path(out) if out is not None else preview_root / uuid.uuid4().hex[:12]
         rendered = _coordinate_views.render_model(pdb, destination, ligand_resnames=names, width=width, views=views,
                                                    scope=scope, copy_model=copy_model)

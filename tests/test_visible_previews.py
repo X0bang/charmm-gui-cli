@@ -4,6 +4,7 @@ import hashlib
 import io
 import contextlib
 from pathlib import Path
+import shlex
 import unittest
 from unittest.mock import patch
 
@@ -70,6 +71,9 @@ class VisiblePreviewTests(unittest.TestCase):
         self.assertEqual((self.run/'results/preview.json').read_bytes(), before)
 
     def test_symlinked_visible_destination_cannot_write_outside_task(self):
+        moved = self.root.with_name('task with spaces and 中文')
+        self.root.rename(moved)
+        self.root, self.run = moved, moved/'.charmm-gui'
         elsewhere = self.root.parent/'foreign-preview-folder'
         elsewhere.mkdir()
         (elsewhere/'keep').write_text('foreign')
@@ -77,6 +81,7 @@ class VisiblePreviewTests(unittest.TestCase):
         with self.assertRaises(ToolError) as error:
             preview_run(self.run, width=400)
         self.assertEqual(error.exception.key, 'preview.public_path_invalid')
+        self.assertEqual(shlex.split(error.exception.next_step), ['charmm-gui-cli','jobs','status',str(self.root)])
         self.assertEqual(sorted(p.name for p in elsewhere.iterdir()), ['keep'])
 
     def test_visible_cache_survives_task_move_without_rewriting_scientific_evidence(self):
