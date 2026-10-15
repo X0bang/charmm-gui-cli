@@ -921,6 +921,7 @@ MESSAGES.update({
     "fragment.unsupported_polymer": {"zh": "片段中有未识别或非蛋白的 ATOM 残基；先完成残基类型检查，不能将其当作标准肽链拆分。", "en": "An ATOM residue is unrecognized or non-protein; resolve residue checks before treating it as a standard peptide fragment."},
     "fragment.chains_exhausted": {"zh": "需要为 {count} 个蛋白片段分配独立链标识，但没有足够的可用 PDB 链 ID。", "en": "There are not enough available PDB chain IDs for {count} separate protein fragments."},
     "fragment.ssbond_ambiguous": {"zh": "第 {line} 行 SSBOND 不能唯一对应原始半胱氨酸；未猜测或丢弃二硫键记录。", "en": "SSBOND at line {line} cannot be mapped to unique original cysteines; its endpoints were neither guessed nor discarded."},
+    "fragment.ter_ambiguous": {"zh": "第 {line} 行 TER 的链或残基标识与前一个蛋白残基不符；未猜测断端归属。", "en": "The chain or residue identity in TER at line {line} disagrees with the preceding protein residue; its terminus was not guessed."},
     "fragment.explicit_peptide_bond": {"zh": "原子 {left}–{right} 的显式 CONECT 肽键与请求的片段分离冲突；不会静默删除该键。", "en": "The explicit CONECT peptide bond {left}–{right} conflicts with fragment separation; that bond will not be silently deleted."},
     "fragment.evidence_changed": {"zh": "片段结构或映射证据与原始输入不一致；不能沿用该片段计划。", "en": "The fragment structure or mapping evidence differs from its source input; the fragment plan cannot be reused."},
     "fragment.interleaved_chains": {"zh": "同一链的残基与其他链交错排列；先按链整理原子顺序，再明确处理断裂，不能静默增加新的断端。", "en": "Residues from the same chain are interleaved with other chains; group atoms by chain before splitting breaks, rather than silently introducing additional termini."},

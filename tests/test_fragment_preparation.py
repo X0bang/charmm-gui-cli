@@ -147,6 +147,18 @@ class FragmentPreparationTests(unittest.TestCase):
         self.assertEqual([r["prepared_polymer_block"] for r in plan["fragments"]], [0, 1, 3])
         self.assertEqual(result.count("TER"), 4)
         self.assertEqual(backbone_breaks(self.atoms(result)), [])
+        annotated = list(" "*80)
+        for start, value in ((0, "TER   "), (6, "   10"), (17, "GLY"), (21, "A"), (22, "   2")):
+            annotated[start:start+len(value)] = value
+        annotated = "".join(annotated)
+        source = self.lines[:-1] + [annotated, "END"]
+        prepared, plan = prepare_fragmented_lines(source, accept_breaks=True)
+        updated = next(row for row in prepared if row.startswith('TER   '))
+        self.assertEqual(updated[21], 'B')
+        self.assertEqual(updated[:21]+updated[22:], annotated[:21]+annotated[22:])
+        self.assertTrue(verify_fragment_preparation(source, prepared, plan)['passed'])
+        for changed in (annotated[:21]+'Z'+annotated[22:], annotated[:22]+'  99'+annotated[26:]):
+            self.assert_refused(self.lines[:-1]+[changed], 'fragment.ter_ambiguous', accept_breaks=True)
 
     def test_chain_and_segment_changes_alone_do_not_invent_geometric_break(self):
         for tail in (residue(6, 2, 9, chain="B"), residue(6, 2, 9, segment="SEG2"), ["TER"]+residue(6, 2, 9)):

@@ -252,7 +252,7 @@ def prepare_fragmented_lines(lines, *, accept_breaks=False):
         if lines[index].startswith(("ATOM  ", "HETATM")) or lines[index][:6].strip() == "TER":
             next_record = lines[index][:6].strip()
     ends = {line_by_serial[entry["atom_serials"][-1]] for entry in entries}
-    prepared, prepared_blocks, block = [], {}, 0
+    prepared, prepared_blocks, block, last_protein = [], {}, 0, None
     for number, original in enumerate(lines, 1):
         line = original
         if original.startswith("ATOM  "):
@@ -261,6 +261,16 @@ def prepare_fragmented_lines(lines, *, accept_breaks=False):
             line = original.ljust(76)
             line = line[:21] + entry["prepared_chain"] + line[22:72] + "    " + line[76:]
             prepared_blocks.setdefault(entry["index"], block)
+            last_protein = (original, entry["prepared_chain"])
+        elif original.startswith("HETATM"):
+            last_protein = None
+        elif original[:6].strip() == "TER" and last_protein is not None and len(original) > 21:
+            previous, chain = last_protein
+            if (original[21:22].strip() and original[21:22] != previous[21:22]
+                    or original[22:26].strip() and original[22:26].strip() != previous[22:26].strip()
+                    or original[26:27].strip() and original[26:27] != previous[26:27]):
+                raise _failure("fragment.ter_ambiguous", line=number)
+            line = original[:21] + chain + original[22:]
         elif original.startswith("SSBOND"):
             line = _ssbond(original, number, addresses)
         prepared.append(line)
