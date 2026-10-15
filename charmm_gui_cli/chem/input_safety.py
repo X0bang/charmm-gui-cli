@@ -75,15 +75,8 @@ def validate_protein(atoms):
         if atom.name in names:
             raise ToolError(key="input.atom_identity", params={"atom": atom_label(atom)}, next_step="charmm-gui-cli check -h")
         names[atom.name] = atom
-    breaks = []
-    for residues in chains.values():
-        for left, right in zip(list(residues.values()), list(residues.values())[1:]):
-            if "C" in left and "N" in right:
-                distance = math.dist(left["C"].xyz, right["N"].xyz)
-                if distance > 2.0:
-                    entry = finding("input.chain_break", left=atom_label(left["C"]), right=atom_label(right["N"]), distance=f"{distance:.2f}")
-                    entry["distance_A"] = distance
-                    breaks.append(entry)
+    from .fragment_preparation import backbone_breaks
+    breaks = backbone_breaks(atoms)
     if breaks:
         raise ToolError(key="input.chain_breaks", params={"count": len(breaks)}, details=breaks,
                         next_step="charmm-gui-cli check -h")
