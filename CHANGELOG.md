@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Accept literal PDB Reader state catalogues terminated by JavaScript ASI before a new declaration or at script end, as observed in the live form. Retain JSON-only decoding and reject expression continuations or duplicate catalogues; no website JavaScript is executed and state proof gates remain unchanged.
+
 - Verify internal mapped-SMILES stereo on map-neutral copies, preserving index correspondence and explicit E/Z representation. Prevent transport atom labels from changing R/S or E/Z comparisons while still rejecting true inversions, invalid mappings and map-only pseudo-stereo; retain actual molecule metadata/coordinates unchanged.
 
 - Shorten default help to common workflows and add --help-all for complete advanced/compatibility command discovery. Document polling units/budgets, queue foreground behavior and correct N/C terminal examples; keep legacy wait flags and namespaces compatible.

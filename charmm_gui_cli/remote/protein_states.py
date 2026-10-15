@@ -19,12 +19,18 @@ def literal_catalogue(soup, name):
         text = script.get_text()
         if len(text) > 4 * 1024 * 1024:
             continue
-        for match in re.finditer(r"\bvar\s+" + re.escape(name) + r"\s*=\s*", text):
+        for match in re.finditer(r"\b(?:var|let|const)\s+" + re.escape(name) + r"\s*=\s*", text):
             try:
                 value, end = json.JSONDecoder().raw_decode(text[match.end():])
             except ValueError:
                 continue
-            if isinstance(value, dict) and text[match.end() + end:].lstrip().startswith(";"):
+            tail = text[match.end() + end:]
+            # The live form omits semicolons before the next declaration.
+            # Accept only EOF or an unambiguous newline + declaration boundary;
+            # a newline alone does not prove ASI (e.g. +, [, or ( continues JS).
+            boundary = (not tail.strip() or tail.lstrip().startswith(";")
+                        or re.match(r"[ \t]*[\r\n][ \t\r\n]*(?:var|let|const)\s+[A-Za-z_$][\w$]*\s*=", tail))
+            if isinstance(value, dict) and boundary:
                 found.append(value)
     return found[0] if len(found) == 1 else None
 

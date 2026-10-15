@@ -12,7 +12,8 @@ from charmm_gui_cli.chem.inputs import _pdb
 from charmm_gui_cli.chem.pdb_normalization import normalize_lines
 from charmm_gui_cli.chem.protein_states import intent_for, validate_intent
 from charmm_gui_cli.pipeline import full_build, sweep
-from charmm_gui_cli.remote.protein_states import state_fields
+from charmm_gui_cli.remote.protein_states import state_fields, literal_catalogue
+from charmm_gui_cli.remote.web import soup_for
 from charmm_gui_cli.store.auth import ToolError
 from charmm_gui_cli.store.paths import read_value
 import test_input_policy as fixtures
@@ -342,6 +343,39 @@ class ProteinStateIntentTests(unittest.TestCase):
         self.assertEqual(fields["protonation[chain][]"], ["PROA"])
         self.assertEqual(requests["residues"][0]["server"]["resid"], "1")
         self.assertFalse(requests.get("remote_verified", False))
+
+    def test_literal_catalogue_accepts_unambiguous_asi_without_executing_javascript(self):
+        value = {"PROA": {"1": "ASP"}}
+        for kind in ('var', 'let', 'const'):
+            for tail in (';', '', ' \t', '\nvar next = 1;', '\r\nlet next = {};', '\n\nconst next = [];'):
+                with self.subTest(kind=kind, tail=tail):
+                    page = soup_for('<script>' + kind + ' prot_chains=' + json.dumps(value) + tail + '</script>')
+                    self.assertEqual(literal_catalogue(page, 'prot_chains'), value)
+
+    def test_literal_catalogue_rejects_expression_continuations_and_duplicate_bindings(self):
+        value = json.dumps({"PROA": {"1": "ASP"}})
+        for tail in ('\n[0]', '\n(unknown())', '\n+ other', '\n|| other', ' var next = 1;',
+                     '\nvaried = 1;', ';\nvar prot_chains=' + value + ';'):
+            with self.subTest(tail=tail):
+                page = soup_for('<script>var prot_chains=' + value + tail + '</script>')
+                self.assertIsNone(literal_catalogue(page, 'prot_chains'))
+        page = soup_for('<script>var prot_chains=JSON.parse(' + json.dumps(value) + ');</script>')
+        self.assertIsNone(literal_catalogue(page, 'prot_chains'))
+
+    def test_real_form_shape_without_semicolons_keeps_exact_patch_mapping(self):
+        self.rename('ASH')
+        lines, plan = self.normalize()
+        prepared = self.root / 'prepared.pdb'
+        prepared.write_text('\n'.join(lines) + '\n')
+        snapshot = self.form({'PROA': {'1': 'ASP'}})
+        snapshot.write_text(snapshot.read_text().replace('; var charmm_patch=', '\nvar charmm_patch=').replace(';</script>', '\nvar next = 1;</script>'))
+        fields, receipt = state_fields(snapshot, prepared, plan)
+        self.assertEqual(fields['protonation[patch][]'], ['ASPP'])
+        self.assertEqual(fields['protonation[chain][]'], ['PROA'])
+        self.assertEqual(receipt['residues'][0]['server']['resid'], '1')
+        snapshot.write_text(snapshot.read_text().replace('\nvar charmm_patch=', '\n+ charmm_patch='))
+        with self.assertRaises(ToolError):
+            state_fields(snapshot, prepared, plan)
 
     def test_missing_controls_unsupported_patch_or_ambiguous_chain_are_not_guessed(self):
         self.rename("ASH")
